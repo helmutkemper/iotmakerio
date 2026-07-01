@@ -1,0 +1,388 @@
+/* server/public/static/css/projects_wizard.css — Wizard tab styles. */
+
+/*
+ * Why this file exists
+ * ====================
+ *
+ * The wizard tab is structurally distinct enough from the rest of the
+ * Projects page that inlining its styles in projects.js would obscure
+ * both. This file lives next to projects.css and projects_wizard.js,
+ * and is loaded by the same script that imports projects_wizard.js
+ * (see the <link> tag in renderEditorView).
+ *
+ * Color palette: Catppuccin Mocha, sourced from --palette-* variables
+ * defined in the global theme. The wizard never hardcodes color hex
+ * values; doing so would break dark/light theme switching once the
+ * palette adds light variants.
+ *
+ * Layout shape (per CLAUDE_WIZARD_DESIGN.md §11.1):
+ *
+ *   ┌─────────────────────────────────────────┐
+ *   │  Toolbar (edit-source toggle, cancel)   │
+ *   ├──────────────┬──────────────────────────┤
+ *   │              │                          │
+ *   │   Monaco     │   Cards panel            │
+ *   │   (50%)      │   (50%, scrollable)      │
+ *   │              │                          │
+ *   └──────────────┴──────────────────────────┘
+ *
+ * The grid collapses to a stacked layout below 900px so the cards
+ * remain readable on tablet portrait. Mobile (< 600px) is not a
+ * supported wizard target — the modals and Monaco both want more
+ * pixels than a phone gives.
+ */
+
+/* =========================================================================
+ *  Container and layout
+ * ========================================================================= */
+
+.wiz-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    height: calc(100vh - 240px);
+    min-height: 360px;
+    border-top: 1px solid var(--border);
+}
+
+@media (max-width: 900px) {
+    /* Stacked layout for tablet portrait: Monaco above, cards below. */
+    .wiz-layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr 1fr;
+        height: calc(100vh - 240px);
+    }
+}
+
+.wiz-monaco-side,
+.wiz-cards-side {
+    overflow: auto;
+    padding: 16px;
+}
+
+.wiz-monaco-side {
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border);
+}
+
+.wiz-cards-side {
+    background: var(--bg-page);
+}
+
+.wiz-monaco-note {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin: 0;
+    padding: 24px;
+    text-align: center;
+    background: var(--bg-page);
+    border: 1px dashed var(--border);
+    border-radius: var(--r);
+}
+
+/* =========================================================================
+ *  Toolbar
+ * ========================================================================= */
+
+.wiz-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: var(--bg-page);
+    border-bottom: 1px solid var(--border);
+}
+
+.wiz-toolbar-spacer {
+    flex: 1;
+}
+
+.wiz-cancel-btn {
+    color: var(--danger);
+}
+
+.wiz-cancel-btn:hover {
+    background: var(--danger-bg);
+}
+
+/* =========================================================================
+ *  Edit-source banner
+ * =========================================================================
+ *
+ *  Sticky banner that appears above the layout when the user has
+ *  toggled "edit source". The wizard cards are visually grayed out
+ *  (see .wiz-cards[aria-disabled]) so the user knows the cards are
+ *  not in sync with the source they are editing.
+ */
+
+.wiz-edit-banner {
+    background: var(--warning-bg);
+    border-bottom: 1px solid var(--warning);
+    color: var(--warning);
+    padding: 10px 16px;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.wiz-edit-banner i {
+    margin-right: 6px;
+}
+
+.wiz-cards[aria-disabled="true"] {
+    opacity: 0.45;
+    pointer-events: none;
+    filter: grayscale(0.6);
+}
+
+/* =========================================================================
+ *  Cards
+ * ========================================================================= */
+
+.wiz-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.wiz-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    overflow: hidden;
+    box-shadow: var(--sh-soft, 0 1px 2px rgba(0, 0, 0, 0.05));
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.wiz-card:hover {
+    border-color: var(--primary);
+}
+
+/* Cards in the incomplete set get a yellow left rail and a softly
+ * tinted header. Same warning vocabulary as the row-level marker so
+ * users only have to learn one visual idiom. */
+.wiz-card-incomplete {
+    border-left: 4px solid var(--warning);
+}
+
+.wiz-card-incomplete .wiz-card-header {
+    background: var(--warning-bg-soft, rgba(244, 191, 79, 0.08));
+}
+
+.wiz-card-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-page);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    position: relative;
+}
+
+.wiz-card-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.wiz-card-title i {
+    color: var(--text-muted);
+    width: 18px;
+    text-align: center;
+}
+
+.wiz-card-subtitle {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+}
+
+.wiz-card-body {
+    padding: 4px 0;
+}
+
+.wiz-card-empty {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin: 12px 16px;
+    font-style: italic;
+}
+
+/* =========================================================================
+ *  Warning badge
+ * ========================================================================= */
+
+.wiz-warn-badge {
+    align-self: flex-start;
+    background: var(--warning-bg);
+    color: var(--warning);
+    border: 1px solid var(--warning);
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+/* =========================================================================
+ *  Rows
+ * ========================================================================= */
+
+.wiz-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.12s ease;
+}
+
+.wiz-row:last-child {
+    border-bottom: none;
+}
+
+.wiz-row-clickable {
+    cursor: pointer;
+}
+
+.wiz-row-clickable:hover {
+    background: var(--bg-hover, var(--bg-page));
+}
+
+.wiz-row-inert {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.wiz-row-incomplete {
+    background: var(--warning-bg-soft, rgba(244, 191, 79, 0.05));
+}
+
+.wiz-row-incomplete:hover {
+    /* When hovering an incomplete clickable row, deepen the tint
+     * slightly — preserves the warning context while signaling
+     * interactivity. */
+    background: var(--warning-bg);
+}
+
+.wiz-row-warn {
+    color: var(--warning);
+    width: 16px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.wiz-row-warn-spacer {
+    width: 16px;
+    flex-shrink: 0;
+}
+
+.wiz-row-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.wiz-row-primary {
+    font-size: 14px;
+    color: var(--text-primary);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wiz-row-secondary {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wiz-row-inert-hint {
+    margin-left: 8px;
+    font-style: italic;
+    color: var(--text-muted);
+}
+
+/* =========================================================================
+ *  Empty / loading / error states
+ * ========================================================================= */
+
+.wiz-loading,
+.wiz-empty,
+.wiz-parse-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-muted);
+    min-height: 360px;
+}
+
+.wiz-loading i {
+    font-size: 22px;
+    margin-bottom: 12px;
+    color: var(--primary);
+}
+
+.wiz-empty-icon,
+.wiz-parse-error-icon {
+    font-size: 56px;
+    color: var(--border);
+    margin-bottom: 16px;
+}
+
+.wiz-parse-error-icon {
+    color: var(--danger);
+    opacity: 0.6;
+}
+
+.wiz-empty h3,
+.wiz-parse-error h3 {
+    color: var(--text-primary);
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0 0 12px;
+}
+
+.wiz-empty p,
+.wiz-parse-error p {
+    max-width: 480px;
+    line-height: 1.55;
+    margin: 0 0 16px;
+    font-size: 14px;
+}
+
+.wiz-parse-error pre {
+    background: var(--bg-page);
+    border: 1px solid var(--danger);
+    border-radius: var(--r);
+    padding: 12px 16px;
+    color: var(--danger);
+    font-family: var(--mono);
+    font-size: 12px;
+    max-width: 600px;
+    text-align: left;
+    overflow-x: auto;
+    margin: 0 0 16px;
+}
+
+.wiz-cards-empty {
+    padding: 24px;
+    color: var(--text-muted);
+    font-size: 14px;
+    font-style: italic;
+    text-align: center;
+}

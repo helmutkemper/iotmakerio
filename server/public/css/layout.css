@@ -1,0 +1,135 @@
+/*
+ * layout.css — IoTMaker Portal
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Page-level layout primitives: container width, grid systems, and
+ * spacing utilities that are shared by every page in the portal
+ * (landing, login, blog, dashboard, etc.).
+ *
+ * Dependencies: base.css (CSS variables must be loaded first)
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+
+/* ─── 1. CONTAINER ──────────────────────────────────────────────────────────
+ *
+ * Max-width wrapper centered on the page.
+ * z-index:1 places content above the fixed canvas background (z-index:0).
+ * padding: 0 28px gives breathing room on smaller screens without a breakpoint.
+ * ─────────────────────────────────────────────────────────────────────────── */
+.container {
+    max-width: 1120px;
+    margin:    0 auto;
+    padding:   0 28px;
+    position:  relative;
+    z-index:   1;
+}
+
+
+/* ─── 2. CENTERED SECTION HEADER ────────────────────────────────────────────
+ *
+ * Wraps the section-label + section-title pair used in Features, How It Works,
+ * Media, etc. Centered alignment with bottom margin before the content grid.
+ * ─────────────────────────────────────────────────────────────────────────── */
+.sec-head {
+    text-align:    center;
+    margin-bottom: 52px;
+}
+
+
+/* ─── 3. GENERIC TWO-COLUMN GRID ────────────────────────────────────────────
+ *
+ * Used in the About section (text + visual placeholder side by side).
+ * Collapses to single column on narrow viewports.
+ * ─────────────────────────────────────────────────────────────────────────── */
+.grid-2col {
+    display:               grid;
+    grid-template-columns: 1fr 1fr;
+    gap:                   72px;
+    align-items:           center;
+}
+
+@media (max-width: 820px) {
+    .grid-2col {
+        grid-template-columns: 1fr;
+        gap:                   40px;
+    }
+}
+
+
+/* ─── 4. AUTO-FILL CARD GRID ────────────────────────────────────────────────
+ *
+ * Responsive grid for feature cards and media cards.
+ * auto-fill + minmax lets cards wrap naturally without JS.
+ *
+ * Usage:
+ *   .grid-cards-sm  — minimum 240px per card (features)
+ *   .grid-cards-md  — minimum 300px per card (media)
+ * ─────────────────────────────────────────────────────────────────────────── */
+.grid-cards-sm {
+    display:               grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap:                   16px;
+}
+
+.grid-cards-md {
+    display:               grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap:                   18px;
+}
+
+
+/* ─── 5. STATS ROW ──────────────────────────────────────────────────────────
+ *
+ * Four-column bordered row. Uses overflow:hidden on the container so the
+ * border-radius clips inner borders at the edges cleanly.
+ * Collapses to 2 columns on very small screens.
+ * ─────────────────────────────────────────────────────────────────────────── */
+.stats-row {
+    display:               grid;
+    grid-template-columns: repeat(4, 1fr);
+    border:                1px solid var(--border);
+    border-radius:         var(--rl);
+    overflow:              hidden;
+    box-shadow:            var(--sh-sm);
+}
+
+@media (max-width: 620px) {
+    .stats-row {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+
+/* ─── 6. THREE-COLUMN STEPS GRID ────────────────────────────────────────────
+ *
+ * Used in the "How It Works" section.
+ * position:relative allows the decorative horizontal connector line
+ * (.step-line) to be absolutely positioned across the step numbers.
+ * ─────────────────────────────────────────────────────────────────────────── */
+.steps {
+    display:               grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap:                   0;
+    position:              relative;
+    margin-top:            56px;
+}
+
+@media (max-width: 680px) {
+    .steps {
+        grid-template-columns: 1fr;
+    }
+}
+
+
+/* ─── 7. SUPPORT CARDS GRID ─────────────────────────────────────────────────
+ *
+ * Donation/support option cards (GitHub Sponsors, Ko-fi, PayPal, PIX).
+ * auto-fill with 200px minimum so they wrap on mobile gracefully.
+ * ─────────────────────────────────────────────────────────────────────────── */
+.support-cards {
+    display:               grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap:                   14px;
+    margin-bottom:         36px;
+    text-align:            left;
+}

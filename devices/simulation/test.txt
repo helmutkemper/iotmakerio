@@ -1,0 +1,6 @@
+API_KEY="d0eebd00512967109d6953403ddc6887aa7bb358f5761efb0e74c94686e1a899" \
+PROJECT_ID="8ee7dc528ac83eba6c2e428b22ef7c25" \
+CHART_ID="chart_1" \
+MODE="ecg" \
+INTERVAL=0.03 \
+./simulation.sh

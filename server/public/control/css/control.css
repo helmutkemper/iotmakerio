@@ -1,0 +1,769 @@
+/* server/public/control/css/control.css — Control Panel design system.
+   Dark theme — visually distinct from the public portal (light theme).
+   Uses CSS custom properties so individual sections can override tokens. */
+
+/* ── Design tokens ─────────────────────────────────────────────────────────── */
+:root {
+    --bg:           #0f1117;
+    --bg-surface:   #1a1d27;
+    --bg-card:      #1e2130;
+    --bg-input:     #12141c;
+    --text:         #e0e4f0;
+    --text-muted:   #6b7280;
+    --text-dim:     #9ca3af;
+    --border:       #2a2d3e;
+    --primary:      #4f7ef8;
+    --primary-dark: #3a65d4;
+    --danger:       #e05252;
+    --danger-bg:    rgba(224,82,82,.12);
+    --success:      #34a87a;
+    --success-bg:   rgba(52,168,122,.12);
+    --warning:      #e0a952;
+    --warning-bg:   rgba(224,169,82,.12);
+    --sb-w:         220px;
+    --topbar-h:     52px;
+    --font:         -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --mono:         'Fira Code', 'Consolas', monospace;
+    --r:            6px;
+    --tr:           .18s ease;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+}
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── Layout ────────────────────────────────────────────────────────────────── */
+#cp-shell {
+    display: flex;
+    min-height: 100vh;
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────────────── */
+#cp-sidebar {
+    width: var(--sb-w);
+    flex-shrink: 0;
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 100;
+}
+
+#cp-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: var(--topbar-h);
+    padding: 0 18px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: .04em;
+    color: var(--primary);
+    flex-shrink: 0;
+}
+#cp-logo i { font-size: 18px; }
+
+#cp-nav {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+}
+
+.cp-nav-section {
+    padding: 16px 18px 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.cp-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 18px;
+    background: none;
+    border: none;
+    border-left: 3px solid transparent;
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--tr), color var(--tr), border-color var(--tr);
+    white-space: nowrap;
+}
+.cp-nav-item i { width: 16px; text-align: center; flex-shrink: 0; }
+.cp-nav-item:hover {
+    background: rgba(79,126,248,.08);
+    color: var(--text);
+}
+.cp-nav-item.active {
+    background: rgba(79,126,248,.14);
+    color: var(--primary);
+    border-left-color: var(--primary);
+}
+
+/* Avatar circle — matches portal sidebar style */
+.cp-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+#cp-user-info {
+    padding: 14px 18px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+#cp-user-info strong { display: block; color: var(--text); font-size: 13px; }
+#cp-user-info .cp-role-badge {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 2px 8px;
+    background: rgba(79,126,248,.15);
+    color: var(--primary);
+    border-radius: 99px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+/* ── Main area ─────────────────────────────────────────────────────────────── */
+#cp-main {
+    margin-left: var(--sb-w);
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+#cp-topbar {
+    height: var(--topbar-h);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    flex-shrink: 0;
+}
+
+#cp-breadcrumb {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+#cp-breadcrumb strong { color: var(--text); }
+
+#cp-logout-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: color var(--tr), border-color var(--tr);
+}
+#cp-logout-btn:hover { color: var(--danger); border-color: var(--danger); }
+
+#cp-root {
+    flex: 1;
+    padding: 28px 28px;
+    max-width: 1100px;
+}
+
+/* ── Login screen ──────────────────────────────────────────────────────────── */
+#cp-shell.login-mode #cp-sidebar,
+#cp-shell.login-mode #cp-topbar { display: none; }
+#cp-shell.login-mode #cp-main { margin-left: 0; }
+#cp-shell.login-mode #cp-root {
+    max-width: 380px;
+    margin: 0 auto;
+    padding-top: 80px;
+}
+
+.cp-login-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 32px;
+}
+.cp-login-card h1 {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--primary);
+}
+.cp-login-card p {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 24px;
+}
+
+/* ── Form elements ─────────────────────────────────────────────────────────── */
+.cp-field { margin-bottom: 16px; }
+.cp-field > span {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+}
+.cp-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+    letter-spacing: .03em;
+}
+.cp-input {
+    width: 100%;
+    padding: 9px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    color: var(--text);
+    font-size: 14px;
+    font-family: var(--font);
+    transition: border-color var(--tr);
+    outline: none;
+}
+.cp-input:focus { border-color: var(--primary); }
+.cp-input::placeholder { color: var(--text-muted); }
+
+/* ── Buttons ───────────────────────────────────────────────────────────────── */
+.cp-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 18px;
+    border: none;
+    border-radius: var(--r);
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background var(--tr), opacity var(--tr);
+}
+.cp-btn:disabled { opacity: .5; cursor: not-allowed; }
+.cp-btn-primary { background: var(--primary); color: #fff; }
+.cp-btn-primary:hover:not(:disabled) { background: var(--primary-dark); }
+.cp-btn-danger  { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); }
+.cp-btn-danger:hover:not(:disabled)  { background: var(--danger); color: #fff; }
+.cp-btn-ghost   { background: none; color: var(--text-dim); border: 1px solid var(--border); }
+.cp-btn-ghost:hover:not(:disabled)   { color: var(--text); border-color: var(--text-dim); }
+.cp-btn-full { width: 100%; justify-content: center; }
+
+/* ── Alerts ────────────────────────────────────────────────────────────────── */
+.cp-alert {
+    padding: 10px 14px;
+    border-radius: var(--r);
+    font-size: 13px;
+    margin-bottom: 16px;
+    display: none;
+}
+.cp-alert.show { display: block; }
+.cp-alert-danger  { background: var(--danger-bg);  color: var(--danger);  border: 1px solid var(--danger); }
+.cp-alert-success { background: var(--success-bg); color: var(--success); border: 1px solid var(--success); }
+.cp-alert-warning { background: var(--warning-bg); color: var(--warning); border: 1px solid var(--warning); }
+
+/* ── Tables ────────────────────────────────────────────────────────────────── */
+.cp-table-wrap { overflow-x: auto; }
+.cp-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.cp-table th {
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+}
+.cp-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+}
+.cp-table tr:last-child td { border-bottom: none; }
+.cp-table tr:hover td { background: rgba(255,255,255,.02); }
+
+/* ── Cards and sections ────────────────────────────────────────────────────── */
+.cp-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    margin-bottom: 20px;
+}
+.cp-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    font-size: 14px;
+}
+.cp-card-body { padding: 18px; }
+
+.cp-page-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.cp-page-title i { color: var(--primary); }
+
+/* ── Badges ────────────────────────────────────────────────────────────────── */
+.cp-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+.cp-badge-admin    { background: rgba(79,126,248,.15); color: var(--primary); }
+.cp-badge-official { background: rgba(52,168,122,.15); color: var(--success); }
+.cp-badge-user     { background: rgba(107,114,128,.15); color: var(--text-muted); }
+.cp-badge-blocked  { background: var(--danger-bg); color: var(--danger); }
+
+/* ── Modal ─────────────────────────────────────────────────────────────────── */
+.cp-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.6);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.cp-modal {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 28px;
+    width: 360px;
+    max-width: 94vw;
+}
+.cp-modal h3 {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--primary);
+}
+.cp-modal p {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.5;
+}
+
+/* ── Warning button ─────────────────────────────────────────────────────────── */
+.cp-btn-warning {
+    background: var(--warning-bg);
+    color: var(--warning);
+    border: 1px solid var(--warning);
+}
+.cp-btn-warning:hover:not(:disabled) {
+    background: var(--warning);
+    color: #fff;
+}
+
+/* ── Table helpers ─────────────────────────────────────────────────────────── */
+.cp-text-dim  { color: var(--text-dim); }
+.cp-text-muted { color: var(--text-muted); }
+.cp-row-me td { background: rgba(79,126,248,.04); }
+.cp-row-pending td { background: rgba(224,169,82,.06); }
+
+/* ── Empty state ───────────────────────────────────────────────────────────── */
+.cp-empty {
+    padding: 48px 0;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+.cp-empty i { font-size: 32px; margin-bottom: 12px; display: block; opacity: .4; }
+
+/* ── Footer bar ────────────────────────────────────────────────────────────── */
+/* Appears only when there are pending changes. Fixed to the bottom of the
+   main content area (not the viewport) so it does not cover the sidebar. */
+.cp-footer-bar {
+    position: fixed;
+    bottom: 0;
+    left: var(--sb-w);
+    right: 0;
+    height: 56px;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 28px;
+    z-index: 90;
+    box-shadow: 0 -4px 16px rgba(0,0,0,.2);
+}
+
+/* ── Pagination ─────────────────────────────────────────────────────────────── */
+.cp-pagination { padding: 12px 16px; border-top: 1px solid var(--border); }
+.cp-pag {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    justify-content: center;
+}
+.cp-pag-btn { padding: 6px 10px; }
+.cp-pag-info { font-size: 13px; color: var(--text-muted); }
+
+/* ── Pagination ────────────────────────────────────────────────────────────── */
+.cp-pagination { padding: 12px 18px; border-top: 1px solid var(--border); }
+.cp-pag {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.cp-pag-info { font-size: 13px; color: var(--text-muted); }
+.cp-pag-btn  { font-size: 12px; padding: 6px 12px; }
+
+/* ── Fixed footer bar ───────────────────────────────────────────────────────── */
+.cp-footer-bar {
+    position: fixed;
+    bottom: 0;
+    left: var(--sb-w);
+    right: 0;
+    height: 56px;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--warning);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 28px;
+    z-index: 200;
+    box-shadow: 0 -4px 16px rgba(0,0,0,.3);
+}
+.cp-footer-bar span {
+    font-size: 13px;
+    color: var(--warning);
+    font-weight: 600;
+}
+/* Push page content up so the footer bar does not cover the last row */
+#cp-root { padding-bottom: 72px; }
+
+/* ── Pagination ────────────────────────────────────────────────────────────── */
+.cp-pagination { border-top: 1px solid var(--border); }
+.cp-pag-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+}
+.cp-pag-btn { padding: 6px 12px; font-size: 12px; }
+.cp-pag-info { font-size: 13px; color: var(--text-muted); }
+
+/* ── Pending footer bar ─────────────────────────────────────────────────────── */
+.cp-pending-bar {
+    position: fixed;
+    bottom: 0;
+    left: var(--sb-w);
+    right: 0;
+    height: 56px;
+    background: var(--bg-surface);
+    border-top: 2px solid var(--warning);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 28px;
+    z-index: 200;
+    box-shadow: 0 -4px 16px rgba(0,0,0,.3);
+}
+.cp-pending-bar > span {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--warning);
+}
+
+/* Account for the footer bar height when it is visible */
+#cp-root:has(~ #cp-pending-bar[style*="flex"]) { padding-bottom: 72px; }
+
+/* ── Bottom action bar ─────────────────────────────────────────────────────── */
+.cp-bottom-bar {
+    position: fixed;
+    bottom: 0;
+    left: var(--sb-w);
+    right: 0;
+    height: 56px;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--warning);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 28px;
+    z-index: 200;
+    font-size: 13px;
+    color: var(--warning);
+    font-weight: 600;
+}
+
+/* ── Pagination ─────────────────────────────────────────────────────────────── */
+.cp-pagination {
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+}
+.cp-pager {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.cp-pager-label {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+/* ── Spinner ───────────────────────────────────────────────────────────────── */
+.cp-spinner {
+    display: flex;
+    justify-content: center;
+    padding: 40px;
+}
+.cp-spinner::after {
+    content: '';
+    width: 28px; height: 28px;
+    border: 3px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: cp-spin .7s linear infinite;
+}
+@keyframes cp-spin { to { transform: rotate(360deg); } }
+
+/* ── Menu Tree drag-and-drop ───────────────────────────────────────────────── */
+.cp-mt-row { transition: background .1s; }
+.cp-mt-drag { user-select: none; }
+.cp-mt-drag:active { cursor: grabbing; }
+
+/* Collapse/expand toggle button — no background, just the icon */
+.cp-mt-toggle:hover { color: var(--text) !important; }
+
+/* Drop zone indicators — hidden by default, shown as red bars during drag */
+.cp-mt-dropzone {
+    pointer-events: none;
+    transition: height .08s ease, opacity .08s ease;
+}
+
+/* ── Translations page (pages/translations.js) ────────────────────────────── */
+
+/* Tab row — one button per locale, active tab is highlighted. */
+.cp-tr-tab-row {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    flex: 1;
+}
+.cp-tr-tab {
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    background: var(--bg-input);
+    color: var(--text-dim);
+    cursor: pointer;
+    font-family: var(--font);
+    font-size: 13px;
+    transition: all var(--tr);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.cp-tr-tab:hover { background: var(--bg-card); color: var(--text); }
+.cp-tr-tab.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+
+/* Dirty marker — small dot that appears on tabs with unsaved edits. */
+.cp-tr-dirty {
+    color: var(--warning);
+    font-size: 18px;
+    line-height: 0;
+    margin-left: 2px;
+}
+
+/* Missing-count badge — shown on tabs that still have untranslated keys. */
+.cp-tr-badge-missing {
+    display: inline-block;
+    min-width: 20px;
+    padding: 1px 6px;
+    background: var(--danger-bg);
+    color: var(--danger);
+    border: 1px solid var(--danger);
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+    line-height: 1.3;
+}
+
+/* Right-side toolbar in the tab row (Export / Import buttons). */
+.cp-tr-toolbar {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+}
+
+/* Bundle header — locale label + updated timestamp + counters. */
+.cp-tr-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+}
+.cp-tr-locale-label {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text);
+}
+.cp-tr-counters { display: flex; gap: 10px; }
+.cp-tr-count {
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+}
+.cp-tr-count-missing {
+    color: var(--danger);
+    border-color: var(--danger);
+    background: var(--danger-bg);
+}
+.cp-tr-count-ok {
+    color: var(--success);
+    border-color: var(--success);
+    background: var(--success-bg);
+}
+
+/* Action row (Save / Add / Reload). */
+.cp-tr-actions {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+/* Table container — scrolls horizontally when the description column overflows. */
+.cp-tr-table-wrap {
+    overflow-x: auto;
+    max-height: calc(100vh - 320px);
+    overflow-y: auto;
+}
+.cp-tr-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.cp-tr-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--bg-surface);
+    color: var(--text-dim);
+    font-weight: 600;
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    z-index: 2;
+}
+.cp-tr-table tbody td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+}
+.cp-tr-table tbody tr:hover { background: rgba(79, 126, 248, .04); }
+
+/* Missing row — red-tinted background so the admin spots gaps at a glance. */
+.cp-tr-row-missing { background: var(--danger-bg); }
+.cp-tr-row-missing:hover { background: rgba(224, 82, 82, .18); }
+
+/* Compact index cell on the far left. */
+.cp-tr-cell-idx {
+    text-align: right;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding-right: 10px;
+}
+
+/* ID column input — uses mono font and a subtle colour to signal "identifier". */
+.cp-tr-id {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: #a8c5ff;
+}
+
+/* Inputs inside the table lose their default margins and shrink padding to
+   keep rows compact even for 200+ messages. */
+.cp-tr-table .cp-input {
+    width: 100%;
+    padding: 5px 8px;
+    font-size: 12px;
+}
+
+/* Remove-row button — looks like a subtle × until hover. */
+.cp-tr-cell-actions { text-align: center; }
+.cp-tr-remove {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: var(--r);
+    transition: all var(--tr);
+}
+.cp-tr-remove:hover {
+    color: var(--danger);
+    background: var(--danger-bg);
+}

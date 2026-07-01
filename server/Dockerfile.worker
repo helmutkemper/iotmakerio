@@ -1,0 +1,53 @@
+# server/Dockerfile.worker — Optimised multi-stage build for the background worker.
+#
+# Same cache strategy as Dockerfile.server:
+#   go.mod + go.sum → download deps (cached) → copy source → compile.
+# The worker uses the full golang runtime image so go/types can resolve stdlib.
+
+FROM golang:1.22-alpine AS builder
+
+RUN apk add --no-cache git
+
+WORKDIR /src
+
+# ── Dependency cache layer ────────────────────────────────────────────────────
+COPY go.mod go.sum ./
+RUN GONOSUMDB='*' GOFLAGS='-mod=mod' go mod download
+
+# ── Source layer ──────────────────────────────────────────────────────────────
+# public/ is not needed by the worker at all — excluded entirely.
+COPY auth/         ./auth/
+COPY blackbox/     ./blackbox/
+COPY permission/   ./permission/
+COPY cmd/          ./cmd/
+COPY codegen/      ./codegen/
+COPY config/       ./config/
+COPY debug/        ./debug/
+COPY email/        ./email/
+COPY handler/      ./handler/
+COPY store/        ./store/
+COPY tasks/        ./tasks/
+
+# ── Compile ───────────────────────────────────────────────────────────────────
+RUN CGO_ENABLED=0 GOOS=linux GONOSUMDB='*' GOFLAGS='-mod=mod' go build \
+    -trimpath \
+    -ldflags="-s -w" \
+    -o /out/worker \
+    ./cmd/worker
+
+# ── Runtime ───────────────────────────────────────────────────────────────────
+# Full golang image — required so go/types can resolve stdlib paths at runtime.
+FROM golang:1.22-alpine
+
+WORKDIR /app
+
+RUN addgroup -S iotmaker && adduser -S iotmaker -G iotmaker && \
+    mkdir -p /app/data && \
+    chown -R iotmaker:iotmaker /app
+
+COPY --from=builder /out/worker ./worker
+RUN chown iotmaker:iotmaker /app/worker
+
+USER iotmaker
+
+CMD ["./worker"]

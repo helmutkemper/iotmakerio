@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoTMaker — Connecting Things · Building Futures</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+        :root{
+            --bg:#ffffff; --bg1:#f7f9fc; --bg2:#f0f4fb; --bg3:#e8eef8;
+            --border:#dce6f5; --border2:#b8cef0;
+            --blue:#2255AA; --blue-br:#3388DD; --blue-lt:#eef4fd; --blue-dk:#1A3F88;
+            --gold:#C8A000; --gold-lt:#fffbea; --gold-bd:#e8d060;
+            --text:#111827; --text-dim:#4B5E7A; --text-mute:#8FA3BE;
+            --mono:'Space Mono',monospace; --sans:'Plus Jakarta Sans',sans-serif;
+            --r:10px; --rl:18px;
+            --sh-sm:0 1px 4px rgba(34,85,170,.07);
+            --sh:0 4px 20px rgba(34,85,170,.1);
+            --sh-lg:0 12px 48px rgba(34,85,170,.13);
+        }
+        html{scroll-behavior:smooth}
+        body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.7;overflow-x:hidden}
+        a{color:inherit;text-decoration:none}
+        canvas{display:block;position:fixed;inset:0;z-index:0;pointer-events:none}
+
+        .container{max-width:1120px;margin:0 auto;padding:0 28px;position:relative;z-index:1}
+        .divider{height:1px;background:var(--border)}
+
+        .btn{display:inline-flex;align-items:center;gap:8px;padding:13px 28px;border-radius:var(--r);
+            font-family:var(--sans);font-size:15px;font-weight:700;cursor:pointer;border:none;
+            transition:all .18s;letter-spacing:.01em}
+        .btn-primary{background:var(--blue);color:#fff;box-shadow:0 2px 12px rgba(34,85,170,.22)}
+        .btn-primary:hover{background:var(--blue-dk);box-shadow:0 4px 20px rgba(34,85,170,.32);transform:translateY(-1px)}
+        .btn-outline{background:#fff;color:var(--blue);border:1.5px solid var(--border2)}
+        .btn-outline:hover{border-color:var(--blue);background:var(--blue-lt);transform:translateY(-1px)}
+
+        .section-label{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+            color:var(--blue-br);display:block;margin-bottom:10px}
+        .section-title{font-size:clamp(26px,3.5vw,40px);font-weight:800;letter-spacing:-.03em;color:var(--blue-dk);margin-top:6px}
+
+        .reveal{opacity:0;transform:translateY(22px);transition:opacity .6s ease,transform .6s ease}
+        .reveal.visible{opacity:1;transform:none}
+        .d1{transition-delay:.08s}.d2{transition-delay:.16s}.d3{transition-delay:.24s}.d4{transition-delay:.32s}
+
+        /* NAV */
+        nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(255,255,255,.93);
+            backdrop-filter:blur(14px);border-bottom:1px solid transparent;padding:14px 0;transition:border-color .3s,box-shadow .3s}
+        nav.scrolled{border-bottom-color:var(--border);box-shadow:var(--sh-sm)}
+        .nav-inner{display:flex;align-items:center}
+        .nav-logo{display:flex;align-items:center}.nav-logo svg{height:44px;width:auto;display:block}
+
+        .nav-links{display:flex;gap:26px;font-size:14px;font-weight:500;color:var(--text-dim);margin-left:auto}
+        .nav-links a:hover{color:var(--blue)}
+        .nav-cta{margin-left:16px}
+        @media(max-width:720px){.nav-links{display:none}.nav-cta .btn{padding:10px 18px;font-size:13px}}
+
+        /* HERO */
+        .hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+            text-align:center;padding:120px 24px 80px;position:relative;z-index:1}
+        .hero-badge{display:inline-flex;align-items:center;gap:8px;margin-bottom:28px;
+            background:var(--gold-lt);border:1px solid var(--gold-bd);border-radius:100px;padding:6px 16px;
+            font-family:var(--mono);font-size:11px;color:#7a5c00;letter-spacing:.1em;text-transform:uppercase}
+        .hero-badge i{color:var(--gold);font-size:9px;animation:blink 1.5s step-end infinite}
+        @keyframes blink{0%,100%{opacity:1}50%{opacity:.1}}
+
+        .hero-desc{max-width:580px;margin:0 auto 44px;font-size:clamp(16px,1.8vw,19px);
+            color:var(--text-dim);line-height:1.75}
+        .hero-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:72px}
+        .hero-svg-wrap{width:100%;max-width:840px;margin:0 auto;border-radius:20px;overflow:hidden;
+            border:1px solid var(--border);box-shadow:var(--sh-lg);animation:float 5s ease-in-out infinite}
+        .hero-svg-wrap svg{width:100%;height:auto}
+        @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+        .scroll-cue{position:absolute;bottom:28px;left:50%;transform:translateX(-50%);
+            display:flex;flex-direction:column;align-items:center;gap:8px;animation:bob 2s ease-in-out infinite}
+        .scroll-line{width:1px;height:36px;background:linear-gradient(var(--border2),transparent)}
+        .scroll-lbl{font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:var(--text-mute);text-transform:uppercase}
+        @keyframes bob{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(5px)}}
+
+        /* STATS */
+        .stats{padding:56px 0}
+        .stats-row{display:grid;grid-template-columns:repeat(4,1fr);
+            border:1px solid var(--border);border-radius:var(--rl);overflow:hidden;box-shadow:var(--sh-sm)}
+        @media(max-width:620px){.stats-row{grid-template-columns:repeat(2,1fr)}}
+        .stat{padding:28px 20px;text-align:center;border-right:1px solid var(--border);background:var(--bg)}
+        .stat:last-child{border-right:none}
+        .stat-num{font-family:var(--mono);font-size:30px;font-weight:700;color:var(--blue);display:block;margin-bottom:4px}
+        .stat-lbl{font-size:12px;color:var(--text-mute);letter-spacing:.04em}
+
+        /* ABOUT */
+        .about{padding:96px 0}
+        .about-grid{display:grid;grid-template-columns:1fr 1fr;gap:72px;align-items:center}
+        @media(max-width:820px){.about-grid{grid-template-columns:1fr;gap:40px}}
+        .about-h{font-size:clamp(28px,3.5vw,44px);font-weight:800;line-height:1.1;
+            letter-spacing:-.03em;margin-bottom:18px;color:var(--blue-dk)}
+        .about-h .hi{color:var(--blue-br)}
+        .about-p{font-size:16px;color:var(--text-dim);margin-bottom:14px;line-height:1.8}
+        .pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+        .pill{font-family:var(--mono);font-size:11px;padding:5px 14px;border-radius:100px;
+            border:1px solid var(--border2);color:var(--blue);background:var(--blue-lt)}
+        .visual-ph{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);
+            aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;
+            box-shadow:var(--sh);overflow:hidden;position:relative}
+        .ph-inner{display:flex;flex-direction:column;align-items:center;gap:12px;
+            color:var(--text-mute);font-size:13px;font-family:var(--mono)}
+        .ph-inner i{font-size:38px;color:var(--border2)}
+        .ph-tag{position:absolute;top:12px;left:12px;font-family:var(--mono);font-size:10px;
+            letter-spacing:.1em;background:var(--bg);border:1px solid var(--border);
+            padding:4px 10px;border-radius:4px;color:var(--text-mute)}
+
+        /* FEATURES */
+        .features{padding:80px 0;background:var(--bg1)}
+        .sec-head{text-align:center;margin-bottom:52px}
+        .feat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
+        .feat-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--rl);
+            padding:26px 22px;transition:border-color .18s,box-shadow .18s,transform .18s}
+        .feat-card:hover{border-color:var(--border2);box-shadow:var(--sh);transform:translateY(-3px)}
+        .feat-icon{width:42px;height:42px;border-radius:var(--r);background:var(--blue-lt);
+            border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;
+            font-size:18px;color:var(--blue);margin-bottom:14px}
+        .feat-name{font-size:15px;font-weight:700;margin-bottom:6px;color:var(--blue-dk)}
+        .feat-desc{font-size:13px;color:var(--text-dim);line-height:1.65}
+
+        /* HOW */
+        .how{padding:96px 0}
+        .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:0;position:relative;margin-top:56px}
+        @media(max-width:680px){.steps{grid-template-columns:1fr}}
+        .step-line{position:absolute;top:40px;left:calc(16.67% + 20px);right:calc(16.67% + 20px);
+            height:1px;background:linear-gradient(90deg,var(--blue-lt),var(--border2),var(--blue-lt))}
+        @media(max-width:680px){.step-line{display:none}}
+        .step{padding:24px 28px;text-align:center}
+        .step-num{width:80px;height:80px;border-radius:50%;margin:0 auto 20px;background:var(--bg);
+            border:1.5px solid var(--border2);display:flex;align-items:center;justify-content:center;
+            font-family:var(--mono);font-size:20px;font-weight:700;color:var(--blue);
+            position:relative;z-index:1;box-shadow:var(--sh-sm)}
+        .step-title{font-size:16px;font-weight:700;color:var(--blue-dk);margin-bottom:8px}
+        .step-desc{font-size:14px;color:var(--text-dim)}
+
+        /* MEDIA */
+        .media{padding:80px 0;background:var(--bg1)}
+        .media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px}
+        .media-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--rl);
+            overflow:hidden;box-shadow:var(--sh-sm);transition:box-shadow .18s,transform .18s}
+        .media-card:hover{box-shadow:var(--sh);transform:translateY(-3px)}
+        .thumb{aspect-ratio:16/9;background:var(--bg2);display:flex;align-items:center;
+            justify-content:center;position:relative;overflow:hidden}
+        .thumb-grid{position:absolute;inset:0;
+            background-image:linear-gradient(var(--border) 1px,transparent 1px),
+            linear-gradient(90deg,var(--border) 1px,transparent 1px);
+            background-size:28px 28px;opacity:.7}
+        .play-btn{width:52px;height:52px;border-radius:50%;background:var(--blue);color:#fff;
+            font-size:18px;display:flex;align-items:center;justify-content:center;
+            box-shadow:0 4px 20px rgba(34,85,170,.3);position:relative;z-index:1;cursor:pointer;
+            transition:transform .18s,box-shadow .18s}
+        .media-card:hover .play-btn{transform:scale(1.08);box-shadow:0 6px 28px rgba(34,85,170,.4)}
+        .img-ph{font-size:32px;color:var(--border2);position:relative;z-index:1}
+        .media-info{padding:16px 18px}
+        .mtype{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+            color:var(--text-mute);display:flex;align-items:center;gap:5px;margin-bottom:5px}
+        .media-info h3{font-size:14px;font-weight:700;color:var(--blue-dk);margin-bottom:3px}
+        .media-info p{font-size:13px;color:var(--text-dim)}
+
+        /* SUPPORT */
+        .support{padding:100px 0}
+        .support-box{background:var(--bg1);border:1px solid var(--border);border-radius:24px;
+            padding:64px 48px;text-align:center;position:relative;overflow:hidden;box-shadow:var(--sh)}
+        .support-box::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);
+            width:300px;height:3px;background:linear-gradient(90deg,transparent,var(--gold-bd),transparent)}
+        @media(max-width:680px){.support-box{padding:40px 22px}}
+        .support-title{font-size:clamp(26px,3.5vw,40px);font-weight:800;
+            letter-spacing:-.03em;color:var(--blue-dk);margin:10px 0 14px}
+        .support-title .hi{color:var(--gold)}
+        .support-desc{max-width:520px;margin:0 auto 48px;font-size:17px;color:var(--text-dim)}
+        .support-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
+            gap:14px;margin-bottom:36px;text-align:left}
+        .sc{background:var(--bg);border:1px solid var(--border);border-radius:var(--rl);
+            padding:22px 18px;display:flex;flex-direction:column;gap:10px;cursor:pointer;
+            transition:border-color .18s,box-shadow .18s,transform .18s;box-shadow:var(--sh-sm)}
+        .sc:hover{border-color:var(--border2);box-shadow:var(--sh);transform:translateY(-2px)}
+        .sc-icon{width:38px;height:38px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;font-size:17px}
+        .ic-gh {background:#f0f0f0;color:#24292F}
+        .ic-ko {background:#FFF0EF;color:#E8524A}
+        .ic-pp {background:#EEF5FF;color:#003087}
+        .ic-px {background:#EDFAF5;color:#32BCAD}
+        .sc-name{font-size:14px;font-weight:700;color:var(--blue-dk)}
+        .sc-desc{font-size:12px;color:var(--text-dim)}
+        .sc-link{margin-top:auto;font-family:var(--mono);font-size:10px;letter-spacing:.04em;
+            color:var(--blue-br);display:flex;align-items:center;gap:4px}
+        .pix-box{display:inline-flex;align-items:center;gap:14px;background:var(--bg);
+            border:1px solid var(--border);border-radius:var(--r);padding:16px 22px;
+            box-shadow:var(--sh-sm);font-family:var(--mono);font-size:14px}
+        .pix-lbl{font-size:11px;color:var(--text-mute);letter-spacing:.06em;margin-bottom:2px}
+        .pix-key{color:var(--blue);font-weight:700}
+        .copy-btn{background:var(--blue-lt);border:1px solid var(--border2);border-radius:6px;
+            color:var(--blue);font-size:12px;font-family:var(--mono);padding:7px 14px;cursor:pointer;
+            transition:background .15s,border-color .15s}
+        .copy-btn:hover{background:var(--border2)}
+        .copy-ok{color:#16A34A!important;border-color:#A7F3D0!important;background:#F0FDF4!important}
+
+        /* FOOTER */
+        footer{padding:40px 0 28px;border-top:1px solid var(--border)}
+        .footer-inner{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:18px}
+        .footer-logo{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--blue-dk)}
+        .footer-logo span{color:var(--gold)}
+        .footer-links{display:flex;gap:22px;font-size:13px;color:var(--text-mute)}
+        .footer-links a:hover{color:var(--blue)}
+        .footer-copy{font-size:12px;color:var(--text-mute);font-family:var(--mono)}
+    </style>
+</head>
+<body>
+
+<canvas id="bg"></canvas>
+
+<!-- NAV -->
+<nav id="nav">
+    <div class="container">
+        <div class="nav-inner">
+            <a href="#" class="nav-logo">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="140 90 620 230" height="44" aria-label="IoTMaker">
+                    <defs>
+                        <linearGradient id="nlTextGrad" x1="0" y1="0" x2="1" y2="0">
+                            <stop offset="0%" stop-color="#1A4499"/><stop offset="60%" stop-color="#2255AA"/><stop offset="100%" stop-color="#3388DD"/>
+                        </linearGradient>
+                        <linearGradient id="nlAccent" x1="0" y1="0" x2="1" y2="0">
+                            <stop offset="0%" stop-color="#FFD700"/><stop offset="100%" stop-color="#FFE066"/>
+                        </linearGradient>
+                        <filter id="nlTs"><feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#2255AA" flood-opacity="0.15"/></filter>
+                    </defs>
+                    <!-- accent bar above -->
+                    <rect x="320" y="108" width="260" height="5" rx="3" fill="url(#nlAccent)" opacity="0.9"/>
+                    <!-- main title -->
+                    <text x="450" y="230" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif"
+                          font-size="108" font-weight="800" text-anchor="middle"
+                          fill="url(#nlTextGrad)" filter="url(#nlTs)" letter-spacing="-2">IoTMaker</text>
+                    <!-- tagline -->
+                    <text x="450" y="272" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif"
+                          font-size="17" font-weight="400" text-anchor="middle" fill="#4A6AAA" letter-spacing="3.5">CONNECTING THINGS · BUILDING FUTURES</text>
+                    <!-- accent bar below -->
+                    <rect x="370" y="288" width="160" height="4" rx="2" fill="url(#nlAccent)" opacity="0.85"/>
+                </svg>
+            </a>
+            <div class="nav-links">
+                <a href="#sobre">Sobre</a>
+                <a href="#funcionalidades">Features</a>
+                <a href="#como-funciona">Como funciona</a>
+                <a href="#midia">Mídia</a>
+                <a href="#apoie">Apoie</a>
+            </div>
+            <div class="nav-cta">
+                <a href="/app" class="btn btn-primary">
+                    <i class="fa-solid fa-right-to-bracket"></i> Entrar na plataforma
+                </a>
+            </div>
+        </div>
+    </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+    <div class="container">
+        <!--div class="hero-badge reveal"><i class="fa-solid fa-circle"></i>Em construção ativa</div-->
+        <div class="hero-svg-wrap reveal">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" width="900" height="420">
+                <defs>
+                    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#f0f4fb"/>
+                    </linearGradient>
+                    <linearGradient id="textGrad" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stop-color="#1A4499"/><stop offset="60%" stop-color="#2255AA"/><stop offset="100%" stop-color="#3388DD"/>
+                    </linearGradient>
+                    <linearGradient id="accentGrad" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stop-color="#FFD700"/><stop offset="100%" stop-color="#FFE066"/>
+                    </linearGradient>
+                    <filter id="ts"><feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="#2255AA" flood-opacity="0.18"/></filter>
+                    <filter id="cg"><feGaussianBlur stdDeviation="2" result="blur"/>
+                        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                    <clipPath id="clip"><rect width="900" height="420" rx="18"/></clipPath>
+                </defs>
+                <rect width="900" height="420" rx="18" fill="url(#bgGrad)"/>
+                <g clip-path="url(#clip)" opacity="0.13" stroke="#2255AA" stroke-width="1.5" fill="none" filter="url(#cg)">
+                    <line x1="0" y1="340" x2="180" y2="340"/><line x1="0" y1="370" x2="120" y2="370"/>
+                    <line x1="0" y1="300" x2="90" y2="300"/><line x1="40" y1="390" x2="200" y2="390"/>
+                    <line x1="80" y1="340" x2="80" y2="420"/><line x1="120" y1="300" x2="120" y2="370"/>
+                    <line x1="160" y1="340" x2="160" y2="420"/><line x1="40" y1="360" x2="40" y2="420"/>
+                    <polyline points="90,300 90,270 150,270 150,340"/>
+                    <polyline points="180,340 220,340 220,380 260,380"/>
+                    <circle cx="80" cy="340" r="5" fill="#2255AA"/><circle cx="120" cy="340" r="5" fill="#2255AA"/>
+                    <circle cx="120" cy="300" r="4" fill="#2255AA"/><circle cx="160" cy="340" r="5" fill="#2255AA"/>
+                    <circle cx="150" cy="270" r="4" fill="#2255AA"/><circle cx="40" cy="360" r="4" fill="#2255AA"/>
+                </g>
+                <g clip-path="url(#clip)" opacity="0.11" stroke="#2255AA" stroke-width="1.5" fill="none">
+                    <line x1="900" y1="80" x2="720" y2="80"/><line x1="900" y1="50" x2="780" y2="50"/>
+                    <line x1="820" y1="80" x2="820" y2="0"/><line x1="780" y1="50" x2="780" y2="0"/>
+                    <line x1="760" y1="80" x2="760" y2="140"/><polyline points="720,80 680,80 680,40 620,40"/>
+                    <polyline points="800,120 760,120 760,80"/>
+                    <circle cx="820" cy="80" r="5" fill="#2255AA"/><circle cx="780" cy="80" r="4" fill="#2255AA"/>
+                    <circle cx="760" cy="80" r="5" fill="#2255AA"/><circle cx="680" cy="80" r="4" fill="#2255AA"/>
+                </g>
+                <g transform="translate(760,210)" opacity="0.07">
+                    <circle cx="0" cy="0" r="60" fill="none" stroke="#2255AA" stroke-width="10"/>
+                    <circle cx="0" cy="0" r="30" fill="none" stroke="#2255AA" stroke-width="8"/>
+                    <g stroke="#2255AA" stroke-width="9" stroke-linecap="round">
+                        <line x1="0" y1="-60" x2="0" y2="-78"/><line x1="31.2" y1="-51.96" x2="40.6" y2="-67.5"/>
+                        <line x1="51.96" y1="-31.2" x2="67.5" y2="-40.6"/><line x1="60" y1="0" x2="78" y2="0"/>
+                        <line x1="51.96" y1="31.2" x2="67.5" y2="40.6"/><line x1="31.2" y1="51.96" x2="40.6" y2="67.5"/>
+                        <line x1="0" y1="60" x2="0" y2="78"/><line x1="-31.2" y1="51.96" x2="-40.6" y2="67.5"/>
+                        <line x1="-51.96" y1="31.2" x2="-67.5" y2="40.6"/><line x1="-60" y1="0" x2="-78" y2="0"/>
+                    </g>
+                </g>
+                <g clip-path="url(#clip)" opacity="0.55">
+                    <polygon points="-10,0 90,0 -10,100" fill="#FFE066"/>
+                    <polygon points="-10,0 30,0 -10,40" fill="#FFD700" opacity="0.5"/>
+                </g>
+                <g transform="translate(24,24)" opacity="0.9"><text font-size="22" fill="#2255AA" font-family="Arial" dy="18">🔧</text></g>
+                <rect x="320" y="108" width="260" height="5" rx="3" fill="url(#accentGrad)" opacity="0.9"/>
+                <text x="450" y="230" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif"
+                      font-size="108" font-weight="800" text-anchor="middle" fill="url(#textGrad)" filter="url(#ts)" letter-spacing="-2">IoTMaker</text>
+                <text x="450" y="282" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif"
+                      font-size="19" font-weight="400" text-anchor="middle" fill="#4A6AAA" letter-spacing="4">CONNECTING THINGS · BUILDING FUTURES</text>
+                <rect x="370" y="300" width="160" height="4" rx="2" fill="url(#accentGrad)" opacity="0.85"/>
+                <g transform="translate(450,345)">
+                    <rect x="-100" y="-16" width="200" height="32" rx="16" fill="none" stroke="#2255AA" stroke-width="1.5" opacity="0.4"/>
+                    <text font-family="'Segoe UI',Arial,sans-serif" font-size="13" font-weight="600"
+                          text-anchor="middle" fill="#2255AA" opacity="0.65" letter-spacing="3" dy="5">Em construção</text>
+                    <circle cx="-115" cy="0" r="4" fill="#FFD700" opacity="0.8"/>
+                    <circle cx="115" cy="0" r="4" fill="#FFD700" opacity="0.8"/>
+                </g>
+                <rect x="1" y="1" width="898" height="418" rx="17" fill="none" stroke="#2255AA" stroke-width="2" opacity="0.12"/>
+            </svg>
+        </div>
+        <p class="hero-desc reveal d1" style="margin-top:36px">Uma plataforma de desenvolvimento de software.
+            <br>Da ideia ao sistema, apenas conectando ideias.</p>
+        <div class="hero-actions reveal d2">
+            <a href="/app" class="btn btn-primary"><i class="fa-solid fa-right-to-bracket"></i>Acessar a plataforma</a>
+            <a href="#sobre" class="btn btn-outline">Saiba mais<i class="fa-solid fa-arrow-down"></i></a>
+        </div>
+    </div>
+    <div class="scroll-cue">
+        <div class="scroll-line"></div>
+        <span class="scroll-lbl">scroll</span>
+    </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- STATS -->
+<section class="stats">
+    <div class="container">
+        <div class="stats-row">
+            <div class="stat reveal"><span class="stat-num">Rápido</span><span class="stat-lbl">Ligue blocos, conecte ideias</span></div>
+            <div class="stat reveal d1"><span class="stat-num">AST</span><span class="stat-lbl">Parser em tempo real</span></div>
+            <div class="stat reveal d2"><span class="stat-num">100%</span><span class="stat-lbl">Feito pela comunidade</span></div>
+            <div class="stat reveal d3"><span class="stat-num">Fácil</span><span class="stat-lbl">Foco na simplicidade</span></div>
+        </div>
+    </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ABOUT -->
+<section class="about" id="sobre">
+    <div class="container">
+        <div class="about-grid">
+            <div>
+                <span class="section-label reveal">// sobre o projeto</span>
+                <h2 class="about-h reveal d1">Desenvolvimento<br><span class="hi">sem fricção</span></h2>
+                <p class="about-p reveal d2"><b>IoTMaker</b> é uma plataforma de desenvolvimento feita por um maker para a comunidade maker.
+                    Você liga componentes e a ferramenta gera o código para você.</p>
+                <p class="about-p reveal d2">O portal é feito para permitir o compartilhamento de ideias e código entre a comunidade.</p>
+                <p class="about-p reveal d2">Pegue um código complexo, gere um bloco e compartilhe com a comunidade.</p>
+                <p class="about-p reveal d2"><b>Atenção:</b> ainda não estamos prontos, ainda estamos em desenvolvimento e validando algumas ideias junto a comunidade.</p>
+                <p class="about-p reveal d2">Esta é a primeira versão e ela gera apenas código <b>golang</b> porque eu sou um desenvolvedor <b>golang</b>.</p>
+                <div class="pills reveal d3">
+                    <span class="pill">Go / TinyGo</span><span class="pill">Device maker</span>
+                    <span class="pill">Parser AST</span><span class="pill">IDS Standard</span>
+                </div>
+            </div>
+            <div class="visual-ph reveal d2">
+                <div class="ph-inner"><i class="fa-solid fa-image"></i><span>screenshot da plataforma</span></div>
+                <div class="ph-tag">// screenshot</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- FEATURES -->
+<section class="features" id="funcionalidades">
+    <div class="container">
+        <div class="sec-head">
+            <span class="section-label reveal">// funcionalidades</span>
+            <h2 class="section-title reveal d1">Tudo que você precisa<br>em um só lugar</h2>
+        </div>
+        <div class="feat-grid">
+            <div class="feat-card reveal"><div class="feat-icon"><i class="fa-solid fa-bezier-curve"></i></div>
+                <div class="feat-name">Interface gráfica</div>
+                <div class="feat-desc">Arraste blocos e gere a funcionalidade sem decorar comandos.</div></div>
+            <div class="feat-card reveal"><div class="feat-icon"><i class="fa-solid fa-tablet"></i></div>
+                <div class="feat-name">Feito para ser usado em um tablet</div>
+                <div class="feat-desc">Use em qualquer lugar. Basta uma tela e uma conexão.</div></div>
+            <div class="feat-card reveal"><div class="feat-icon"><i class="fa-solid fa-bong"></i></div>
+                <div class="feat-name">Device Creator</div>
+                <div class="feat-desc">O parser AST extrai pinos, parâmetros e metadados do seu código automaticamente.</div></div>
+            <div class="feat-card reveal d1"><div class="feat-icon"><i class="fa-solid fa-share"></i></div>
+                <div class="feat-name">Compartilhe suas ideias</div>
+                <div class="feat-desc">Projetos e bibliotecas compartilhadas pela comunidade com a comunidade.</div></div>
+            <div class="feat-card reveal d2"><div class="feat-icon"><i class="fa-regular fa-star"></i></i></div>
+                <div class="feat-name">Fácil de ser entendido</div>
+                <div class="feat-desc">Fácil de ser entendido por crianças e robusto para ser usado por engenheiros.</div></div>
+            <div class="feat-card reveal d2"><div class="feat-icon"><i class="fa-solid fa-gear"></i></div>
+                <div class="feat-name">Descomplicado</div>
+                <div class="feat-desc">Junte o melhor do código textual com uma interface gráfica intuitiva.</div></div>
+            <div class="feat-card reveal d2"><div class="feat-icon"><i class="fa-brands fa-github"></i></div>
+                <div class="feat-name">Open source</div>
+                <div class="feat-desc">Interface gráfica em código aberto, de maker para maker.</div></div>
+            <div class="feat-card reveal d2"><div class="feat-icon"><i class="fa-solid fa-tv"></i></div>
+                <div class="feat-name">Compartilhe com o mundo</div>
+                <div class="feat-desc">Compartilhe a interface gráfica do seu projeto com o mundo.</div></div>
+        </div>
+    </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- HOW IT WORKS -->
+<section class="how" id="como-funciona">
+    <div class="container">
+        <div class="sec-head">
+            <span class="section-label reveal">// como funciona</span>
+            <h2 class="section-title reveal d1">De ideia a realidade<br>em 3 passos</h2>
+        </div>
+        <div class="steps">
+            <div class="step-line"></div>
+            <div class="step reveal">
+                <div class="step-num">01</div>
+                <h3 class="step-title">Desenvolva</h3>
+                <p class="step-desc">Desenvolva seu projetos arrastando blocos e conectando ideias.</p>
+            </div>
+            <div class="step reveal d1">
+                <div class="step-num">02</div>
+                <h3 class="step-title">Use a comunidade</h3>
+                <p class="step-desc">Pesquise na comunidade e procure bibliotecas feitas por outros makers.</p>
+            </div>
+            <div class="step reveal d2">
+                <div class="step-num">03</div>
+                <h3 class="step-title">Publique</h3>
+                <p class="step-desc">Publique sua ideia com o mundo e ofereça seus serviços.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- MEDIA -->
+<section class="media" id="midia">
+    <div class="container">
+        <div class="sec-head">
+            <span class="section-label reveal">// vídeos e fotos</span>
+            <h2 class="section-title reveal d1">Veja em ação</h2>
+        </div>
+        <div class="media-grid">
+            <div class="media-card reveal">
+                <div class="thumb"><div class="thumb-grid"></div><div class="play-btn"><i class="fa-solid fa-play"></i></div></div>
+                <div class="media-info"><div class="mtype"><i class="fa-solid fa-video"></i> vídeo</div>
+                    <h3>Criando um BlackBox do zero</h3><p>Do código Go ao preview visual em menos de 2 minutos.</p></div>
+            </div>
+            <div class="media-card reveal d1">
+                <div class="thumb"><div class="thumb-grid"></div><div class="play-btn"><i class="fa-solid fa-play"></i></div></div>
+                <div class="media-info"><div class="mtype"><i class="fa-solid fa-video"></i> vídeo</div>
+                    <h3>Diff interativo entre versões</h3><p>Compare, escolha e aplique mudanças linha a linha.</p></div>
+            </div>
+            <div class="media-card reveal d2">
+                <div class="thumb"><div class="thumb-grid"></div><i class="img-ph fa-solid fa-image"></i></div>
+                <div class="media-info"><div class="mtype"><i class="fa-solid fa-image"></i> screenshot</div>
+                    <h3>Editor Monaco + Preview</h3><p>Interface lado a lado com pinos visuais e destaque de erro.</p></div>
+            </div>
+            <div class="media-card reveal d3">
+                <div class="thumb"><div class="thumb-grid"></div><i class="img-ph fa-solid fa-image"></i></div>
+                <div class="media-info"><div class="mtype"><i class="fa-solid fa-image"></i> screenshot</div>
+                    <h3>BlackBox com pinos ◉ e ◎</h3><p>Conexões obrigatórias e opcionais com tooltips detalhados.</p></div>
+            </div>
+            <div class="media-card reveal">
+                <div class="thumb"><div class="thumb-grid"></div><div class="play-btn"><i class="fa-solid fa-play"></i></div></div>
+                <div class="media-info"><div class="mtype"><i class="fa-solid fa-video"></i> vídeo</div>
+                    <h3>Padrão IDS na prática</h3><p>Como documentar ranges, unidades e encoding nos pinos.</p></div>
+            </div>
+            <div class="media-card reveal d1">
+                <div class="thumb"><div class="thumb-grid"></div><i class="img-ph fa-solid fa-image"></i></div>
+                <div class="media-info"><div class="mtype"><i class="fa-solid fa-image"></i> screenshot</div>
+                    <h3>Componentes salvos</h3><p>Biblioteca local com versionamento semântico incremental.</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- SUPPORT -->
+<section class="support" id="apoie">
+    <div class="container">
+        <div class="support-box">
+            <span class="section-label reveal">// apoie o projeto</span>
+            <h2 class="support-title reveal d1">Ajude a manter o<br><span class="hi">IoTMaker vivo</span></h2>
+            <p class="support-desc reveal d2">IoTMaker é open source, criado por um maker, para a comunidade.
+                Qualquer contribuição ajuda a dedicar mais tempo ao desenvolvimento de novas funcionalidades.</p>
+            <div class="support-cards reveal d2">
+                <a href="https://github.com/sponsors/SEU_USUARIO" target="_blank" class="sc">
+                    <div class="sc-icon ic-gh"><i class="fa-brands fa-github"></i></div>
+                    <div class="sc-name">GitHub Sponsors</div>
+                    <div class="sc-desc">Patrocine mensalmente direto pelo GitHub.</div>
+                    <div class="sc-link"><i class="fa-solid fa-arrow-right"></i> github.com/sponsors</div>
+                </a>
+                <a href="https://ko-fi.com/SEU_USUARIO" target="_blank" class="sc">
+                    <div class="sc-icon ic-ko"><i class="fa-solid fa-mug-hot"></i></div>
+                    <div class="sc-name">Ko-fi</div>
+                    <div class="sc-desc">Me pague um café. Qualquer valor é bem-vindo.</div>
+                    <div class="sc-link"><i class="fa-solid fa-arrow-right"></i> ko-fi.com</div>
+                </a>
+                <a href="https://paypal.me/SEU_USUARIO" target="_blank" class="sc">
+                    <div class="sc-icon ic-pp"><i class="fa-brands fa-paypal"></i></div>
+                    <div class="sc-name">PayPal</div>
+                    <div class="sc-desc">Doação pontual via PayPal, rápido e seguro.</div>
+                    <div class="sc-link"><i class="fa-solid fa-arrow-right"></i> paypal.me</div>
+                </a>
+                <div class="sc" onclick="document.getElementById('pix-row').scrollIntoView({behavior:'smooth'})">
+                    <div class="sc-icon ic-px">
+                        <svg width="16" height="16" viewBox="0 0 512 512" fill="currentColor">
+                            <path d="M242.4 292.5C247.8 287.1 258.2 287.1 263.6 292.5L366.6 395.5C396.4 425.2 445.4 425.2 475.2 395.5C504.9 365.7 504.9 316.7 475.2 286.9L372.2 184C366.8 178.6 366.8 168.2 372.2 162.8L475.2 59.8C504.9 30.1 504.9-18.9 475.2-48.7C445.5-78.4 396.5-78.4 366.7-48.7L263.7 54.3C258.3 59.7 247.9 59.7 242.5 54.3L139.5-48.7C109.8-78.4 60.8-78.4 31-48.7C1.3-18.9 1.3 30.1 31 59.8L134 162.8C139.4 168.2 139.4 178.6 134 184L31 287C1.3 316.7 1.3 365.7 31 395.5C60.7 425.2 109.7 425.2 139.5 395.5L242.4 292.5z"/>
+                        </svg>
+                    </div>
+                    <div class="sc-name">PIX</div>
+                    <div class="sc-desc">Transferência direta, sem taxas.</div>
+                    <div class="sc-link"><i class="fa-solid fa-arrow-down"></i> ver chave</div>
+                </div>
+            </div>
+            <div id="pix-row" class="reveal">
+                <div class="pix-box">
+                    <svg width="18" height="18" viewBox="0 0 512 512" fill="#32BCAD" style="flex-shrink:0">
+                        <path d="M242.4 292.5C247.8 287.1 258.2 287.1 263.6 292.5L366.6 395.5C396.4 425.2 445.4 425.2 475.2 395.5C504.9 365.7 504.9 316.7 475.2 286.9L372.2 184C366.8 178.6 366.8 168.2 372.2 162.8L475.2 59.8C504.9 30.1 504.9-18.9 475.2-48.7C445.5-78.4 396.5-78.4 366.7-48.7L263.7 54.3C258.3 59.7 247.9 59.7 242.5 54.3L139.5-48.7C109.8-78.4 60.8-78.4 31-48.7C1.3-18.9 1.3 30.1 31 59.8L134 162.8C139.4 168.2 139.4 178.6 134 184L31 287C1.3 316.7 1.3 365.7 31 395.5C60.7 425.2 109.7 425.2 139.5 395.5L242.4 292.5z"/>
+                    </svg>
+                    <div>
+                        <div class="pix-lbl">Chave PIX</div>
+                        <div class="pix-key" id="pix-key">helmut.kemper@gmail.com</div>
+                    </div>
+                    <button class="copy-btn" id="copy-btn" onclick="copyPix()">
+                        <i class="fa-regular fa-copy"></i> copiar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+    <div class="container">
+        <div class="footer-inner">
+            <div class="footer-logo">IoT<span>Maker</span></div>
+            <div class="footer-links">
+                <a href="https://github.com/SEU_USUARIO/iotmaker" target="_blank"><i class="fa-brands fa-github"></i> GitHub</a>
+                <a href="#apoie">Apoie</a>
+                <a href="/app">Entrar</a>
+            </div>
+            <div class="footer-copy">© 2025 IoTMaker · Open Source · Feito com ❤ por makers</div>
+        </div>
+    </div>
+</footer>
+
+<script>
+    // Circuit background — light, very subtle blue traces
+    (function(){
+        const c=document.getElementById('bg'),ctx=c.getContext('2d');
+        let W,H,nodes=[],edges=[];
+        function resize(){W=c.width=window.innerWidth;H=c.height=window.innerHeight;build()}
+        function build(){
+            nodes=[];edges=[];
+            for(let x=0;x<W+120;x+=110)
+                for(let y=0;y<H+120;y+=110)
+                    if(Math.random()>.55) nodes.push({x:x+(Math.random()-.5)*36,y:y+(Math.random()-.5)*36,
+                        r:Math.random()>.7?3:2,p:Math.random()*Math.PI*2,s:.006+Math.random()*.01});
+            for(let i=0;i<nodes.length;i++)
+                for(let j=i+1;j<nodes.length;j++){
+                    const dx=nodes[j].x-nodes[i].x,dy=nodes[j].y-nodes[i].y,d=Math.sqrt(dx*dx+dy*dy);
+                    if(d<165&&Math.random()>.5) edges.push({a:i,b:j});
+                }
+        }
+        function draw(){
+            ctx.clearRect(0,0,W,H);
+            edges.forEach(e=>{
+                const a=nodes[e.a],b=nodes[e.b];
+                ctx.strokeStyle='rgba(34,85,170,.05)';ctx.lineWidth=.8;
+                ctx.beginPath();ctx.moveTo(a.x,a.y);
+                Math.random()>.5?(ctx.lineTo(a.x,b.y),ctx.lineTo(b.x,b.y)):(ctx.lineTo(b.x,a.y),ctx.lineTo(b.x,b.y));
+                ctx.stroke();
+            });
+            nodes.forEach(n=>{
+                n.p+=n.s;
+                ctx.fillStyle=`rgba(34,85,170,${.045+.025*Math.sin(n.p)})`;
+                ctx.beginPath();ctx.arc(n.x,n.y,n.r,0,Math.PI*2);ctx.fill();
+            });
+            requestAnimationFrame(draw);
+        }
+        window.addEventListener('resize',resize);resize();draw();
+    })();
+
+    // Nav
+    window.addEventListener('scroll',()=>document.getElementById('nav').classList.toggle('scrolled',scrollY>40));
+
+    // Reveal
+    (()=>{
+        const obs=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('visible')})},{threshold:.1});
+        document.querySelectorAll('.reveal').forEach(el=>obs.observe(el));
+    })();
+
+    // Copy PIX
+    function copyPix(){
+        navigator.clipboard.writeText(document.getElementById('pix-key').textContent).then(()=>{
+            const b=document.getElementById('copy-btn');
+            b.innerHTML='<i class="fa-solid fa-check"></i> copiado!';b.classList.add('copy-ok');
+            setTimeout(()=>{b.innerHTML='<i class="fa-regular fa-copy"></i> copiar';b.classList.remove('copy-ok')},2200);
+        });
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,76 @@
+/*
+ * animations.css — IoTMaker Portal
+ * ─────────────────────────────────────────────────────────────────────────────
+ * All CSS keyframe animations and the scroll-reveal utility system.
+ *
+ * Animations defined here:
+ *   - float    : gentle vertical bob for the hero SVG card
+ *   - bob      : smaller vertical oscillation for the scroll indicator
+ *   - blink    : step-based opacity flash for the live status dot in the badge
+ *
+ * Reveal system:
+ *   Elements start invisible (opacity:0, shifted down 22px).
+ *   IntersectionObserver in main.js adds class ".visible" when they enter
+ *   the viewport, triggering the transition.
+ *   Delay classes (.d1–.d4) stagger children within a grid or list.
+ *
+ * Dependencies: base.css (no variables used, but load order consistency)
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+
+/* ─── 1. KEYFRAME DEFINITIONS ───────────────────────────────────────────────*/
+
+/* Gentle float for the hero SVG wrap — slow and calm, 5s period */
+@keyframes float {
+    0%,  100% { transform: translateY(0);    }
+    50%        { transform: translateY(-7px); }
+}
+
+/* Smaller bob for the scroll-cue arrow at the bottom of the hero */
+@keyframes bob {
+    0%,  100% { transform: translateX(-50%) translateY(0);   }
+    50%        { transform: translateX(-50%) translateY(5px); }
+}
+
+/* Step-function blink for the live indicator dot inside .hero-badge.
+ * step-end means the transition jumps instantly (no easing between states). */
+@keyframes blink {
+    0%,  100% { opacity: 1;  }
+    50%        { opacity: .1; }
+}
+
+
+/* ─── 2. SCROLL REVEAL SYSTEM ───────────────────────────────────────────────
+ *
+ * Usage in HTML:
+ *   <div class="reveal">...</div>
+ *   <div class="reveal d1">...</div>   ← delayed by one step
+ *   <div class="reveal d2">...</div>
+ *
+ * JS (main.js) uses IntersectionObserver to add .visible when the element
+ * enters the viewport at 10% threshold.
+ *
+ * The transition intentionally uses ease (not linear) so the reveal feels
+ * natural — a slight ease-in at the start, easing out at the end.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+/* Initial hidden state — elements are shifted 22px down and invisible */
+.reveal {
+    opacity:    0;
+    transform:  translateY(22px);
+    transition: opacity .6s ease, transform .6s ease;
+}
+
+/* Visible state — JS adds this class via IntersectionObserver */
+.reveal.visible {
+    opacity:   1;
+    transform: none;
+}
+
+/* Stagger delay classes — apply to siblings within a grid or flex container.
+ * Each step is 80ms, giving a subtle cascade effect without feeling slow. */
+.d1 { transition-delay: .08s; }
+.d2 { transition-delay: .16s; }
+.d3 { transition-delay: .24s; }
+.d4 { transition-delay: .32s; }

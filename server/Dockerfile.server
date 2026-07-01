@@ -1,0 +1,77 @@
+# server/Dockerfile.server — Optimised multi-stage build for the HTTP server.
+#
+# Cache strategy (fastest typical rebuild cycle):
+#
+#   Layer 1 — go.mod + go.sum → go mod download
+#     Invalidated only when dependencies change (~30s on first run, cached after).
+#
+#   Layer 2 — Go source (no public/)
+#     public/ (~31 MB of JS/CSS/WASM) is excluded from the builder so that
+#     editing markdown, JS or the WASM binary does NOT bust the Go build cache.
+#
+#   Layer 3 — go build
+#     Only runs when .go files change.
+#
+#   Runtime stage — receives binary + public/ from the build context.
+#     public/ is copied here, never into the builder.
+
+FROM golang:1.22-alpine AS builder
+
+RUN apk add --no-cache git
+
+WORKDIR /src
+
+# ── Dependency cache layer ────────────────────────────────────────────────────
+# Copy BOTH go.mod and go.sum so Docker caches this layer until deps change.
+# Without go.sum the checksum verification can fail or cause unnecessary misses.
+COPY go.mod go.sum ./
+RUN GONOSUMDB='*' GOFLAGS='-mod=mod' go mod download
+
+# ── Source layer (no public/) ─────────────────────────────────────────────────
+# Copy every Go package directory individually.
+# This keeps public/ (~31 MB) out of the builder entirely.
+COPY auth/           ./auth/
+COPY blackbox/       ./blackbox/
+COPY permission/     ./permission/
+COPY cmd/            ./cmd/
+COPY codegen/        ./codegen/
+COPY config/         ./config/
+COPY debug/          ./debug/
+COPY email/          ./email/
+COPY handler/        ./handler/
+COPY middleware/     ./middleware/
+COPY projectexport/  ./projectexport/
+COPY store/          ./store/
+COPY tasks/          ./tasks/
+
+# ── Compile ───────────────────────────────────────────────────────────────────
+RUN CGO_ENABLED=0 GOOS=linux GONOSUMDB='*' GOFLAGS='-mod=mod' go build \
+    -trimpath \
+    -ldflags="-s -w" \
+    -o /out/server \
+    ./cmd/server
+
+# ── Runtime ───────────────────────────────────────────────────────────────────
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /app
+
+RUN addgroup -S iotmaker && adduser -S iotmaker -G iotmaker && \
+    mkdir -p /app/data && \
+    chown -R iotmaker:iotmaker /app
+
+COPY --from=builder /out/server ./server
+
+# public/ arrives here in the runtime stage — never in the builder.
+# Changing any file under public/ rebuilds only this layer, not the Go binary.
+COPY public/ ./public/
+
+RUN chown -R iotmaker:iotmaker /app
+
+USER iotmaker
+
+EXPOSE 8080
+
+CMD ["./server"]

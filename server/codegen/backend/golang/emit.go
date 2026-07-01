@@ -1,0 +1,1474 @@
+package golang
+
+// emit.go — Go language backend for the codegen pipeline.
+//
+// Transforms an IR Program into Go source code. Produces a standalone
+// main package with a main() function.
+//
+// Black-box support: BB_ instructions emit struct declarations at top level,
+// property assignments in main(), Init() calls before loops, and Run() calls
+// inside loops. Imports from black-box defs are merged with native imports.
+//
+// Português: Backend Go para o pipeline de codegen. Transforma um
+// Program IR em código fonte Go. Suporte a black-box: instruções BB_ emitem
+// declarações de struct no nível superior, e chamadas Init/Run em main().
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"server/codegen/blackbox"
+	"server/codegen/ir"
+)
+
+// Emit converts an IR program into Go source code.
+func Emit(prog *ir.Program) string {
+	e := &goEmitter{
+		indent:  1,
+		prog:    prog,
+		imports: make(map[string]bool),
+	}
+	return e.emit(prog)
+}
+
+// ifFrame tracks the state of a nested if/else block during code generation.
+// Used to decide the output form: if, if-negated, or if-else.
+type ifFrame struct {
+	hasTrue  bool // true branch has at least one instruction
+	hasFalse bool // false branch has at least one instruction
+	negated  bool // condition was negated (only false branch has content)
+}
+
+type goEmitter struct {
+	body     strings.Builder
+	topLevel strings.Builder // struct definitions and methods (above main)
+	indent   int
+	prog     *ir.Program
+	imports  map[string]bool // all import paths needed
+	declared map[string]bool // variables already declared (VAR or :=)
+
+	// bbEmitted tracks which black-box struct definitions have been written
+	// to topLevel (to avoid duplicates when multiple instances of the same type exist).
+	bbEmitted map[string]bool
+
+	// ifStack tracks nested if/else blocks for smart output.
+	// Pushed on IF_BEGIN, peeked on IF_ELSE, popped on IF_END.
+	ifStack []ifFrame
+
+	// switchStack tracks nested switch blocks. One bool per open switch:
+	// true once a case/default body has been opened (so the next label, or
+	// SWITCH_END, knows it must dedent first). Pushed on SWITCH_BEGIN,
+	// popped on SWITCH_END.
+	switchStack []bool
+
+	// condStack tracks nested if/else-if chains (the StatementCase range/
+	// comparison lowering). One bool per open chain: true once the first
+	// branch has been opened, so the next COND_LABEL knows to close the
+	// previous branch with `} else if` rather than open a fresh `if`. Pushed
+	// on COND_BEGIN, popped on COND_END. Mirrors switchStack.
+	condStack []bool
+}
+
+func (e *goEmitter) emit(prog *ir.Program) string {
+	e.declared = make(map[string]bool)
+	e.bbEmitted = make(map[string]bool)
+
+	for _, inst := range prog.Instructions {
+		switch inst.Op {
+		// Native opcodes
+		case ir.OpConst:
+			e.emitConst(inst)
+		case ir.OpVar:
+			e.emitVar(inst)
+		case ir.OpAssign:
+			e.emitAssign(inst)
+		case ir.OpConstArray:
+			e.emitConstArray(inst)
+		case ir.OpAdd, ir.OpSub, ir.OpMul, ir.OpDiv:
+			e.emitBinOp(inst)
+		case ir.OpCmpEQ, ir.OpCmpNE, ir.OpCmpLT, ir.OpCmpGT, ir.OpCmpLE, ir.OpCmpGE:
+			e.emitCompare(inst)
+		case ir.OpConvert:
+			e.emitConvert(inst)
+		case ir.OpLoopBegin:
+			e.emitLoopBegin(inst)
+		case ir.OpBreakIf:
+			e.emitBreakIf(inst)
+		case ir.OpLoopEnd:
+			e.emitLoopEnd(inst)
+		case ir.OpSleep:
+			e.emitSleep(inst)
+		case ir.OpIfBegin:
+			e.emitIfBegin(inst)
+		case ir.OpIfElse:
+			e.emitIfElseSep(inst)
+		case ir.OpIfEnd:
+			e.emitIfEnd(inst)
+		case ir.OpSwitchBegin:
+			e.emitSwitchBegin(inst)
+		case ir.OpCaseLabel:
+			e.emitCaseLabel(inst)
+		case ir.OpDefaultLabel:
+			e.emitDefaultLabel(inst)
+		case ir.OpSwitchEnd:
+			e.emitSwitchEnd(inst)
+		case ir.OpCondBegin:
+			e.emitCondBegin(inst)
+		case ir.OpCondLabel:
+			e.emitCondLabel(inst)
+		case ir.OpCondDefault:
+			e.emitCondDefault(inst)
+		case ir.OpCondEnd:
+			e.emitCondEnd(inst)
+		case ir.OpOutput:
+			e.emitOutput(inst)
+		case ir.OpReturn:
+			e.emitReturn(inst)
+
+		// Black-box opcodes
+		case ir.OpBBDecl:
+			e.emitBBDecl(inst)
+		case ir.OpBBProp:
+			e.emitBBProp(inst)
+		case ir.OpBBInit:
+			e.emitBBInit(inst)
+		case ir.OpBBMethod:
+			e.emitBBMethod(inst)
+		case ir.OpBBCall:
+			// BB_CALL is a C99 standalone function-device call. Go scenes
+			// never produce function-devices (Go black-boxes are struct
+			// methods), so there is nothing to emit here. The case is
+			// explicit — rather than relying on the switch's silent
+			// fall-through — to document that the omission is intentional.
+			// See docs/CODEGEN_C99_STAGE.md §4.3.
+		}
+	}
+
+	return e.wrapMain()
+}
+
+// =====================================================================
+//  Native instruction emitters
+// =====================================================================
+
+func (e *goEmitter) emitConst(inst ir.Instruction) {
+	name := goIdent(inst.Dest)
+	goType := goTypeName(inst.Type)
+	val := goLiteral(inst.Type, inst.Args[0])
+	// time.Duration constants require the "time" import.
+	if inst.Type == "time.Duration" {
+		e.addImport("time")
+	}
+	e.writef("%s := %s(%s)\n", name, goType, val)
+	e.declared[inst.Dest] = true
+}
+
+func (e *goEmitter) emitVar(inst ir.Instruction) {
+	// Dest may arrive in compound form "deviceID:portName" when the
+	// emitter is declaring a per-port promoted variable. Convert it to
+	// the same Go identifier the consumers see via resolveInput2 +
+	// goOperand (e.g. "apds99600_clear") so both sides refer to the
+	// exact same name.
+	//
+	// Português: Dest pode vir "deviceID:portName" (promoção por porta).
+	// Gera o mesmo ID Go que os consumidores usam, pra producer e
+	// consumer referenciarem a mesma variável.
+	name := goOperand("%" + inst.Dest)
+	goType := goTypeName(inst.Type)
+	e.writef("var %s %s\n", name, goType)
+	e.declared[inst.Dest] = true
+}
+
+func (e *goEmitter) emitAssign(inst ir.Instruction) {
+	name := goIdent(inst.Dest)
+	// The source operand is one of two kinds. The scope-crossing promotion
+	// scheme assigns a LITERAL (e.g. a promoted const: `x = 5`), formatted by
+	// goLiteral. A SetVar device instead assigns a REGISTER — the value wired
+	// into it (`%const_5`, `%counter`, or a black-box `%inst:port`) — which
+	// must be resolved to the same Go identifier its producer declares, via
+	// goOperand. Branching on the "%" prefix keeps the literal path untouched.
+	//
+	// Português: O operando-fonte é de dois tipos. A promoção que cruza escopo
+	// atribui um LITERAL (const promovido: `x = 5`), formatado por goLiteral.
+	// Um device SetVar atribui um REGISTRADOR — o valor ligado a ele
+	// (`%const_5`, `%counter` ou `%inst:port`) — que precisa virar o mesmo
+	// identificador Go que o produtor declara, via goOperand. Ramificar pelo
+	// prefixo "%" mantém o caminho do literal intacto.
+	var val string
+	if strings.HasPrefix(inst.Args[0], "%") {
+		val = goOperand(inst.Args[0])
+	} else {
+		val = goLiteral(inst.Type, inst.Args[0])
+	}
+	e.writef("%s = %s\n", name, val)
+}
+
+// emitConstArray translates OpConstArray — a fixed-size constant collection
+// literal (the StatementConstArray{Int,Float,String} device) — into a Go slice literal:
+//
+//	<dest> := []<elem>{v1, v2, v3}
+//
+// inst.Type carries the BARE element type and inst.Args the element
+// literals, already formatted by the IR emitter (plain-decimal numbers,
+// pre-quoted strings) — see OpConstArray in ir/types.go. Element rendering
+// reuses the same mappers as every scalar in this backend:
+//
+//   - goTypeName widens the element type exactly like emitConst/emitVar do
+//     for scalars (the abstract "int" becomes "int64"), so a collection's
+//     element type is consistent with every other int in the generated
+//     file. NOTE for Task 6 (Go consumer): an authored black-box parameter
+//     `[]int` names the CONCRETE Go int — wiring it to this producer's
+//     `[]int64` will not compile, and slices have no implicit conversion.
+//     Whether the device should carry concrete element types (matching the
+//     author) or the consumer's type should flow back is a Task 6 design
+//     decision; the backend stays a dumb translator either way.
+//   - goLiteral wraps each element (identity today, kept for contract
+//     parity with emitConst).
+//
+// A zero-length Args list is legal here: `[]int64{}` is a valid Go literal
+// with len() == 0 (the IR already attached an authoring warning). Not
+// reused: encodeSliceLiteral — that helper serves the BB_PROP path and
+// parses wizard-supplied JSON, a different input contract from the IR's
+// pre-formatted Args.
+//
+// Português: Traduz OpConstArray para o literal de slice Go
+// `<dest> := []<elem>{…}`. O tipo do elemento passa pelo goTypeName como
+// qualquer escalar (o "int" abstrato vira "int64" — a compatibilidade com
+// um parâmetro autoral `[]int` é decisão da Task 6). Args já chegam
+// formatados pelo IR; lista vazia gera `[]int64{}`, válido em Go.
+func (e *goEmitter) emitConstArray(inst ir.Instruction) {
+	name := goIdent(inst.Dest)
+	elemType := goTypeName(inst.Type)
+
+	elems := make([]string, len(inst.Args))
+	for i, a := range inst.Args {
+		elems[i] = goLiteral(inst.Type, a)
+	}
+
+	e.writef("%s := []%s{%s}\n", name, elemType, strings.Join(elems, ", "))
+	e.declared[inst.Dest] = true
+}
+
+func (e *goEmitter) emitBinOp(inst ir.Instruction) {
+	name := goIdent(inst.Dest)
+	a := goOperand(inst.Args[0])
+	b := goOperand(inst.Args[1])
+	op := goBinOp(inst.Op)
+	if e.declared[inst.Dest] {
+		e.writef("%s = %s %s %s\n", name, a, op, b)
+	} else {
+		e.writef("%s := %s %s %s\n", name, a, op, b)
+		e.declared[inst.Dest] = true
+	}
+}
+
+func (e *goEmitter) emitCompare(inst ir.Instruction) {
+	name := goIdent(inst.Dest)
+	a := goOperand(inst.Args[0])
+	b := goOperand(inst.Args[1])
+	op := goCmpOp(inst.Op)
+	if e.declared[inst.Dest] {
+		e.writef("%s = %s %s %s\n", name, a, op, b)
+	} else {
+		e.writef("%s := %s %s %s\n", name, a, op, b)
+		e.declared[inst.Dest] = true
+	}
+}
+
+// emitConvert translates an OpConvert instruction into a Go type
+// conversion. Idiomatic form:
+//
+//	<dest> := <targetType>(<source>)
+//
+// The IR emitter produces one OpConvert per operand that needs
+// casting, placed immediately before the arithmetic or comparison
+// that consumes it, so downstream instructions simply reference the
+// new register name.
+//
+// Português: Traduz OpConvert para cast de tipo em Go. Uma instrução
+// OpConvert vira uma linha `dest := targetType(src)`.
+func (e *goEmitter) emitConvert(inst ir.Instruction) {
+	if len(inst.Args) != 1 {
+		return
+	}
+	name := goIdent(inst.Dest)
+	targetGoType := goTypeName(inst.Type)
+	src := goOperand(inst.Args[0])
+	e.writef("%s := %s(%s)\n", name, targetGoType, src)
+	e.declared[inst.Dest] = true
+}
+
+func (e *goEmitter) emitLoopBegin(inst ir.Instruction) {
+	e.writef("for {\n")
+	e.indent++
+}
+
+func (e *goEmitter) emitBreakIf(inst ir.Instruction) {
+	cond := goOperand(inst.Args[0])
+	e.writef("if %s {\n", cond)
+	e.indent++
+	e.writef("break\n")
+	e.indent--
+	e.writef("}\n")
+}
+
+func (e *goEmitter) emitLoopEnd(inst ir.Instruction) {
+	e.indent--
+	e.writef("}\n")
+}
+
+// emitSleep emits time.Sleep(duration) for StatementLoopDuration.
+// The argument is a register holding a time.Duration value (int64 nanos).
+//
+// Generated code:
+//
+//	time.Sleep(time.Duration(constDuration1))
+//
+// Português: Emite time.Sleep(duration) para StatementLoopDuration.
+// O argumento é um registro contendo time.Duration (int64 nanos).
+func (e *goEmitter) emitSleep(inst ir.Instruction) {
+	e.addImport("time")
+	src := goOperand(inst.Args[0])
+	e.writef("time.Sleep(time.Duration(%s))\n", src)
+}
+
+// =====================================================================
+//  If/Else instruction emitters
+//
+//  The IR provides metadata (hasTrue, hasFalse) so the backend can choose
+//  the optimal Go form without scanning ahead:
+//
+//    Both branches:       if cond { ... } else { ... }
+//    Only true branch:    if cond { ... }
+//    Only false branch:   if !cond { ... }      ← negated, no else
+//    Neither branch:      // empty if/else      ← comment only
+//
+//  Português: O IR fornece metadata (hasTrue, hasFalse) para que o backend
+//  escolha a forma Go ideal sem escanear adiante.
+// =====================================================================
+
+// emitIfBegin opens an if block. Reads metadata to decide if the condition
+// should be negated (only-false-branch optimization).
+func (e *goEmitter) emitIfBegin(inst ir.Instruction) {
+	cond := ""
+	if len(inst.Args) > 0 {
+		cond = goOperand(inst.Args[0])
+	}
+
+	hasTrue := inst.Meta["hasTrue"] == "true"
+	hasFalse := inst.Meta["hasFalse"] == "true"
+
+	negated := !hasTrue && hasFalse
+
+	e.ifStack = append(e.ifStack, ifFrame{
+		hasTrue:  hasTrue,
+		hasFalse: hasFalse,
+		negated:  negated,
+	})
+
+	switch {
+	case negated:
+		// Only false branch has content — negate condition.
+		// The true branch (empty) emits nothing between IF_BEGIN and IF_ELSE.
+		// IF_ELSE becomes a no-op. False branch content follows as the "if" body.
+		e.writef("if !%s {\n", cond)
+	case hasTrue || hasFalse:
+		e.writef("if %s {\n", cond)
+	default:
+		// Both empty — comment only, no code block
+		e.writef("// empty if/else on %s\n", cond)
+	}
+	e.indent++
+}
+
+// emitIfElseSep handles the separator between true and false branches.
+// When negated (only-false), this is a no-op because the false content
+// is already the main body. When true-only, also a no-op (no else needed).
+func (e *goEmitter) emitIfElseSep(inst ir.Instruction) {
+	if len(e.ifStack) == 0 {
+		return
+	}
+	frame := e.ifStack[len(e.ifStack)-1]
+
+	switch {
+	case frame.negated:
+		// Negated form: false branch content is already the "if" body.
+		// The IF_ELSE separator is a no-op — don't emit "} else {".
+		return
+	case frame.hasTrue && frame.hasFalse:
+		// Full if/else — close true branch, open false branch.
+		e.indent--
+		e.writef("} else {\n")
+		e.indent++
+	case frame.hasTrue && !frame.hasFalse:
+		// True-only: no else needed. IF_ELSE is a no-op.
+		return
+	}
+}
+
+// emitIfEnd closes the if/else block and pops the stack.
+func (e *goEmitter) emitIfEnd(inst ir.Instruction) {
+	if len(e.ifStack) > 0 {
+		e.ifStack = e.ifStack[:len(e.ifStack)-1]
+	}
+	e.indent--
+	e.writef("}\n")
+}
+
+// =====================================================================
+//  Switch/case instruction emitters
+//
+//  Go aligns `case` labels with the `switch` keyword and indents each case
+//  body one extra level. Go has no implicit fallthrough, so no `break` is
+//  emitted. switchStack[top] records whether a case body is currently open
+//  so the next label (or SWITCH_END) dedents back to the switch level first.
+//
+//  Português: Em Go o `case` alinha com o `switch` e o corpo entra um nível.
+//  Go não tem fallthrough implícito, então nenhum `break` é emitido.
+// =====================================================================
+
+func (e *goEmitter) emitSwitchBegin(inst ir.Instruction) {
+	sel := ""
+	if len(inst.Args) > 0 {
+		sel = goOperand(inst.Args[0])
+	}
+	e.writef("switch %s {\n", sel)
+	e.switchStack = append(e.switchStack, false)
+}
+
+func (e *goEmitter) emitCaseLabel(inst ir.Instruction) {
+	if n := len(e.switchStack); n > 0 && e.switchStack[n-1] {
+		e.indent-- // close the previous case body
+	}
+	e.writef("case %s:\n", strings.Join(inst.Args, ", "))
+	e.indent++
+	if n := len(e.switchStack); n > 0 {
+		e.switchStack[n-1] = true
+	}
+}
+
+func (e *goEmitter) emitDefaultLabel(inst ir.Instruction) {
+	if n := len(e.switchStack); n > 0 && e.switchStack[n-1] {
+		e.indent--
+	}
+	e.writef("default:\n")
+	e.indent++
+	if n := len(e.switchStack); n > 0 {
+		e.switchStack[n-1] = true
+	}
+}
+
+func (e *goEmitter) emitSwitchEnd(inst ir.Instruction) {
+	if n := len(e.switchStack); n > 0 {
+		if e.switchStack[n-1] {
+			e.indent-- // close the last case body
+		}
+		e.switchStack = e.switchStack[:n-1]
+	}
+	e.writef("}\n")
+}
+
+// emitCondBegin opens an if/else-if chain (the StatementCase range/comparison
+// lowering). It only pushes the stack — no code is emitted until the first
+// COND_LABEL, which decides between `if` and `} else if` from the stack state.
+func (e *goEmitter) emitCondBegin(inst ir.Instruction) {
+	e.condStack = append(e.condStack, false)
+}
+
+// emitCondLabel renders one branch of the chain. Args[0] is the resolved
+// selector and Args[1:] are the case operands; ir.BuildCaseCondition turns
+// them plus Meta["matchKind"] into the boolean expression. The first branch
+// emits `if <cond> {`; every later branch closes the previous branch's body
+// first, then emits `} else if <cond> {`.
+func (e *goEmitter) emitCondLabel(inst ir.Instruction) {
+	sel := ""
+	if len(inst.Args) > 0 {
+		sel = goOperand(inst.Args[0])
+	}
+	var operands []string
+	if len(inst.Args) > 1 {
+		operands = inst.Args[1:]
+	}
+	cond := ir.BuildCaseCondition(sel, inst.Meta["matchKind"], operands)
+
+	if n := len(e.condStack); n > 0 && e.condStack[n-1] {
+		e.indent-- // close the previous branch body
+		e.writef("} else if %s {\n", cond)
+	} else {
+		e.writef("if %s {\n", cond)
+		if n := len(e.condStack); n > 0 {
+			e.condStack[n-1] = true
+		}
+	}
+	e.indent++
+}
+
+// emitCondDefault renders the chain's trailing `else`. A Case that reaches the
+// chain lowering always has at least one preceding branch, so the previous
+// body is open here.
+func (e *goEmitter) emitCondDefault(inst ir.Instruction) {
+	if n := len(e.condStack); n > 0 && e.condStack[n-1] {
+		e.indent-- // close the previous branch body
+	}
+	e.writef("} else {\n")
+	e.indent++
+	if n := len(e.condStack); n > 0 {
+		e.condStack[n-1] = true
+	}
+}
+
+// emitCondEnd closes the chain.
+func (e *goEmitter) emitCondEnd(inst ir.Instruction) {
+	if n := len(e.condStack); n > 0 {
+		if e.condStack[n-1] {
+			e.indent-- // close the last branch body
+		}
+		e.condStack = e.condStack[:n-1]
+	}
+	e.writef("}\n")
+}
+
+func (e *goEmitter) emitOutput(inst ir.Instruction) {
+	e.addImport("fmt")
+	src := goOperand(inst.Args[0])
+	channel := inst.Args[1]
+	e.writef("fmt.Println(%s, %s)\n", channel, src)
+}
+
+func (e *goEmitter) emitReturn(inst ir.Instruction) {
+	src := goOperand(inst.Args[0])
+	e.writef("_ = %s // return value\n", src)
+}
+
+// =====================================================================
+//  Black-box instruction emitters
+// =====================================================================
+
+// emitBBDecl emits the struct variable declaration and copies the struct
+// definition + methods to the top level (once per struct type).
+//
+// IR: BB_DECL %instanceId  Meta: struct=StructName
+// Go: var instanceId StructName
+//
+// Português: Emite a declaração da variável struct e copia a definição do
+// struct + métodos para o nível superior (uma vez por tipo de struct).
+func (e *goEmitter) emitBBDecl(inst ir.Instruction) {
+	instanceId := inst.Dest
+	structName := inst.Meta["struct"]
+	varName := goIdent(instanceId)
+
+	// Add struct definition to top level (once per type)
+	if !e.bbEmitted[structName] {
+		e.bbEmitted[structName] = true
+
+		def := e.lookupDef(structName)
+		if def != nil {
+			// Add imports
+			for _, imp := range def.Imports {
+				e.addImport(imp)
+			}
+
+			// Add struct definition
+			e.topLevel.WriteString("// ── Black-box: " + structName + " ──\n\n")
+			e.topLevel.WriteString(def.StructCode)
+			e.topLevel.WriteString("\n\n")
+
+			// Add methods
+			if def.MethodsCode != "" {
+				e.topLevel.WriteString(def.MethodsCode)
+				e.topLevel.WriteString("\n\n")
+			}
+		}
+	}
+
+	e.writef("var %s %s\n", varName, structName)
+	e.declared[instanceId] = true
+}
+
+// emitBBProp emits a property field assignment.
+//
+// IR: BB_PROP %instanceId  Args: [fieldName, value]
+// Go: instanceId.fieldName = value
+//
+// For composite-typed props (map[K]V from Slice 2.2, []T from
+// Slice 2.4), the IR carries the value as a JSON object/array
+// string and this function converts it into the matching Go
+// literal.
+func (e *goEmitter) emitBBProp(inst ir.Instruction) {
+	varName := goIdent(inst.Dest)
+	rawField := inst.Args[0]
+	value := inst.Args[1]
+
+	structName := inst.Meta["struct"]
+
+	// Resolve the prop key carried in the IR (which mirrors the
+	// scene JSON, typically lowercase per legacy convention) to the
+	// actual Go field name declared on the struct. Without this
+	// translation, emitted code like "apds99601.gain = 0" would not
+	// compile against a struct that exposes "Gain" — the field name
+	// is case-sensitive in Go.
+	//
+	// The parser's native-gate fix (server/codegen/blackbox/parser.go)
+	// only emits PropDefs for EXPORTED fields, so by the time the IR
+	// reaches us every prop has a canonical FieldName starting with
+	// an upper-case letter; the scene JSON key may not match it.
+	//
+	// Português:
+	//
+	//	A chave que o IR carrega vem do scene JSON (tipicamente
+	//	minúscula por convenção legada); o nome de campo Go é
+	//	exportado (maiúscula inicial). Sem essa tradução o código
+	//	emitido (apds99601.gain = 0) não compila contra o struct
+	//	real (campo Gain).
+	field := e.resolveBBFieldName(structName, rawField)
+
+	// Determine if value needs quoting (string props)
+	goType := e.propGoType(structName, field)
+
+	// Map prop: convert JSON-encoded value into a Go map literal.
+	// We detect "map[" prefix on the goType so the same path catches
+	// any future K/V combination — the encoder rejects shapes it
+	// can't handle and falls back to emitting a comment, which the
+	// `go build` step then catches with a clear error message
+	// instead of producing silently-wrong code.
+	if strings.HasPrefix(goType, "map[") {
+		literal, err := encodeMapLiteral(goType, value)
+		if err != nil {
+			// Fail loud: emit a Go comment explaining the failure
+			// and a zero value so the surrounding code still
+			// compiles. The diagnostics layer above this function
+			// is the right place to surface the warning to the
+			// user; codegen-time logging keeps the trail visible.
+			e.writef("// %s.%s = %s — %v\n", varName, field, value, err)
+			e.writef("%s.%s = %s{}\n", varName, field, goType)
+			return
+		}
+		e.writef("%s.%s = %s\n", varName, field, literal)
+		return
+	}
+
+	// Slice prop: same idea, JSON array → Go slice literal. We
+	// distinguish a slice "[]T" from a fixed-size array "[N]T" by
+	// checking the second character — typeString() emits "[...]T"
+	// for arrays so this prefix check is unambiguous.
+	if strings.HasPrefix(goType, "[]") {
+		literal, err := encodeSliceLiteral(goType, value)
+		if err != nil {
+			e.writef("// %s.%s = %s — %v\n", varName, field, value, err)
+			e.writef("%s.%s = %s{}\n", varName, field, goType)
+			return
+		}
+		e.writef("%s.%s = %s\n", varName, field, literal)
+		return
+	}
+
+	if goType == "string" && !strings.HasPrefix(value, `"`) {
+		value = fmt.Sprintf("%q", value)
+	}
+
+	e.writef("%s.%s = %s\n", varName, field, value)
+}
+
+// emitBBInit emits the Init() method call.
+//
+// IR: BB_INIT %instanceId  Args: [%input1, %input2, ...]
+//
+//	Meta: struct=StructName  connectedOutputs=port1,port2,...
+//
+// Output assignment rules:
+//
+//  1. If an output port name is in connectedOutputs → emit a named variable
+//     (e.g. "i2cBus0_bus").
+//
+//  2. If an output port name is NOT in connectedOutputs → emit the blank
+//     identifier '_', discarding the value inline. This covers both optional
+//     error returns the maker chose not to wire and any other unconnected port.
+//
+//  3. When ALL output ports are unconnected (every slot would be '_'), the
+//     call is emitted as a bare statement with no LHS at all. This avoids
+//     the invalid Go form "_, _ := f()" (`:=` requires at least one new var)
+//     and is idiomatic for "call for side-effects only".
+//
+//  4. When SOME ports are connected (hasNamedVar == true), the `:=` form is
+//     used. This is always valid because at least one new variable is declared.
+//
+// Examples:
+//
+//	All connected:   i2cBus0_bus, i2cBus0_err := i2cBus0.Init()   ← err wired
+//	Some connected:  i2cBus0_bus, _ := i2cBus0.Init()             ← err NOT wired
+//	None connected:  i2cBus0.Init()                               ← nothing wired
+//
+// Note: there is NO separate "_ = errVar" line. The blank identifier is
+// placed directly in the multi-assignment, which is idiomatic Go.
+//
+// Português:
+//
+//	Regras de atribuição de saída:
+//	  1. Porta em connectedOutputs → variável nomeada.
+//	  2. Porta ausente de connectedOutputs → '_' inline.
+//	  3. Todas desconectadas → chamada sem LHS (efeito colateral).
+//	  4. Alguma conectada → forma ':=' (sempre válida com ≥ 1 nova var).
+//	Não há linha "_ = errVar" separada.
+func (e *goEmitter) emitBBInit(inst ir.Instruction) {
+	instanceId := inst.Dest
+	structName := inst.Meta["struct"]
+	varName := goIdent(instanceId)
+
+	// Build input arguments. The authored-parameter casts are applied
+	// after the def lookup below (T6 "cast escalar").
+	// Português: Constrói argumentos de entrada; casts pros tipos
+	// autorais entram após o lookup do def.
+	var inputs []string
+	for _, arg := range inst.Args {
+		inputs = append(inputs, goOperand(arg))
+	}
+
+	// Parse the set of connected output port names from Meta.
+	// An empty Meta["connectedOutputs"] means no outputs are wired.
+	// Português: Analisa o conjunto de portas de saída conectadas do Meta.
+	connectedOutputs := parseConnectedOutputs(inst.Meta["connectedOutputs"])
+
+	// Build the left-hand side variable list.
+	// hasNamedVar tracks whether at least one slot is a real variable name
+	// (not '_'), which determines whether to use ':=' or bare call form.
+	//
+	// Português: Constrói a lista de variáveis do lado esquerdo.
+	// hasNamedVar rastreia se há pelo menos um slot com nome real.
+	def := e.lookupDef(structName)
+	if def != nil && def.Init != nil {
+		inputs = castArgsToAuthoredParams(inputs, def.Init.Inputs)
+	}
+	var lhsItems []string
+	hasNamedVar := false
+
+	if def != nil && def.Init != nil {
+		for _, out := range def.Init.Outputs {
+			if connectedOutputs[out.Name] {
+				// This output is wired downstream — capture it as a named var.
+				// Português: Esta saída está conectada — captura como variável nomeada.
+				lhsItems = append(lhsItems, varName+"_"+out.Name)
+				hasNamedVar = true
+			} else {
+				// Not connected — discard inline with blank identifier.
+				// Português: Não conectado — descarta inline com identificador em branco.
+				lhsItems = append(lhsItems, "_")
+			}
+		}
+	}
+
+	// Emit the call in the appropriate form.
+	// Português: Emite a chamada na forma apropriada.
+	call := fmt.Sprintf("%s.Init(%s)", varName, strings.Join(inputs, ", "))
+
+	switch {
+	case !hasNamedVar:
+		// All outputs unconnected (or no outputs): bare statement.
+		// Valid Go for any number of return values — all discarded.
+		// Português: Todas as saídas desconectadas: chamada sem LHS.
+		e.writef("%s\n", call)
+
+	case len(lhsItems) == 1:
+		// Single output and it is connected.
+		// Português: Única saída e está conectada.
+		e.writef("%s := %s\n", lhsItems[0], call)
+
+	default:
+		// Multiple outputs, at least one connected.
+		// ':=' is valid here because hasNamedVar guarantees ≥ 1 new variable.
+		// Português: Múltiplas saídas, pelo menos uma conectada.
+		e.writef("%s := %s\n", strings.Join(lhsItems, ", "), call)
+	}
+	// NOTE: no separate "_ = errVar" line — blank identifiers are placed
+	// directly in the multi-assignment above.
+}
+
+// emitBBMethod emits any non-Init method call (Run, Log, Step, Read, Write, …).
+//
+// IR: BB_METHOD %instanceId  Args: [%input1, %input2, ...]
+//
+//	Meta: struct=StructName  method=MethodName  connectedOutputs=port1,port2,...
+//
+// The method name comes from Meta["method"]. The output signature is looked up
+// from the BlackBoxDef Methods slice using GetMethod(methodName).
+//
+// Output assignment rules (same as emitBBInit):
+//
+//  1. Port in connectedOutputs      → named variable (e.g. "sensor0_clear")
+//  2. Port NOT in connectedOutputs  → blank identifier '_' inline
+//  3. All outputs unconnected       → bare call with no LHS
+//  4. Some outputs connected        → ':=' form (valid — ≥ 1 new variable)
+//
+// Examples:
+//
+//	All connected:   clear, red, green, blue := sensor0.Run()
+//	Some connected:  clear, _, _, _ := sensor0.Run()
+//	None connected:  sensor0.Run()
+//	No outputs:      sensor0.Log(clear, red, green, blue)
+//
+// Português:
+//
+//	Emite qualquer chamada de método não-Init. O nome vem de Meta["method"].
+//	A assinatura de saída é consultada via GetMethod(methodName).
+func (e *goEmitter) emitBBMethod(inst ir.Instruction) {
+	instanceId := inst.Dest
+	structName := inst.Meta["struct"]
+	methodName := inst.Meta["method"]
+	varName := goIdent(instanceId)
+
+	// Look up the method signature in the BlackBoxDef first — the input
+	// arguments need it for the authored-parameter casts below.
+	// Português: Consulta a assinatura do método no BlackBoxDef antes —
+	// os argumentos precisam dela para os casts.
+	connectedOutputs := parseConnectedOutputs(inst.Meta["connectedOutputs"])
+	def := e.lookupDef(structName)
+
+	// Build input arguments, cast to the authored parameter types
+	// (T6 "cast escalar" — see castArgsToAuthoredParams).
+	// Português: Constrói argumentos de entrada, com cast pros tipos
+	// autorais dos parâmetros.
+	var inputs []string
+	for _, arg := range inst.Args {
+		inputs = append(inputs, goOperand(arg))
+	}
+	if def != nil {
+		if m := def.GetMethod(methodName); m != nil {
+			inputs = castArgsToAuthoredParams(inputs, m.Inputs)
+		}
+	}
+
+	var lhsItems []string
+	hasNamedVar := false
+
+	if def != nil {
+		method := def.GetMethod(methodName)
+		if method != nil {
+			for _, out := range method.Outputs {
+				if connectedOutputs[out.Name] {
+					lhsItems = append(lhsItems, varName+"_"+out.Name)
+					hasNamedVar = true
+				} else {
+					lhsItems = append(lhsItems, "_")
+				}
+			}
+		}
+	}
+
+	// Emit the call.
+	// Português: Emite a chamada.
+	call := fmt.Sprintf("%s.%s(%s)", varName, methodName, strings.Join(inputs, ", "))
+
+	// reassign=true means the LHS variables have already been declared
+	// before the current scope (per-port promotion). Using `:=` there
+	// would be a compile error in Go. The instruction producer is
+	// responsible for setting this flag only when it guarantees every
+	// item in lhsItems is either a pre-declared var or the blank
+	// identifier; any other operand would also fail to compile.
+	//
+	// Português: reassign=true significa que as vars da LHS já foram
+	// declaradas antes do escopo — usar := daria erro de compilação.
+	reassign := inst.Meta["reassign"] == "true"
+
+	switch {
+	case !hasNamedVar:
+		// All outputs unconnected or method returns nothing: bare statement.
+		// Português: Todas as saídas desconectadas ou sem retorno: chamada sem LHS.
+		e.writef("%s\n", call)
+	case reassign:
+		// Pre-declared LHS; use `=` to avoid `no new variables on left` error.
+		e.writef("%s = %s\n", strings.Join(lhsItems, ", "), call)
+	case len(lhsItems) == 1:
+		e.writef("%s := %s\n", lhsItems[0], call)
+	default:
+		// ':=' is valid because hasNamedVar guarantees ≥ 1 new variable.
+		e.writef("%s := %s\n", strings.Join(lhsItems, ", "), call)
+	}
+}
+
+// =====================================================================
+//  Black-box helpers
+// =====================================================================
+
+// lookupDef finds a BlackBoxDef by struct name from the Program.
+func (e *goEmitter) lookupDef(structName string) *blackbox.BlackBoxDef {
+	if e.prog.BlackBoxDefs == nil {
+		return nil
+	}
+	return e.prog.BlackBoxDefs[structName]
+}
+
+// propGoType returns the Go type of a property field, or "" if not found.
+func (e *goEmitter) propGoType(structName, fieldName string) string {
+	def := e.lookupDef(structName)
+	if def == nil {
+		return ""
+	}
+	for _, p := range def.Props {
+		if p.FieldName == fieldName {
+			return p.GoType
+		}
+	}
+	return ""
+}
+
+// resolveBBFieldName maps a prop key carried in the IR (which mirrors
+// the scene JSON, typically lowercase by legacy convention) to the
+// actual Go field name on the parsed black-box struct.
+//
+// The match strategy is, in order:
+//
+//  1. Exact match on PropDef.FieldName — covers scenes whose JSON
+//     keys already use the canonical Go name (the future direction).
+//  2. Case-insensitive match on PropDef.FieldName — covers legacy
+//     scenes that store the lowercase original field name (the dominant
+//     case today: "gain" → "Gain").
+//  3. Case-insensitive match on PropDef.Label — covers scenes that
+//     store the human-readable label from the `prop:"..."` tag
+//     (e.g. "Integration Time" → ATime).
+//
+// When no match is found we fall back to the raw key and emit a
+// program-level warning rather than failing silently — the user
+// would otherwise discover the broken code only when `go build`
+// rejects the output. The warning surfaces in the diagnostics panel
+// in the IDE via codegen.go's pass-through of program.Warnings.
+//
+// Português:
+//
+//	Resolve a chave que vem do scene JSON para o nome real do campo
+//	Go no struct parseado. Tenta match exato, case-insensitive no
+//	FieldName, e case-insensitive na Label, nessa ordem. Sem match,
+//	mantém a chave crua e emite um warning — preferimos visibilidade
+//	a falhar silenciosamente.
+func (e *goEmitter) resolveBBFieldName(structName, key string) string {
+	def := e.lookupDef(structName)
+	if def == nil {
+		// Without the def we cannot resolve. This branch is reachable
+		// when the scene references a struct the server's black-box
+		// store does not know about — itself an upstream error that
+		// validate() should have caught.
+		return key
+	}
+
+	// Strategy 1: exact match
+	for _, p := range def.Props {
+		if p.FieldName == key {
+			return p.FieldName
+		}
+	}
+	// Strategy 2: case-insensitive match on FieldName
+	for _, p := range def.Props {
+		if strings.EqualFold(p.FieldName, key) {
+			return p.FieldName
+		}
+	}
+	// Strategy 3: case-insensitive match on Label
+	for _, p := range def.Props {
+		if p.Label != "" && strings.EqualFold(p.Label, key) {
+			return p.FieldName
+		}
+	}
+
+	e.prog.Warn(
+		"codegen: scene prop key %q on struct %q does not match any "+
+			"PropDef field — emitted code will likely fail to compile. "+
+			"Re-export the scene to refresh the prop keys.",
+		key, structName)
+	return key
+}
+
+// parseConnectedOutputs converts the comma-separated connectedOutputs Meta
+// value into a set (map[portName]true) for O(1) membership testing.
+//
+// An empty or missing Meta value returns an empty map, meaning no outputs
+// are connected. This is the correct default — all outputs become '_'.
+//
+// Português:
+//
+//	Converte o valor Meta connectedOutputs (separado por vírgula) em um
+//	conjunto para teste de membro em O(1). Valor vazio retorna mapa vazio,
+//	significando que nenhuma saída está conectada (todas viram '_').
+func parseConnectedOutputs(raw string) map[string]bool {
+	set := make(map[string]bool)
+	if raw == "" {
+		return set
+	}
+	for _, name := range strings.Split(raw, ",") {
+		if name != "" {
+			set[name] = true
+		}
+	}
+	return set
+}
+
+// addImport adds an import path to the set.
+func (e *goEmitter) addImport(path string) {
+	e.imports[path] = true
+}
+
+// =====================================================================
+//  Code generation helpers
+// =====================================================================
+
+func (e *goEmitter) writef(format string, args ...interface{}) {
+	for i := 0; i < e.indent; i++ {
+		e.body.WriteString("\t")
+	}
+	fmt.Fprintf(&e.body, format, args...)
+}
+
+func (e *goEmitter) wrapMain() string {
+	var sb strings.Builder
+	sb.WriteString("package main\n\n")
+
+	// Imports (merged: native + black-box)
+	if len(e.imports) > 0 {
+		if len(e.imports) == 1 {
+			for imp := range e.imports {
+				sb.WriteString(fmt.Sprintf("import %q\n\n", imp))
+			}
+		} else {
+			sb.WriteString("import (\n")
+			// Sort for deterministic output
+			sorted := make([]string, 0, len(e.imports))
+			for imp := range e.imports {
+				sorted = append(sorted, imp)
+			}
+			sortStrings(sorted)
+			for _, imp := range sorted {
+				sb.WriteString(fmt.Sprintf("\t%q\n", imp))
+			}
+			sb.WriteString(")\n\n")
+		}
+	}
+
+	// Top-level code (black-box struct definitions and methods)
+	if e.topLevel.Len() > 0 {
+		sb.WriteString(e.topLevel.String())
+	}
+
+	// main function
+	sb.WriteString("func main() {\n")
+	sb.WriteString(e.body.String())
+	sb.WriteString("}\n")
+	return sb.String()
+}
+
+// =====================================================================
+//  Identifier and type conversion
+// =====================================================================
+
+// goIdent converts a device ID to a valid Go identifier.
+// "constInt_1" → "constInt1", "add_1" → "add1"
+func goIdent(id string) string {
+	var sb strings.Builder
+	for i := 0; i < len(id); i++ {
+		if id[i] == '_' && i+1 < len(id) && id[i+1] >= '0' && id[i+1] <= '9' {
+			continue
+		}
+		sb.WriteByte(id[i])
+	}
+	result := sb.String()
+	if result == "" {
+		return "v"
+	}
+	return result
+}
+
+// goOperand converts an IR operand to Go code.
+// "%constInt_1" → "constInt1"
+// "%i2cBus_1:bus" → "i2cBus1_bus"  (compound black-box reference)
+// "10" → "10"
+// castableScalarGoTypes is the set of Go types the BB call sites may wrap
+// arguments with. Conversions to these are total for any numeric source
+// (Go allows all numeric↔numeric conversions) AND idempotent when source
+// and target already match (identity conversion is legal Go) — which is
+// exactly why the cast is applied UNCONDITIONALLY: the emitter never has
+// to track the source register's type. Non-numeric authored types
+// (string, bool, structs, pointers, interfaces, slices, maps, funcs) are
+// deliberately absent: string(int) is a rune conversion (wrong), and the
+// rest either need no cast or have no legal one — collections in
+// particular are solved at the DECLARATION by T6 decision B (the
+// ConstArray element type flows from the consumer), never at the call.
+//
+// Português: Tipos Go escaláveis por cast no call site. A conversão é
+// total entre numéricos e idempotente quando os tipos já casam — por isso
+// o cast é incondicional, sem rastrear o tipo da origem. Coleções se
+// resolvem na DECLARAÇÃO (decisão B), nunca na chamada.
+var castableScalarGoTypes = map[string]bool{
+	"int": true, "int8": true, "int16": true, "int32": true, "int64": true,
+	"uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true,
+	"float32": true, "float64": true, "byte": true, "rune": true,
+	"uintptr": true,
+}
+
+// castArgsToAuthoredParams wraps each rendered argument in a conversion to
+// the authored parameter's Go type when that type is a castable scalar
+// (T6 "cast escalar"). The IDE's abstract int renders as int64
+// (goTypeName), so a maker constant wired into an authored `gain uint16`
+// would otherwise generate `Run(constInt1)` — int64 vs uint16, a compile
+// error. With the cast: `Run(uint16(constInt1))`. Index pairing with
+// params is only trusted when arities match exactly — the IR emits one
+// arg per CONNECTED input port, so a missing connection would shift every
+// position; in that (already uncompilable) case the args pass through
+// untouched rather than casting the wrong pair.
+//
+// Português: Envolve cada argumento num cast pro tipo Go do parâmetro
+// autoral, quando escalar castável. Só confia no pareamento por índice
+// quando as aridades batem exatamente.
+func castArgsToAuthoredParams(args []string, params []blackbox.PortDef) []string {
+	if len(args) != len(params) {
+		return args
+	}
+	out := make([]string, len(args))
+	for i, a := range args {
+		if castableScalarGoTypes[params[i].GoType] {
+			out[i] = params[i].GoType + "(" + a + ")"
+		} else {
+			out[i] = a
+		}
+	}
+	return out
+}
+
+func goOperand(arg string) string {
+	if strings.HasPrefix(arg, "%") {
+		ref := arg[1:]
+		// Compound form: instanceId:portName
+		if idx := strings.Index(ref, ":"); idx >= 0 {
+			return goIdent(ref[:idx]) + "_" + ref[idx+1:]
+		}
+		return goIdent(ref)
+	}
+	return arg
+}
+
+// goTypeName maps IR types to Go types.
+// goTypeName maps IR types to Go types.
+//
+// The abstract IR types (int, float, bool, string) are widened to
+// their canonical Go counterparts. Concrete Go types that already
+// come through from black-box definitions (uint16, uint8, int32,
+// byte, rune, *machine.I2C, etc.) pass through unchanged — the IR
+// already carries them verbatim when they cross the graph from a
+// BlackBox port, so there's no translation to do.
+//
+// An empty IR type defaults to int64 so older emitters that forgot
+// to set Type on an instruction still produce compilable code
+// instead of `var x ` with a blank type.
+//
+// Português:
+//
+//	Mapeia tipos IR para Go. Tipos abstratos (int, float, bool, string)
+//	são expandidos; tipos Go concretos vindos de BlackBox passam direto.
+func goTypeName(irType string) string {
+	switch irType {
+	case "int":
+		return "int64"
+	case "float":
+		return "float64"
+	case "bool":
+		return "bool"
+	case "string":
+		return "string"
+	case "":
+		return "int64"
+	default:
+		return irType
+	}
+}
+
+// goLiteral wraps a value in the appropriate Go literal form.
+func goLiteral(irType, val string) string {
+	return val
+}
+
+// goBinOp maps IR arithmetic ops to Go operators.
+func goBinOp(op ir.Op) string {
+	switch op {
+	case ir.OpAdd:
+		return "+"
+	case ir.OpSub:
+		return "-"
+	case ir.OpMul:
+		return "*"
+	case ir.OpDiv:
+		return "/"
+	default:
+		return "?"
+	}
+}
+
+// goCmpOp maps IR comparison ops to Go operators.
+func goCmpOp(op ir.Op) string {
+	switch op {
+	case ir.OpCmpEQ:
+		return "=="
+	case ir.OpCmpNE:
+		return "!="
+	case ir.OpCmpLT:
+		return "<"
+	case ir.OpCmpGT:
+		return ">"
+	case ir.OpCmpLE:
+		return "<="
+	case ir.OpCmpGE:
+		return ">="
+	default:
+		return "?"
+	}
+}
+
+// sortStrings sorts a string slice in place.
+func sortStrings(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j] < s[j-1]; j-- {
+			s[j], s[j-1] = s[j-1], s[j]
+		}
+	}
+}
+
+// encodeMapLiteral converts the JSON value carried in a BB_PROP
+// instruction (e.g. `{"Authorization":"Bearer xxx","X-Foo":"bar"}`)
+// into a Go map literal of the prop's declared type
+// (e.g. `map[string]string{"Authorization": "Bearer xxx", …}`).
+//
+// goType is the full type string from PropDef.GoType (e.g.
+// "map[string]string"). jsonValue is the user-edited JSON string
+// produced by the row-builder UI in the inspect form.
+//
+// Determinism: keys are emitted in lexicographic order so two
+// generations of the same scene produce byte-identical Go source.
+//
+// Empty map: emits `<goType>{}` not `nil` — preserves the zero-value-
+// vs-nil distinction (a freshly-saved scene with an empty map should
+// behave like Go's `make(map[K]V)`, not a nil panic-on-write).
+//
+// Type coercion at emission time:
+//
+//   - string values: %q-quoted (escapes \, ", control chars).
+//   - bool values:   "true" / "false".
+//   - int* / uint* / byte / rune values: %d (rejects fractional input
+//     by inspecting json.Number; non-integer in an int field returns
+//     an error).
+//   - float* values: %g (preserves precision without scientific form
+//     unless necessary).
+//   - any unrecognised value type: error.
+//
+// Errors surface to the caller (emitBBProp) which writes a comment
+// and emits a zero-value fallback. The diagnostics path above
+// emit.go is the right place to surface this to the user.
+func encodeMapLiteral(goType, jsonValue string) (string, error) {
+	// Strip the "map[K]V" prefix into K and V. Slice 2.1's
+	// analyseGoType already does this; doing it again here avoids
+	// pulling the parser package across the codegen boundary
+	// (would create a server import edge that this layer should
+	// not have).
+	openIdx := strings.Index(goType, "[")
+	closeIdx := -1
+	if openIdx > 0 {
+		depth := 1
+		for i := openIdx + 1; i < len(goType); i++ {
+			switch goType[i] {
+			case '[':
+				depth++
+			case ']':
+				depth--
+				if depth == 0 {
+					closeIdx = i
+					break
+				}
+			}
+			if closeIdx >= 0 {
+				break
+			}
+		}
+	}
+	if openIdx <= 0 || closeIdx <= openIdx {
+		return "", fmt.Errorf("malformed map type %q", goType)
+	}
+	keyType := strings.TrimSpace(goType[openIdx+1 : closeIdx])
+	valueType := strings.TrimSpace(goType[closeIdx+1:])
+
+	if keyType != "string" {
+		return "", fmt.Errorf("unsupported map key type %q (only string for now)", keyType)
+	}
+
+	// Parse the JSON. We use a json.Decoder with UseNumber so
+	// integer values keep their string form and we can decide at
+	// emission time whether a value matches the declared V type
+	// without a lossy float64 round-trip.
+	dec := json.NewDecoder(strings.NewReader(jsonValue))
+	dec.UseNumber()
+	var raw map[string]any
+	if err := dec.Decode(&raw); err != nil {
+		// Empty / invalid JSON treated as empty map. This matches
+		// the renderer's normalisation ("" → "{}").
+		if strings.TrimSpace(jsonValue) == "" || strings.TrimSpace(jsonValue) == "{}" {
+			return goType + "{}", nil
+		}
+		return "", fmt.Errorf("invalid JSON: %w", err)
+	}
+	if len(raw) == 0 {
+		return goType + "{}", nil
+	}
+
+	// Sort keys for deterministic output.
+	keys := make([]string, 0, len(raw))
+	for k := range raw {
+		keys = append(keys, k)
+	}
+	sortStrings(keys)
+
+	var b strings.Builder
+	b.WriteString(goType)
+	b.WriteString("{")
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "%q: ", k)
+		v := raw[k]
+		lit, err := goLiteralForMapValue(v, valueType)
+		if err != nil {
+			return "", fmt.Errorf("key %q: %w", k, err)
+		}
+		b.WriteString(lit)
+	}
+	b.WriteString("}")
+	return b.String(), nil
+}
+
+// goLiteralForMapValue formats a JSON value as a Go literal of the
+// requested target type. Returns an error when the JSON shape is
+// incompatible with the target (e.g. a string in an int field).
+func goLiteralForMapValue(v any, targetType string) (string, error) {
+	switch targetType {
+	case "string":
+		s, ok := v.(string)
+		if !ok {
+			return "", fmt.Errorf("expected string, got %T", v)
+		}
+		return fmt.Sprintf("%q", s), nil
+	case "bool":
+		b, ok := v.(bool)
+		if !ok {
+			// Tolerate "true" / "false" as strings (the row builder
+			// uses real <input type=checkbox> so this fallback rarely
+			// fires; defensive).
+			if s, ok2 := v.(string); ok2 {
+				switch strings.ToLower(strings.TrimSpace(s)) {
+				case "true":
+					return "true", nil
+				case "false":
+					return "false", nil
+				}
+			}
+			return "", fmt.Errorf("expected bool, got %T", v)
+		}
+		if b {
+			return "true", nil
+		}
+		return "false", nil
+	case "int", "int8", "int16", "int32", "int64",
+		"uint", "uint8", "uint16", "uint32", "uint64",
+		"byte", "rune":
+		n, ok := v.(json.Number)
+		if !ok {
+			// Sometimes the renderer emits integers as float64
+			// (older JSON paths). Try a float and demand it is a
+			// whole number.
+			if f, fok := v.(float64); fok && f == float64(int64(f)) {
+				return fmt.Sprintf("%d", int64(f)), nil
+			}
+			return "", fmt.Errorf("expected integer, got %T", v)
+		}
+		// json.Number's String() preserves the original text. Reject
+		// values that would not compile as a Go integer literal
+		// (anything containing '.' or 'e' is not an integer).
+		s := n.String()
+		if strings.ContainsAny(s, ".eE") {
+			return "", fmt.Errorf("non-integer %q in %s field", s, targetType)
+		}
+		return s, nil
+	case "float32", "float64":
+		n, ok := v.(json.Number)
+		if !ok {
+			if f, fok := v.(float64); fok {
+				return fmt.Sprintf("%g", f), nil
+			}
+			return "", fmt.Errorf("expected number, got %T", v)
+		}
+		// %g via parsing avoids "5" → "5" when "5.0" was meant; we
+		// still emit the raw form because Go accepts both. The
+		// renderer's row-builder always quotes floats explicitly.
+		return n.String(), nil
+	}
+	return "", fmt.Errorf("unsupported value type %q", targetType)
+}
+
+// encodeSliceLiteral converts the JSON value carried in a BB_PROP
+// instruction (e.g. `["a","b","c"]` or `[1,2,3]`) into a Go slice
+// literal of the prop's declared type
+// (e.g. `[]string{"a", "b", "c"}` or `[]int{1, 2, 3}`).
+//
+// Order preservation: unlike encodeMapLiteral, we do NOT sort. Slice
+// order matters in Go and the user explicitly orders rows via the
+// ↑/↓ buttons in the inspect form; respecting that order is part
+// of the contract.
+//
+// Empty slice: emits `<goType>{}` not `nil`. Same rationale as the
+// map encoder — preserves the zero-value-vs-nil distinction so a
+// freshly-saved scene with an empty slice behaves like
+// `make([]T, 0)`, not a nil dereference downstream.
+//
+// Type coercion at emission time follows the same rules as
+// encodeMapLiteral by delegating to goLiteralForMapValue, which is
+// reused unchanged — the per-element formatting rules are identical
+// for map values and slice elements.
+func encodeSliceLiteral(goType, jsonValue string) (string, error) {
+	// Strip the "[]" prefix to get the element type. analyseGoType
+	// already understands "[]T"; doing it here again keeps the
+	// codegen layer free of imports into the parser package.
+	if !strings.HasPrefix(goType, "[]") {
+		return "", fmt.Errorf("malformed slice type %q", goType)
+	}
+	elemType := strings.TrimSpace(goType[2:])
+	if elemType == "" {
+		return "", fmt.Errorf("empty element type in %q", goType)
+	}
+
+	// Parse the JSON. UseNumber so integer values keep their
+	// string form and we can decide at emission time whether a
+	// value matches the declared element type without a lossy
+	// float64 round-trip.
+	dec := json.NewDecoder(strings.NewReader(jsonValue))
+	dec.UseNumber()
+	var raw []any
+	if err := dec.Decode(&raw); err != nil {
+		// Empty / invalid JSON treated as empty slice. This
+		// matches the renderer's normalisation ("" → "[]").
+		if strings.TrimSpace(jsonValue) == "" || strings.TrimSpace(jsonValue) == "[]" {
+			return goType + "{}", nil
+		}
+		return "", fmt.Errorf("invalid JSON: %w", err)
+	}
+	if len(raw) == 0 {
+		return goType + "{}", nil
+	}
+
+	var b strings.Builder
+	b.WriteString(goType)
+	b.WriteString("{")
+	for i, v := range raw {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		lit, err := goLiteralForMapValue(v, elemType)
+		if err != nil {
+			return "", fmt.Errorf("index %d: %w", i, err)
+		}
+		b.WriteString(lit)
+	}
+	b.WriteString("}")
+	return b.String(), nil
+}

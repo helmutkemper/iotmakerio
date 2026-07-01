@@ -1,0 +1,175 @@
+/*
+ * base.css — IoTMaker Portal
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Design tokens, CSS reset, typography setup, and global utility classes.
+ *
+ * This file is the single source of truth for all design decisions:
+ * colors, spacing, fonts, shadows, radii, etc.
+ *
+ * Every other CSS file in this project imports values from these variables.
+ * When adding new pages (login, blog, dashboard), link this file first.
+ *
+ * Load order in HTML:
+ *   1. base.css        ← this file
+ *   2. layout.css
+ *   3. components.css
+ *   4. nav.css
+ *   5. sections.css
+ *   6. animations.css
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+/* ─── 1. CSS CUSTOM PROPERTIES (Design Tokens) ─────────────────────────────
+ *
+ * Organized by category so future contributors can find and change values
+ * without hunting through selectors.
+ *
+ * Naming convention:
+ *   --category[-variant]  e.g. --blue, --blue-br (bright), --blue-dk (dark)
+ * ─────────────────────────────────────────────────────────────────────────── */
+:root {
+
+    /* --- Background scale (lightest to darkest) --- */
+    --bg:      #ffffff;   /* page background */
+    --bg1:     #f7f9fc;   /* subtle alternating section background */
+    --bg2:     #f0f4fb;   /* placeholder / inner panel background */
+    --bg3:     #e8eef8;   /* deepest background tint, rarely used */
+
+    /* --- Border colors --- */
+    --border:  #dce6f5;   /* default border, cards, dividers */
+    --border2: #b8cef0;   /* stronger border, hover states, inputs */
+
+    /* --- Primary brand: blue ─── */
+    --blue:     #2255AA;  /* primary actions, links, icons */
+    --blue-br:  #3388DD;  /* bright blue, labels, secondary accents */
+    --blue-lt:  #eef4fd;  /* light blue tint, tag backgrounds */
+    --blue-dk:  #1A4499;  /* dark blue, headings, SVG gradients stop 0% */
+    --blue-mid: #4A6AAA;  /* mid blue, SVG taglines ("CONNECTING THINGS…") */
+
+    /* --- Secondary accent: gold --- */
+    --gold:     #C8A000;  /* icon color, live indicators */
+    --gold-lt:  #fffbea;  /* gold background tint (UI panels) */
+    --gold-lt2: #FFE066;  /* gold gradient end stop (SVG gradients) */
+    --gold-raw: #FFD700;  /* gold gradient start stop (SVG gradients) */
+    --gold-bd:  #e8d060;  /* gold border */
+
+    /* --- Third-party brand colors --- */
+    --pix-color: #32BCAD; /* PIX brand teal — used in .ic-px and PIX SVG icon */
+
+    /* --- Text scale --- */
+    --text:      #111827; /* body text, high contrast */
+    --text-dim:  #4B5E7A; /* secondary text, descriptions */
+    --text-mute: #8FA3BE; /* muted labels, placeholders, meta */
+
+    /* --- Typography --- */
+    --mono: 'Space Mono', monospace;      /* labels, badges, code, stat numbers */
+    --sans: 'Plus Jakarta Sans', sans-serif; /* body text, headings, UI */
+
+    /* --- Border radius --- */
+    --r:  10px; /* default radius: buttons, cards, icons */
+    --rl: 18px; /* large radius: panels, stat rows, media cards */
+
+    /* --- Box shadows --- */
+    --sh-sm: 0 1px 4px  rgba(34, 85, 170, .07); /* subtle lift */
+    --sh:    0 4px 20px rgba(34, 85, 170, .10); /* default card shadow */
+    --sh-lg: 0 12px 48px rgba(34, 85, 170, .13); /* hero image, modals */
+}
+
+
+/* ─── 2. BOX MODEL RESET ────────────────────────────────────────────────────
+ *
+ * Applies border-box globally. Removes browser default margin/padding.
+ * Standard practice; required before any layout work.
+ * ─────────────────────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin:     0;
+    padding:    0;
+}
+
+
+/* ─── 3. ROOT ELEMENT ───────────────────────────────────────────────────────*/
+html {
+    scroll-behavior: smooth; /* anchors (#sobre, #apoie, etc.) scroll gently */
+}
+
+body {
+    background:   var(--bg);
+    color:        var(--text);
+    font-family:  var(--sans);
+    line-height:  1.7;
+    overflow-x:   hidden; /* prevent horizontal scroll from animated elements */
+}
+
+
+/* ─── 4. LINKS ──────────────────────────────────────────────────────────────
+ *
+ * Strip default link styles; individual components apply their own colors.
+ * ─────────────────────────────────────────────────────────────────────────── */
+a {
+    color:           inherit;
+    text-decoration: none;
+}
+
+
+/* ─── 5. CANVAS (background animation) ─────────────────────────────────────
+ *
+ * The circuit-trace canvas sits fixed behind everything.
+ * pointer-events:none ensures it never captures clicks.
+ * ─────────────────────────────────────────────────────────────────────────── */
+canvas {
+    display:        block;
+    position:       fixed;
+    inset:          0;
+    z-index:        0;
+    pointer-events: none;
+}
+
+
+/* ─── 6. SECTION LABEL (reusable micro-heading) ─────────────────────────────
+ *
+ * Used above every section title: "// sobre o projeto", "// features", etc.
+ * Font: monospace to echo code comments, fitting the developer/maker audience.
+ * ─────────────────────────────────────────────────────────────────────────── */
+.section-label {
+    font-family:    var(--mono);
+    font-size:      11px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color:          var(--blue-br);
+    display:        block;
+    margin-bottom:  10px;
+}
+
+
+/* ─── 7. SECTION TITLE ──────────────────────────────────────────────────────
+ *
+ * Large heading used in centered section heads (features, how, media…).
+ * clamp() keeps it readable on mobile without media queries.
+ * ─────────────────────────────────────────────────────────────────────────── */
+.section-title {
+    font-size:      clamp(26px, 3.5vw, 40px);
+    font-weight:    800;
+    letter-spacing: -.03em;
+    color:          var(--blue-dk);
+    margin-top:     6px;
+}
+
+
+/* ─── 8. HORIZONTAL DIVIDER ─────────────────────────────────────────────────
+ *
+ * Full-width 1px line used between sections.
+ * ─────────────────────────────────────────────────────────────────────────── */
+.divider {
+    height:     1px;
+    background: var(--border);
+}
+
+
+/* ─── 9. UTILITY: z-index layering helper ───────────────────────────────────
+ *
+ * Content sections sit at z-index:1 to appear above the canvas (z-index:0).
+ * Applied via .container — see layout.css.
+ * ─────────────────────────────────────────────────────────────────────────── */

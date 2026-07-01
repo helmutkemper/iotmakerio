@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<!--
+  ide/index.html — Development entry point for the WASM IDE.
+
+  IMPORTANT: This is the development copy. The production copy lives at
+  server/public/ide/index.html. Both files must be kept in sync.
+
+  The only difference between the two is the wasm_exec.js script path:
+    Dev:        <script src="../support/wasm_exec.js"></script>
+    Production: <script src="wasm_exec.js"></script>
+
+  Auth token handshake:
+    The IDE runs inside an iframe embedded by the SPA page (/app#ide).
+    Template API calls require a Bearer token, which the SPA passes via
+    window.postMessage after the WASM finishes loading.
+
+    Protocol:
+      1. This page listens for: { type: "IDE_AUTH_TOKEN", token: "Bearer ..." }
+      2. On receipt, it sets window._ideAuthToken (read by rulesServer.GetAuthToken()).
+      3. It sends { type: "IDE_READY" } to the parent once the WASM starts.
+
+    Security: origin check is performed before accepting the token.
+
+  WASM isolation headers (set by the dev server for /ide/* routes):
+    Cross-Origin-Embedder-Policy: require-corp
+    Cross-Origin-Opener-Policy: same-origin
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Graphic Gopher IDE</title>
+
+    <!--
+      FontAwesome 6.5.1 — used by the hex-menu icons and any HTML the WASM
+      runtime injects into the DOM (black-box block labels, device menus, etc.).
+
+      Loaded with preconnect + preload so the font files are already cached
+      by the time the WASM module finishes loading and starts rendering.
+
+      This file is the development entry-point (root of the repository).
+      The production copy lives at server/public/ide/index.html and must
+      be kept in sync with this one.
+    -->
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+
+    <link rel="preload"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+          as="style"
+          integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=="
+          crossorigin="anonymous"
+          referrerpolicy="no-referrer">
+
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+          integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=="
+          crossorigin="anonymous"
+          referrerpolicy="no-referrer">
+
+    <!--
+      Preload the solid webfont to prevent a flash of invisible icons the
+      first time the WASM renders the hardware menu.
+    -->
+    <link rel="preload"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/webfonts/fa-solid-900.woff2"
+          as="font"
+          type="font/woff2"
+          crossorigin="anonymous">
+
+    <!--
+      Dev path: wasm_exec.js lives at ../support/ relative to this file.
+      Production path: wasm_exec.js lives alongside index.html.
+    -->
+    <script src="../support/wasm_exec.js"></script>
+
+    <script>
+      // ── Auth token handshake ──────────────────────────────────────────────
+      window.addEventListener("message", function(event) {
+        if (event.origin !== window.location.origin) {
+          console.warn("[IDE] Rejected postMessage from unexpected origin:", event.origin);
+          return;
+        }
+
+        const msg = event.data;
+        if (!msg || typeof msg !== "object") return;
+
+        if (msg.type === "IDE_AUTH_TOKEN") {
+          if (typeof msg.token === "string" && msg.token.startsWith("Bearer ")) {
+            window._ideAuthToken = msg.token;
+            console.log("[IDE] Auth token received — template endpoints enabled");
+          } else {
+            console.warn("[IDE] IDE_AUTH_TOKEN message received but token was invalid");
+          }
+        }
+      });
+
+      // ── WASM bootstrap ────────────────────────────────────────────────────
+      document.addEventListener("DOMContentLoaded", () => {
+        const go = new Go();
+            WebAssembly.instantiateStreaming(
+                fetch("main.wasm"),
+                go.importObject
+            ).then((result) => {
+          go.run(result.instance);
+
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage(
+              { type: "IDE_READY" },
+              window.location.origin
+            );
+            console.log("[IDE] IDE_READY signal sent to parent");
+          }
+        }).catch(err => {
+          console.error("[IDE] WASM load failed:", err);
+        });
+      });
+    </script>
+  </head>
+  <body>
+  </body>
+</html>

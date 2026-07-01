@@ -1,0 +1,344 @@
+/*
+ * sections.css — IoTMaker Portal
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Layout and styling for each named page section on the landing page.
+ *
+ * Sections in order:
+ *   1.  Hero          — full-viewport intro with SVG, tagline, CTAs
+ *   2.  Stats         — four-cell metric row
+ *   3.  About         — two-column text + visual placeholder
+ *   4.  Features      — card grid of platform capabilities
+ *   5.  How It Works  — three numbered steps with connector line
+ *   6.  Media         — video/screenshot card grid
+ *   7.  Support       — donation box with cards and PIX key
+ *   8.  Footer        — logo, links, copyright
+ *
+ * Dependencies: base.css, layout.css, components.css
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * 1. HERO
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+.hero {
+    min-height:      100vh;    /* fills the viewport — content above the fold */
+    display:         flex;
+    flex-direction:  column;
+    align-items:     center;
+    justify-content: center;
+    text-align:      center;
+    padding:         120px 24px 80px; /* top padding clears the fixed nav */
+    position:        relative;
+    z-index:         1;
+}
+
+/* SVG logo/illustration card — floats via animation in animations.css */
+.hero-svg-wrap {
+    width:         100%;
+    max-width:     840px;
+    margin:        0 auto;
+    border-radius: 20px;
+    overflow:      hidden;
+    border:        1px solid var(--border);
+    box-shadow:    var(--sh-lg);
+    animation:     float 5s ease-in-out infinite;
+}
+
+.hero-svg-wrap svg {
+    width:  100%;
+    height: auto;
+}
+
+/* Tagline paragraph below the SVG */
+.hero-desc {
+    max-width:   580px;
+    margin:      36px auto 44px;
+    font-size:   clamp(16px, 1.8vw, 19px);
+    color:       var(--text-dim);
+    line-height: 1.75;
+}
+
+/* CTA button row */
+.hero-actions {
+    display:         flex;
+    gap:             12px;
+    justify-content: center;
+    flex-wrap:       wrap;
+    margin-bottom:   72px;
+}
+
+/* Animated scroll indicator at the bottom of the hero */
+.scroll-cue {
+    position:        absolute;
+    bottom:          28px;
+    left:            50%;
+    transform:       translateX(-50%);
+    display:         flex;
+    flex-direction:  column;
+    align-items:     center;
+    gap:             8px;
+    animation:       bob 2s ease-in-out infinite;
+}
+
+/* Vertical fading line above the "scroll" label */
+.scroll-line {
+    width:      1px;
+    height:     36px;
+    background: linear-gradient(var(--border2), transparent);
+}
+
+.scroll-lbl {
+    font-family:    var(--mono);
+    font-size:      9px;
+    letter-spacing: .2em;
+    color:          var(--text-mute);
+    text-transform: uppercase;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * 2. STATS
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+.stats {
+    padding: 56px 0;
+}
+/* .stats-row grid is defined in layout.css; .stat cells in components.css */
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * 3. ABOUT
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+.about {
+    padding: 96px 0;
+}
+
+/* .about-grid uses .grid-2col from layout.css — no extra rules needed here */
+
+/* Large heading inside the about text column */
+.about-h {
+    font-size:      clamp(28px, 3.5vw, 44px);
+    font-weight:    800;
+    line-height:    1.1;
+    letter-spacing: -.03em;
+    margin-bottom:  18px;
+    color:          var(--blue-dk);
+}
+
+/* Highlighted span within the about heading */
+.about-h .hi {
+    color: var(--blue-br);
+}
+
+.about-p {
+    font-size:    16px;
+    color:        var(--text-dim);
+    margin-bottom: 14px;
+    line-height:  1.8;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * 4. FEATURES
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+.features {
+    padding:    80px 0;
+    background: var(--bg1); /* subtle tint to visually separate from About */
+}
+/* Card grid uses .grid-cards-sm from layout.css */
+/* Individual cards defined in components.css as .feat-card */
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * 5. HOW IT WORKS
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+.how {
+    padding: 96px 0;
+}
+
+/* Horizontal connector line between the three step-number circles.
+ * Positioned absolutely relative to .steps (position:relative in layout.css).
+ * left/right calculation: 1/6 of grid width + 20px to align center-to-center. */
+.step-line {
+    position:   absolute;
+    top:        40px;  /* vertically aligns with center of step-num circles */
+    left:       calc(16.67% + 20px);
+    right:      calc(16.67% + 20px);
+    height:     1px;
+    background: linear-gradient(90deg, var(--blue-lt), var(--border2), var(--blue-lt));
+}
+
+/* Hide the connector line on mobile (single-column layout) */
+@media (max-width: 680px) {
+    .step-line {
+        display: none;
+    }
+}
+
+/* Individual step block */
+.step {
+    padding:    24px 28px;
+    text-align: center;
+}
+
+/* Circular numbered badge — sits above the connector line via z-index:1 */
+.step-num {
+    width:           80px;
+    height:          80px;
+    border-radius:   50%;
+    margin:          0 auto 20px;
+    background:      var(--bg);
+    border:          1.5px solid var(--border2);
+    display:         flex;
+    align-items:     center;
+    justify-content: center;
+    font-family:     var(--mono);
+    font-size:       20px;
+    font-weight:     700;
+    color:           var(--blue);
+    position:        relative;
+    z-index:         1;  /* sits on top of .step-line */
+    box-shadow:      var(--sh-sm);
+}
+
+.step-title {
+    font-size:     16px;
+    font-weight:   700;
+    color:         var(--blue-dk);
+    margin-bottom: 8px;
+}
+
+.step-desc {
+    font-size: 14px;
+    color:     var(--text-dim);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * 6. MEDIA  (videos & screenshots)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+.media {
+    padding:    80px 0;
+    background: var(--bg1);
+}
+/* Card grid uses .grid-cards-md from layout.css */
+/* Cards defined in components.css as .media-card */
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * 7. SUPPORT  (donation / sponsorship section)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+.support {
+    padding: 100px 0;
+}
+
+/* Framed box that contains all donation content */
+.support-box {
+    background:    var(--bg1);
+    border:        1px solid var(--border);
+    border-radius: 24px;
+    padding:       64px 48px;
+    text-align:    center;
+    position:      relative;
+    overflow:      hidden;  /* clips the ::before pseudo-element decoration */
+    box-shadow:    var(--sh);
+}
+
+/* Decorative gold gradient bar at the top edge of the support box */
+.support-box::before {
+    content:    '';
+    position:   absolute;
+    top:        0;
+    left:       50%;
+    transform:  translateX(-50%);
+    width:      300px;
+    height:     3px;
+    background: linear-gradient(90deg, transparent, var(--gold-bd), transparent);
+}
+
+@media (max-width: 680px) {
+    .support-box {
+        padding: 40px 22px;
+    }
+}
+
+.support-title {
+    font-size:      clamp(26px, 3.5vw, 40px);
+    font-weight:    800;
+    letter-spacing: -.03em;
+    color:          var(--blue-dk);
+    margin:         10px 0 14px;
+}
+
+/* Gold highlight on "IoTMaker vivo" */
+.support-title .hi {
+    color: var(--gold);
+}
+
+.support-desc {
+    max-width:   520px;
+    margin:      0 auto 48px;
+    font-size:   17px;
+    color:       var(--text-dim);
+}
+
+/* PIX key reveal row — centered, sits below the support cards */
+#pix-row {
+    display:         flex;
+    justify-content: center;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * 8. FOOTER
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+footer {
+    padding:    40px 0 28px;
+    border-top: 1px solid var(--border);
+}
+
+/* Three-item flex row: logo | links | copyright */
+.footer-inner {
+    display:         flex;
+    align-items:     center;
+    justify-content: space-between;
+    flex-wrap:       wrap; /* wraps on very small screens */
+    gap:             18px;
+}
+
+.footer-logo {
+    font-family: var(--mono);
+    font-size:   15px;
+    font-weight: 700;
+    color:       var(--blue-dk);
+}
+
+/* Gold accent on "Maker" in the footer wordmark */
+.footer-logo span {
+    color: var(--gold);
+}
+
+.footer-links {
+    display:   flex;
+    gap:       22px;
+    font-size: 13px;
+    color:     var(--text-mute);
+}
+
+.footer-links a:hover {
+    color: var(--blue);
+}
+
+.footer-copy {
+    font-size:   12px;
+    color:       var(--text-mute);
+    font-family: var(--mono);
+}

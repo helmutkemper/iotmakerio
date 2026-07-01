@@ -1,0 +1,150 @@
+# .gitignore — Go / WASM project
+#
+# Based on GitHub's official Go template plus adjustments for the IoTMaker
+# IDE layout (WASM binary output, local SQLite DB, user-uploaded files,
+# WASM test runner support files if copied into the repo).
+
+# ── Go build artefacts ────────────────────────────────────────────────────────
+
+# Binaries compiled directly (no .exe extension on Unix).
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries built by `go test -c`.
+*.test
+
+# Output of the go coverage tool.
+*.out
+coverage.out
+coverage.html
+
+# Go workspace file (generally not committed — see go help work).
+go.work
+go.work.sum
+
+# Dependency directories — we use modules, vendor/ is almost never committed.
+vendor/
+
+# ── WASM build output ─────────────────────────────────────────────────────────
+
+# The compiled WASM binary at the repository root (produced by make wasm /
+# make wasm-force). The canonical copy lives under server/public/ide/ and
+# is served to the browser; the root copy is an intermediate artefact.
+/main.wasm
+
+# Do NOT ignore server/public/ide/main.wasm — that one IS served to the
+# browser and its presence is required for `docker compose up` to serve
+# the IDE without a prior wasm build. Keep it committed OR rebuild it in
+# every deploy pipeline, your call.
+# If you prefer to NEVER commit wasm (relying on build pipeline), uncomment:
+# server/public/ide/main.wasm
+
+# ── Runtime data (local dev) ──────────────────────────────────────────────────
+
+# SQLite development database and WAL/SHM sidecar files.
+server/data/iotmaker.db
+server/data/iotmaker.db-journal
+server/data/iotmaker.db-wal
+server/data/iotmaker.db-shm
+
+# User-uploaded project files (code, images, docs) — never commit these.
+server/data/files/
+
+# Redis dump if someone runs redis locally with persistence.
+dump.rdb
+
+# ── Logs & local scratch ──────────────────────────────────────────────────────
+
+*.log
+/tmp/
+/.tmp/
+
+# ── IDE / editor files ────────────────────────────────────────────────────────
+
+# VS Code.
+.vscode/
+*.code-workspace
+
+# JetBrains (GoLand / IntelliJ).
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Vim.
+*.swp
+*.swo
+*~
+
+# Emacs.
+\#*\#
+.\#*
+
+# Sublime.
+*.sublime-project
+*.sublime-workspace
+
+# ── OS files ──────────────────────────────────────────────────────────────────
+
+# macOS.
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# Linux.
+.directory
+.Trash-*
+
+# Windows.
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ── Secrets / environment ─────────────────────────────────────────────────────
+
+# Never commit env files with credentials. A sample template like .env.example
+# CAN be committed — it has placeholders, not real secrets.
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ── Node (wasm test runner uses node, but deps should not be committed) ───────
+
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Project-specific ──────────────────────────────────────────────────────────
+
+# utilWasm/ contains go_js_wasm_exec and wasm_exec.js copied from a Go
+# toolchain for running WASM tests. The files are small and the project
+# may intentionally vendor them to avoid Go-version path fragility
+# (lib/wasm vs misc/wasm across Go versions). Keep them committed —
+# they are NOT ignored. Delete this comment block if you decide otherwise.
+
+# Screenshots and scratch images dropped into the root during debugging.
+/screenshot-*.png
+/screen-*.png
+/tmp-*.png
+
+# Docker build/local overrides (docker-compose.override.yml is a common
+# local-only customisation file).
+docker-compose.override.yml
+
+# Goreleaser output if ever used.
+dist/
+
+CLAUDE.menu.md
+_CLAUDE.md
+lixo.txt
+utilsZipFile/*.zip
+/IA

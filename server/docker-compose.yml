@@ -1,0 +1,89 @@
+# docker-compose.yml — IoTMaker Portal development environment.
+#
+# Services:
+#   redis    — Asynq/session backend (Redis 7, AOF persistence)
+#   server   — HTTP server (port 8080)
+#   worker   — Background task worker (shares SQLite + user-files volume with server)
+#
+# Persistent data layout on the host:
+#
+#   ./data/iotmaker.db          — SQLite database (projects, users, blackboxes…)
+#   ./data/files/               — User-uploaded files (project code, images, docs)
+#
+# Both are bind-mounted into /app/data inside the containers so they survive
+# docker-compose up --build (image rebuilds) and container restarts.
+#
+# GitHub OAuth setup (required for device/template submission):
+#
+#   1. Go to https://github.com/settings/developers → "New OAuth App"
+#   2. Authorization callback URL: http://localhost:8080/api/auth/github/callback
+#   3. Copy Client ID and Client Secret into GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET below.
+#
+#   Without these values the "Connect GitHub" button on the profile page returns 503,
+#   but the rest of the portal works normally.
+
+services:
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── HTTP server ────────────────────────────────────────────────────────────
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      # ./data is a host bind-mount that survives container rebuilds.
+      # Both the SQLite file and the user-files directory live here.
+      - ./data:/app/data
+    environment:
+      SERVER_PORT:    "8080"
+      REDIS_ADDR:     "redis:6379"
+      DB_PATH:        "/app/data/iotmaker.db"
+      TEMPLATES_DIR:  "public/templates"
+      STATIC_DIR:     "public"
+      JWT_SECRET:     "${JWT_SECRET:-dev-secret-CHANGE-IN-PRODUCTION}"
+      # USER_FILES_DIR must be inside the persisted volume (/app/data).
+      USER_FILES_DIR: "/app/data/files"
+      # GitHub OAuth — required for specialists to connect their GitHub account.
+      # Without these the /api/auth/github endpoints return 503.
+      # See setup instructions at the top of this file.
+      GITHUB_CLIENT_ID:     "${GITHUB_CLIENT_ID:-}"
+      GITHUB_CLIENT_SECRET: "${GITHUB_CLIENT_SECRET:-}"
+
+  # ── Background worker ──────────────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+    environment:
+      REDIS_ADDR:     "redis:6379"
+      DB_PATH:        "/app/data/iotmaker.db"
+      USER_FILES_DIR: "/app/data/files"
+
+volumes:
+  redis-data:

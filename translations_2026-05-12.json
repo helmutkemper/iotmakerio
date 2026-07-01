@@ -1,0 +1,1384 @@
+{
+  "en-US": {
+    "messages": [
+      {
+        "id": "auth.forgot",
+        "other": "Forgot password"
+      },
+      {
+        "id": "auth.login",
+        "other": "Log in"
+      },
+      {
+        "id": "auth.register",
+        "other": "Create account"
+      },
+      {
+        "id": "auth.reset",
+        "other": "Reset password"
+      },
+      {
+        "id": "auth.verify",
+        "other": "Verify email"
+      },
+      {
+        "id": "backupRestoredHint",
+        "other": "Press Ctrl+S to save your work, or continue editing."
+      },
+      {
+        "id": "backupRestoredMsg",
+        "other": "Your previous unsaved work has been restored from a backup."
+      },
+      {
+        "id": "backupRestoredTitle",
+        "other": "Backup restored"
+      },
+      {
+        "id": "bb.analyze",
+        "other": "Analyze"
+      },
+      {
+        "id": "bb.empty",
+        "other": "No components yet."
+      },
+      {
+        "id": "bb.error.empty",
+        "other": "Code cannot be empty."
+      },
+      {
+        "id": "bb.error.parse",
+        "other": "Parse error"
+      },
+      {
+        "id": "bb.submit",
+        "other": "Parse & Save"
+      },
+      {
+        "id": "bb.title",
+        "other": "Black Box Library"
+      },
+      {
+        "id": "codegenGenerating",
+        "other": "Generating Code"
+      },
+      {
+        "id": "codegenGeneratingDetail",
+        "other": "Building Go source from your stage…"
+      },
+      {
+        "id": "ctxMenuPreviewHint",
+        "other": "Hover an item to see what it does."
+      },
+      {
+        "id": "error.internal",
+        "other": "An internal error occurred. Please try again."
+      },
+      {
+        "id": "error.unauthorized",
+        "other": "You must be logged in."
+      },
+      {
+        "id": "help.title.notFound",
+        "other": "# title not found"
+      },
+      {
+        "id": "helpMenuBoolToggle",
+        "other": "Flips this boolean constant between true and false. The label shows which value will be set next."
+      },
+      {
+        "id": "helpMenuConnect",
+        "other": "Starts visual connect mode. Compatible connectors light up on the stage; click one to draw a wire. Click outside or press Escape to cancel."
+      },
+      {
+        "id": "helpMenuDelete",
+        "other": "Removes this device from the stage and disconnects any wires attached to it. This cannot be undone."
+      },
+      {
+        "id": "helpMenuInspect",
+        "other": "Opens the property editor for this device. Change its label, configure its type, edit its internal options. Closes without applying when you tap outside."
+      },
+      {
+        "id": "helpViewCameraControls",
+        "other": "Camera Controls"
+      },
+      {
+        "id": "helpViewFitAll",
+        "other": "Fit all: f key"
+      },
+      {
+        "id": "helpViewGoHomeText",
+        "other": "Go home: Home / ctrl+h"
+      },
+      {
+        "id": "helpViewPanText",
+        "other": "Pan: Middle mouse + drag / Arrow keys"
+      },
+      {
+        "id": "helpViewThisHelp",
+        "other": "This help: ? key"
+      },
+      {
+        "id": "helpViewZoomInText",
+        "other": "Zoom in: Scroll up / + key"
+      },
+      {
+        "id": "helpViewZoomOutText",
+        "other": "Zoom out: Scroll down / - key"
+      },
+      {
+        "id": "liveApiKeys",
+        "other": "API Keys"
+      },
+      {
+        "id": "liveConnect",
+        "other": "Connect"
+      },
+      {
+        "id": "liveCreateKey",
+        "other": "Create Key"
+      },
+      {
+        "id": "liveDeviceId",
+        "other": "Device ID"
+      },
+      {
+        "id": "liveKeyCopied",
+        "other": "Copied!"
+      },
+      {
+        "id": "liveKeyCopy",
+        "other": "Copy to clipboard"
+      },
+      {
+        "id": "liveKeyCreateError",
+        "other": "Error creating key"
+      },
+      {
+        "id": "liveKeyCreated",
+        "other": "API Key Created"
+      },
+      {
+        "id": "liveKeyLabel",
+        "other": "Key Name"
+      },
+      {
+        "id": "liveKeyLabelPlaceholder",
+        "other": "My temperature sensor"
+      },
+      {
+        "id": "liveKeyWarning",
+        "other": "Save this key now. It will not be shown again."
+      },
+      {
+        "id": "liveKeysEmpty",
+        "other": "No active keys. Click [+ New Key] to create one."
+      },
+      {
+        "id": "liveKeysError",
+        "other": "Error loading keys"
+      },
+      {
+        "id": "liveKeysNoProject",
+        "other": "Set a project ID first."
+      },
+      {
+        "id": "liveKeysParseError",
+        "other": "Failed to parse key list."
+      },
+      {
+        "id": "liveLoadingHelp",
+        "other": "Loading help..."
+      },
+      {
+        "id": "liveLoadingKeys",
+        "other": "Loading keys..."
+      },
+      {
+        "id": "liveNewKey",
+        "other": "New Key"
+      },
+      {
+        "id": "liveNewKeyTitle",
+        "other": "New API Key"
+      },
+      {
+        "id": "liveProjectHint",
+        "other": "Identifies your project in webhook URLs and WebSocket connections. Saved in browser storage."
+      },
+      {
+        "id": "liveProjectId",
+        "other": "Project ID"
+      },
+      {
+        "id": "liveProjectIdHint",
+        "other": "Save a project name to generate the ID"
+      },
+      {
+        "id": "liveProjectName",
+        "other": "Project Name"
+      },
+      {
+        "id": "liveProjectNamePlaceholder",
+        "other": "My Temperature Sensor"
+      },
+      {
+        "id": "liveSave",
+        "other": "Save"
+      },
+      {
+        "id": "liveSaved",
+        "other": "Saved"
+      },
+      {
+        "id": "liveStatusConnected",
+        "other": "Connected to"
+      },
+      {
+        "id": "liveStatusDisconnected",
+        "other": "Disconnected"
+      },
+      {
+        "id": "liveTitle",
+        "other": "Live Communication"
+      },
+      {
+        "id": "loadExample",
+        "other": "▶ Load Example"
+      },
+      {
+        "id": "menuBoolSetTrue",
+        "other": "Set True"
+      },
+      {
+        "id": "menuCat_Other",
+        "other": "Other"
+      },
+      {
+        "id": "menuCat_Sensors",
+        "other": "Sensors"
+      },
+      {
+        "id": "menuDeviceBringForward",
+        "other": "Forward"
+      },
+      {
+        "id": "menuDeviceConnect",
+        "other": "Connect"
+      },
+      {
+        "id": "menuDeviceDelete",
+        "other": "Delete"
+      },
+      {
+        "id": "menuDeviceInspect",
+        "other": "Inspect"
+      },
+      {
+        "id": "menuDeviceMonitor",
+        "other": "Monitor"
+      },
+      {
+        "id": "menuDeviceResize",
+        "other": "Resize"
+      },
+      {
+        "id": "menuDeviceSendBackward",
+        "other": "Backward"
+      },
+      {
+        "id": "menuFormatBinary",
+        "other": "Binary"
+      },
+      {
+        "id": "menuFormatDecimal",
+        "other": "Decimal"
+      },
+      {
+        "id": "menuFormatHex",
+        "other": "Hex"
+      },
+      {
+        "id": "menuMainAdd",
+        "other": "Add"
+      },
+      {
+        "id": "menuMainBack",
+        "other": "Back"
+      },
+      {
+        "id": "menuMainBackgroundImage",
+        "other": "Background"
+      },
+      {
+        "id": "menuMainBarGraph",
+        "other": "Bar"
+      },
+      {
+        "id": "menuMainButton",
+        "other": "Button"
+      },
+      {
+        "id": "menuMainChart",
+        "other": "Chart"
+      },
+      {
+        "id": "menuMainChartPro",
+        "other": "Chart Pro"
+      },
+      {
+        "id": "menuMainCommStatus",
+        "other": "Comm"
+      },
+      {
+        "id": "menuMainConst",
+        "other": "Const"
+      },
+      {
+        "id": "menuMainConstBool",
+        "other": "Bool"
+      },
+      {
+        "id": "menuMainConstDuration",
+        "other": "Duration"
+      },
+      {
+        "id": "menuMainConstFloat",
+        "other": "Float"
+      },
+      {
+        "id": "menuMainConstInt",
+        "other": "Int"
+      },
+      {
+        "id": "menuMainConstString",
+        "other": "String"
+      },
+      {
+        "id": "menuMainDisplay",
+        "other": "Display"
+      },
+      {
+        "id": "menuMainDiv",
+        "other": "Div"
+      },
+      {
+        "id": "menuMainEqualTo",
+        "other": "Equal to"
+      },
+      {
+        "id": "menuMainExit",
+        "other": "Exit"
+      },
+      {
+        "id": "menuMainExport",
+        "other": "Export"
+      },
+      {
+        "id": "menuMainExportGo",
+        "other": "Go Code"
+      },
+      {
+        "id": "menuMainExportJSON",
+        "other": "JSON"
+      },
+      {
+        "id": "menuMainFiles",
+        "other": "Files"
+      },
+      {
+        "id": "menuMainGauge",
+        "other": "Gauge"
+      },
+      {
+        "id": "menuMainGreaterThan",
+        "other": "Greater than"
+      },
+      {
+        "id": "menuMainGreaterThanOrEqualTo",
+        "other": "Greater than or equal to"
+      },
+      {
+        "id": "menuMainHardware",
+        "other": "Hardware"
+      },
+      {
+        "id": "menuMainIfElse",
+        "other": "If/Else"
+      },
+      {
+        "id": "menuMainImage",
+        "other": "Image"
+      },
+      {
+        "id": "menuMainKnob",
+        "other": "Knob"
+      },
+      {
+        "id": "menuMainLED",
+        "other": "LED"
+      },
+      {
+        "id": "menuMainLessThan",
+        "other": "Less than"
+      },
+      {
+        "id": "menuMainLessThanOrEqualTo",
+        "other": "Less than or equal to"
+      },
+      {
+        "id": "menuMainLogic",
+        "other": "Logic"
+      },
+      {
+        "id": "menuMainLoop",
+        "other": "Loop"
+      },
+      {
+        "id": "menuMainLoopDuration",
+        "other": "Timed"
+      },
+      {
+        "id": "menuMainMath",
+        "other": "Math"
+      },
+      {
+        "id": "menuMainMenuIcon",
+        "other": "Menu"
+      },
+      {
+        "id": "menuMainMul",
+        "other": "Mul"
+      },
+      {
+        "id": "menuMainMyItems",
+        "other": "My Items"
+      },
+      {
+        "id": "menuMainNoHardware",
+        "other": "No devices"
+      },
+      {
+        "id": "menuMainNotEqualTo",
+        "other": "Not equal to"
+      },
+      {
+        "id": "menuMainPieChart",
+        "other": "Pie Chart"
+      },
+      {
+        "id": "menuMainSettings",
+        "other": "Settings"
+      },
+      {
+        "id": "menuMainSevenSeg",
+        "other": "7-Seg"
+      },
+      {
+        "id": "menuMainSub",
+        "other": "Sub"
+      },
+      {
+        "id": "menuMainTextDisplay",
+        "other": "Text"
+      },
+      {
+        "id": "menuMonitorHistory",
+        "other": "History"
+      },
+      {
+        "id": "menuMonitorValue",
+        "other": "Value"
+      },
+      {
+        "id": "menuSubCat_Optical",
+        "other": "Optical"
+      },
+      {
+        "id": "menuValueFormat",
+        "other": "Format"
+      },
+      {
+        "id": "menuValueRange",
+        "other": "Range"
+      },
+      {
+        "id": "nav.blackbox",
+        "other": "Black Box"
+      },
+      {
+        "id": "nav.dashboard",
+        "other": "Dashboard"
+      },
+      {
+        "id": "nav.editorSettings",
+        "other": "Editor Settings"
+      },
+      {
+        "id": "nav.feed",
+        "other": "Community"
+      },
+      {
+        "id": "nav.following",
+        "other": "Following"
+      },
+      {
+        "id": "nav.home",
+        "other": "Home"
+      },
+      {
+        "id": "nav.ide",
+        "other": "Editor"
+      },
+      {
+        "id": "nav.language",
+        "other": "Language"
+      },
+      {
+        "id": "nav.login",
+        "other": "Log in"
+      },
+      {
+        "id": "nav.logout",
+        "other": "Log out"
+      },
+      {
+        "id": "nav.manage",
+        "other": "Manage"
+      },
+      {
+        "id": "nav.profile",
+        "other": "Profile"
+      },
+      {
+        "id": "nav.projects",
+        "other": "Devices"
+      },
+      {
+        "id": "nav.register",
+        "other": "Register"
+      },
+      {
+        "id": "nav.write",
+        "other": "New Post"
+      },
+      {
+        "id": "propLabel",
+        "other": "Label"
+      },
+      {
+        "id": "site.title",
+        "other": "IoTMaker",
+        "description": "Site title"
+      },
+      {
+        "id": "stageFileAllFiles",
+        "other": "All files"
+      },
+      {
+        "id": "stageFileCancel",
+        "other": "Cancel"
+      },
+      {
+        "id": "stageFileClose",
+        "other": "Close"
+      },
+      {
+        "id": "stageFileConfirmDelete",
+        "other": "Delete"
+      },
+      {
+        "id": "stageFileDelete",
+        "other": "Delete"
+      },
+      {
+        "id": "stageFileDeleteTitle",
+        "other": "Delete file"
+      },
+      {
+        "id": "stageFileDeleteWarn",
+        "other": "This action cannot be undone."
+      },
+      {
+        "id": "stageFileEmpty",
+        "other": "No files yet. Click \"Save current\" to save your stage."
+      },
+      {
+        "id": "stageFileFilesUsed",
+        "other": "files"
+      },
+      {
+        "id": "stageFileFolders",
+        "other": "Folders"
+      },
+      {
+        "id": "stageFileImportImage",
+        "other": "Import Image"
+      },
+      {
+        "id": "stageFileMove",
+        "other": "Move"
+      },
+      {
+        "id": "stageFileName",
+        "other": "Name"
+      },
+      {
+        "id": "stageFileNamePlaceholder",
+        "other": "My project"
+      },
+      {
+        "id": "stageFileNewFolder",
+        "other": "+ New folder"
+      },
+      {
+        "id": "stageFileOpen",
+        "other": "Open"
+      },
+      {
+        "id": "stageFileRename",
+        "other": "Rename"
+      },
+      {
+        "id": "stageFileSave",
+        "other": "Save"
+      },
+      {
+        "id": "stageFileSaveCurrent",
+        "other": "Save current"
+      },
+      {
+        "id": "stageFileSaveTitle",
+        "other": "Save current stage"
+      },
+      {
+        "id": "stageFileSaved",
+        "other": "File saved!"
+      },
+      {
+        "id": "stageFileTabAll",
+        "other": "All"
+      },
+      {
+        "id": "stageFileTabStages",
+        "other": "Stages"
+      },
+      {
+        "id": "stageFileTabTutorials",
+        "other": "Tutorials"
+      },
+      {
+        "id": "stageFileTitle",
+        "other": "Stage files"
+      },
+      {
+        "id": "stageViewTabBackend",
+        "other": "Backend"
+      },
+      {
+        "id": "stageViewTabFrontend",
+        "other": "Frontend"
+      },
+      {
+        "id": "tabHelp",
+        "other": "Help"
+      },
+      {
+        "id": "tabProperties",
+        "other": "Properties"
+      }
+    ]
+  },
+  "pt-BR": {
+    "messages": [
+      {
+        "id": "auth.forgot",
+        "other": "Esqueci a senha"
+      },
+      {
+        "id": "auth.login",
+        "other": "Entrar"
+      },
+      {
+        "id": "auth.register",
+        "other": "Criar conta"
+      },
+      {
+        "id": "auth.reset",
+        "other": "Redefinir senha"
+      },
+      {
+        "id": "auth.verify",
+        "other": "Verificar e-mail"
+      },
+      {
+        "id": "backupRestoredHint",
+        "other": "Pressione Ctrl+S para salvar seu trabalho ou continue editando."
+      },
+      {
+        "id": "backupRestoredMsg",
+        "other": "Seu trabalho anterior não salvo foi restaurado a partir de um backup."
+      },
+      {
+        "id": "backupRestoredTitle",
+        "other": "Backup restaurado"
+      },
+      {
+        "id": "bb.analyze",
+        "other": "Analisar"
+      },
+      {
+        "id": "bb.empty",
+        "other": "Nenhum componente ainda."
+      },
+      {
+        "id": "bb.error.empty",
+        "other": "O código não pode estar vazio."
+      },
+      {
+        "id": "bb.error.parse",
+        "other": "Erro no parse"
+      },
+      {
+        "id": "bb.submit",
+        "other": "Processar & Salvar"
+      },
+      {
+        "id": "bb.title",
+        "other": "Biblioteca Black Box"
+      },
+      {
+        "id": "codegenGenerating",
+        "other": "Geração de código"
+      },
+      {
+        "id": "codegenGeneratingDetail",
+        "other": "Construindo código Go a partir do seu stage…"
+      },
+      {
+        "id": "ctxMenuPreviewHint",
+        "other": "Passe o cursor sobre um item para ver o que ele faz."
+      },
+      {
+        "id": "error.internal",
+        "other": "Erro interno. Tente novamente."
+      },
+      {
+        "id": "error.unauthorized",
+        "other": "Você precisa estar logado."
+      },
+      {
+        "id": "help.title.notFound",
+        "other": "# Título não encontrado"
+      },
+      {
+        "id": "helpMenuBoolToggle",
+        "other": "Alterna o valor desta constante booleana entre verdadeiro e falso. O rótulo indica qual valor será definido em seguida."
+      },
+      {
+        "id": "helpMenuConnect",
+        "other": "Inicia o modo de conexão visual. Os conectores compatíveis acendem no stage; clique em um para desenhar um fio. Clique fora ou pressione Esc para cancelar."
+      },
+      {
+        "id": "helpMenuDelete",
+        "other": "Remove este dispositivo do stage e desconecte todos os fios a ele ligados. Esta ação é irreversível."
+      },
+      {
+        "id": "helpMenuInspect",
+        "other": "Abre o editor de propriedades deste dispositivo. Altere o rótulo, configure o tipo e edite as opções internas. Fecha sem aplicar as alterações ao tocar fora dele."
+      },
+      {
+        "id": "helpViewCameraControls",
+        "other": "Controles de câmera"
+      },
+      {
+        "id": "helpViewFitAll",
+        "other": "Ajustar tudo: tecla f"
+      },
+      {
+        "id": "helpViewGoHomeText",
+        "other": "Início: Home / ctrl+h"
+      },
+      {
+        "id": "helpViewPanText",
+        "other": "Pan: Botão do meio + arrastar / Setas"
+      },
+      {
+        "id": "helpViewThisHelp",
+        "other": "Esta ajuda: tecla ?"
+      },
+      {
+        "id": "helpViewZoomInText",
+        "other": "Zoom in: Scroll cima / tecla +"
+      },
+      {
+        "id": "helpViewZoomOutText",
+        "other": "Zoom out: Scroll baixo / tecla -"
+      },
+      {
+        "id": "liveApiKeys",
+        "other": "Chaves de API"
+      },
+      {
+        "id": "liveConnect",
+        "other": "Conectar"
+      },
+      {
+        "id": "liveCreateKey",
+        "other": "Criar Chave"
+      },
+      {
+        "id": "liveDeviceId",
+        "other": "ID do Dispositivo"
+      },
+      {
+        "id": "liveKeyCopied",
+        "other": "Copiado!"
+      },
+      {
+        "id": "liveKeyCopy",
+        "other": "Copiar"
+      },
+      {
+        "id": "liveKeyCreateError",
+        "other": "Erro ao criar chave"
+      },
+      {
+        "id": "liveKeyCreated",
+        "other": "Chave de API Criada"
+      },
+      {
+        "id": "liveKeyLabel",
+        "other": "Nome da Chave"
+      },
+      {
+        "id": "liveKeyLabelPlaceholder",
+        "other": "Meu sensor de temperatura"
+      },
+      {
+        "id": "liveKeyRevoke",
+        "other": "Revogar"
+      },
+      {
+        "id": "liveKeyWarning",
+        "other": "Salve esta chave agora. Ela não será exibida novamente."
+      },
+      {
+        "id": "liveKeysEmpty",
+        "other": "Nenhuma chave ativa. Clique [+ Nova Chave] para criar uma."
+      },
+      {
+        "id": "liveKeysError",
+        "other": "Erro ao carregar chaves"
+      },
+      {
+        "id": "liveKeysNoProject",
+        "other": "Defina um Project ID primeiro."
+      },
+      {
+        "id": "liveKeysParseError",
+        "other": "Falha ao processar lista de chaves."
+      },
+      {
+        "id": "liveLoadingHelp",
+        "other": "Carregando ajuda..."
+      },
+      {
+        "id": "liveLoadingKeys",
+        "other": "Carregando chaves..."
+      },
+      {
+        "id": "liveNewKey",
+        "other": "Nova Chave"
+      },
+      {
+        "id": "liveNewKeyTitle",
+        "other": "Nova Chave de API"
+      },
+      {
+        "id": "liveProjectHint",
+        "other": "Identifica seu projeto nas URLs de webhook e conexões WebSocket. Salvo no navegador."
+      },
+      {
+        "id": "liveProjectId",
+        "other": "ID do Projeto"
+      },
+      {
+        "id": "liveProjectIdHint",
+        "other": "Salve um nome de projeto para gerar o ID"
+      },
+      {
+        "id": "liveProjectName",
+        "other": "Nome do Projeto"
+      },
+      {
+        "id": "liveProjectNamePlaceholder",
+        "other": "Meu Sensor de Temperatura"
+      },
+      {
+        "id": "liveSave",
+        "other": "Salvar"
+      },
+      {
+        "id": "liveSaved",
+        "other": "Salvo"
+      },
+      {
+        "id": "liveStatusConnected",
+        "other": "Conectado a"
+      },
+      {
+        "id": "liveStatusDisconnected",
+        "other": "Desconectado"
+      },
+      {
+        "id": "liveTitle",
+        "other": "Comunicação Live"
+      },
+      {
+        "id": "loadExample",
+        "other": "▶ Carregar exemplo"
+      },
+      {
+        "id": "menuBoolSetTrue",
+        "other": "Set True"
+      },
+      {
+        "id": "menuCat_Other",
+        "other": "Outros"
+      },
+      {
+        "id": "menuCat_Sensors",
+        "other": "Sensores"
+      },
+      {
+        "id": "menuDeviceBringForward",
+        "other": "Avançar"
+      },
+      {
+        "id": "menuDeviceConnect",
+        "other": "Conectar"
+      },
+      {
+        "id": "menuDeviceDelete",
+        "other": "Apagar"
+      },
+      {
+        "id": "menuDeviceInspect",
+        "other": "Inspecionar"
+      },
+      {
+        "id": "menuDeviceMonitor",
+        "other": "Monitor"
+      },
+      {
+        "id": "menuDeviceResize",
+        "other": "Redimensionar"
+      },
+      {
+        "id": "menuDeviceSendBackward",
+        "other": "Voltar"
+      },
+      {
+        "id": "menuFormatBinary",
+        "other": "Binário"
+      },
+      {
+        "id": "menuFormatDecimal",
+        "other": "Decimal"
+      },
+      {
+        "id": "menuFormatHex",
+        "other": "Hex"
+      },
+      {
+        "id": "menuMainAdd",
+        "other": "Somar"
+      },
+      {
+        "id": "menuMainBack",
+        "other": "Voltar"
+      },
+      {
+        "id": "menuMainBackgroundImage",
+        "other": "Fundo"
+      },
+      {
+        "id": "menuMainBarGraph",
+        "other": "Barra"
+      },
+      {
+        "id": "menuMainButton",
+        "other": "Botão"
+      },
+      {
+        "id": "menuMainChart",
+        "other": "Gráfico"
+      },
+      {
+        "id": "menuMainChartPro",
+        "other": "Gráfico Pro"
+      },
+      {
+        "id": "menuMainCommStatus",
+        "other": "Comunicação"
+      },
+      {
+        "id": "menuMainConst",
+        "other": "Constante"
+      },
+      {
+        "id": "menuMainConstBool",
+        "other": "Booleano"
+      },
+      {
+        "id": "menuMainConstDuration",
+        "other": "Duração"
+      },
+      {
+        "id": "menuMainConstFloat",
+        "other": "Ponto flutuante"
+      },
+      {
+        "id": "menuMainConstInt",
+        "other": "Inteiro"
+      },
+      {
+        "id": "menuMainConstString",
+        "other": "String"
+      },
+      {
+        "id": "menuMainDisplay",
+        "other": "Display"
+      },
+      {
+        "id": "menuMainDiv",
+        "other": "Dividir"
+      },
+      {
+        "id": "menuMainEqualTo",
+        "other": "Igual a"
+      },
+      {
+        "id": "menuMainExit",
+        "other": "Sair"
+      },
+      {
+        "id": "menuMainExport",
+        "other": "Exportar"
+      },
+      {
+        "id": "menuMainExportGo",
+        "other": "Código Go"
+      },
+      {
+        "id": "menuMainExportJSON",
+        "other": "JSON"
+      },
+      {
+        "id": "menuMainFiles",
+        "other": "Arquivos"
+      },
+      {
+        "id": "menuMainGauge",
+        "other": "Medidor"
+      },
+      {
+        "id": "menuMainGreaterThan",
+        "other": "Maior que"
+      },
+      {
+        "id": "menuMainGreaterThanOrEqualTo",
+        "other": "Maior ou igual a"
+      },
+      {
+        "id": "menuMainHardware",
+        "other": "Hardware"
+      },
+      {
+        "id": "menuMainIfElse",
+        "other": "If/Else"
+      },
+      {
+        "id": "menuMainImage",
+        "other": "Imagem"
+      },
+      {
+        "id": "menuMainKnob",
+        "other": "Knob"
+      },
+      {
+        "id": "menuMainLED",
+        "other": "LED"
+      },
+      {
+        "id": "menuMainLessThan",
+        "other": "Menor que"
+      },
+      {
+        "id": "menuMainLessThanOrEqualTo",
+        "other": "Menor ou igual a"
+      },
+      {
+        "id": "menuMainLogic",
+        "other": "Lógica"
+      },
+      {
+        "id": "menuMainLoop",
+        "other": "Laço"
+      },
+      {
+        "id": "menuMainLoopDuration",
+        "other": "Cronometrado"
+      },
+      {
+        "id": "menuMainMath",
+        "other": "Matemática"
+      },
+      {
+        "id": "menuMainMenuIcon",
+        "other": "Menu"
+      },
+      {
+        "id": "menuMainMul",
+        "other": "Multiplicar"
+      },
+      {
+        "id": "menuMainMyItems",
+        "other": "Meus Itens"
+      },
+      {
+        "id": "menuMainNoHardware",
+        "other": "Sem dispositivos"
+      },
+      {
+        "id": "menuMainNotEqualTo",
+        "other": "Diferente de"
+      },
+      {
+        "id": "menuMainPieChart",
+        "other": "Gráfico Pizza"
+      },
+      {
+        "id": "menuMainSettings",
+        "other": "Configurações"
+      },
+      {
+        "id": "menuMainSevenSeg",
+        "other": "7-Seg"
+      },
+      {
+        "id": "menuMainSub",
+        "other": "Subtrair"
+      },
+      {
+        "id": "menuMainTextDisplay",
+        "other": "Texto"
+      },
+      {
+        "id": "menuMonitorHistory",
+        "other": "histórico"
+      },
+      {
+        "id": "menuMonitorValue",
+        "other": "Valor"
+      },
+      {
+        "id": "menuSubCat_Optical",
+        "other": "Ótico"
+      },
+      {
+        "id": "menuValueFormat",
+        "other": "Formato"
+      },
+      {
+        "id": "menuValueRange",
+        "other": "Faixa"
+      },
+      {
+        "id": "nav.blackbox",
+        "other": "Caixa preta"
+      },
+      {
+        "id": "nav.dashboard",
+        "other": "Painel"
+      },
+      {
+        "id": "nav.editorSettings",
+        "other": "Configurações do editor"
+      },
+      {
+        "id": "nav.feed",
+        "other": "Comunidade"
+      },
+      {
+        "id": "nav.following",
+        "other": "Seguindo"
+      },
+      {
+        "id": "nav.home",
+        "other": "Início"
+      },
+      {
+        "id": "nav.ide",
+        "other": "Editor"
+      },
+      {
+        "id": "nav.language",
+        "other": "Idioma"
+      },
+      {
+        "id": "nav.login",
+        "other": "Entrar"
+      },
+      {
+        "id": "nav.logout",
+        "other": "Sair"
+      },
+      {
+        "id": "nav.manage",
+        "other": "Gerenciar"
+      },
+      {
+        "id": "nav.profile",
+        "other": "Perfil"
+      },
+      {
+        "id": "nav.projects",
+        "other": "Dispositivos"
+      },
+      {
+        "id": "nav.register",
+        "other": "Cadastro"
+      },
+      {
+        "id": "nav.write",
+        "other": "Novo post"
+      },
+      {
+        "id": "propLabel",
+        "other": "Rótulo"
+      },
+      {
+        "id": "site.title",
+        "other": "IoTMaker",
+        "description": "Site title"
+      },
+      {
+        "id": "stageFileAllFiles",
+        "other": "Todos os arquivos"
+      },
+      {
+        "id": "stageFileCancel",
+        "other": "Cancelar"
+      },
+      {
+        "id": "stageFileClose",
+        "other": "Fechar"
+      },
+      {
+        "id": "stageFileConfirmDelete",
+        "other": "Apagar"
+      },
+      {
+        "id": "stageFileDelete",
+        "other": "Apagar"
+      },
+      {
+        "id": "stageFileDeleteTitle",
+        "other": "Apagar arquivos"
+      },
+      {
+        "id": "stageFileDeleteWarn",
+        "other": "Esta ação não pode ser desfeita."
+      },
+      {
+        "id": "stageFileEmpty",
+        "other": "Ainda não há arquivos. Clique em \"Salvar atual\" para salvar seu stage."
+      },
+      {
+        "id": "stageFileFilesUsed",
+        "other": "arquivos"
+      },
+      {
+        "id": "stageFileFolders",
+        "other": "Pastas"
+      },
+      {
+        "id": "stageFileImportImage",
+        "other": "Importar imagem"
+      },
+      {
+        "id": "stageFileMove",
+        "other": "Mover"
+      },
+      {
+        "id": "stageFileName",
+        "other": "Nome"
+      },
+      {
+        "id": "stageFileNamePlaceholder",
+        "other": "Meu projeto"
+      },
+      {
+        "id": "stageFileNewFolder",
+        "other": "+ Novo arquivo"
+      },
+      {
+        "id": "stageFileOpen",
+        "other": "Abrir"
+      },
+      {
+        "id": "stageFileRename",
+        "other": "Renomear"
+      },
+      {
+        "id": "stageFileSave",
+        "other": "Salvar"
+      },
+      {
+        "id": "stageFileSaveCurrent",
+        "other": "Salvar atual"
+      },
+      {
+        "id": "stageFileSaveTitle",
+        "other": "Salvar o stage atual"
+      },
+      {
+        "id": "stageFileSaved",
+        "other": "Arquivo salvo!"
+      },
+      {
+        "id": "stageFileTabAll",
+        "other": "Todos"
+      },
+      {
+        "id": "stageFileTabStages",
+        "other": "Stages"
+      },
+      {
+        "id": "stageFileTabTutorials",
+        "other": "Tutorials"
+      },
+      {
+        "id": "stageFileTitle",
+        "other": "Stage files"
+      },
+      {
+        "id": "stageViewTabBackend",
+        "other": "Backend"
+      },
+      {
+        "id": "stageViewTabFrontend",
+        "other": "Frontend"
+      },
+      {
+        "id": "tabHelp",
+        "other": "Help"
+      },
+      {
+        "id": "tabProperties",
+        "other": "Propriedades"
+      }
+    ]
+  }
+}

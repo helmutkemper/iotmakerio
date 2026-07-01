@@ -1,0 +1,918 @@
+// /ide/server/store/menu_tree_seed.go
+
+// server/store/menu_tree_seed.go — Populates the menu tree tables on first boot.
+//
+// Called from migrate() in db.go after the menu tree tables are created.
+// All operations use INSERT OR IGNORE so re-running is safe and idempotent.
+//
+// Seed order:
+//  1. Catalog (menu_items) — all system items
+//  2. Default profile (menu_profiles) — the "default" profile with locked=1
+//  3. Default layout (menu_layout) — all items positioned in their natural tree
+//
+// icon_fa stores the FontAwesome icon NAME (e.g., "square-root-variable"),
+// not SVG path data. The Control Panel uses this for <i class="fa-solid fa-{name}">.
+// The WASM factory functions have their own hardcoded SVG path data and use it
+// as the default — the database icon is only relevant for Control Panel display
+// and for custom_icon overrides in menu_layout.
+//
+// When a new item is added to the catalog in the future (e.g., SysSin):
+//   - Insert into menu_items (catalog)
+//   - For each existing profile in menu_profiles:
+//   - is_default=1 → insert into menu_layout with visible=1, position=last
+//   - otherwise     → insert into menu_layout with visible=0, position=last
+//     This is handled by InsertCatalogItem() in menu_tree.go, not here.
+package store
+
+import (
+	"log"
+	"time"
+)
+
+// SeedMenuTree creates the default catalog, profile, and layout if the
+// menu_items table is empty. Called once during server boot from migrate().
+//
+// Label migrations (migrateMenuTreeLabels) ALWAYS run, even when the
+// catalog is already populated — that's the only way for an existing
+// installation to pick up label changes between releases without
+// requiring the user to delete their database. The seed itself uses
+// INSERT OR IGNORE so it cannot retroactively fix a row written by
+// an earlier version of this file; the explicit UPDATEs in
+// migrateMenuTreeLabels close that gap.
+func SeedMenuTree() error {
+	// Step 0: reconcile label changes for rows seeded by earlier
+	// versions of this file. Idempotent — runs every boot.
+	if err := migrateMenuTreeLabels(); err != nil {
+		return err
+	}
+
+	// Check if catalog is already populated — skip the rest if so.
+	var count int
+	if err := DB.QueryRow(`SELECT COUNT(*) FROM menu_items`).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		log.Printf("[menu_tree_seed] catalog already has %d items, skipping seed", count)
+		return nil
+	}
+
+	log.Printf("[menu_tree_seed] seeding menu tree catalog, profile, and layout...")
+
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// ── Step 1: Seed catalog ─────────────────────────────────────────────────
+
+	type catalogItem struct {
+		slotID      string
+		slotType    string // "system"
+		itemType    string // "submenu" | "action" | "exit"
+		locked      int
+		labelKey    string
+		fallback    string
+		iconFA      string // FontAwesome icon name for Control Panel display
+		iconViewbox string
+		colorBrand  string // only for section items
+		deviceRefID string // only for device items
+	}
+
+	catalog := []catalogItem{
+		// ── Root-level items ──────────────────────────────────────────────
+		{"SysMath", "system", "submenu", 1, "menuMainMath", "Math", "square-root-variable", "0 0 640 640", "", ""},
+		{"SysLogic", "system", "submenu", 1, "menuMainLogic", "Logic", "binary", "0 0 640 512", "", ""},
+		{"SysLoop", "system", "submenu", 1, "menuMainLoop", "Loop", "repeat", "0 0 512 512", "", ""},
+		{"SysConst", "system", "submenu", 1, "menuMainConst", "Const", "bars", "0 0 448 512", "", ""},
+		{"SysVar", "system", "submenu", 1, "menuMainVar", "Variables", "suitcase", "0 0 512 512", "", ""},
+		{"SysDisplay", "system", "submenu", 1, "menuMainDisplay", "Display", "desktop", "0 0 576 512", "", ""},
+		{"SysMyItems", "system", "submenu", 1, "menuMainMyItems", "My Items", "box-open", "0 0 640 512", "", ""},
+		{"SysExport", "system", "submenu", 1, "menuMainExport", "Export", "file-export", "0 0 576 512", "", ""},
+		{"SysSettings", "system", "action", 1, "menuMainSettings", "Settings", "gear", "0 0 512 512", "", ""},
+		{"SysExit", "system", "exit", 1, "menuMainExit", "Exit", "right-from-bracket", "0 0 512 512", "", ""},
+
+		// ── Math children ────────────────────────────────────────────────
+		{"SysAdd", "system", "action", 1, "menuMainAdd", "Add", "plus", "0 0 448 512", "", ""},
+		{"SysSub", "system", "action", 1, "menuMainSub", "Sub", "minus", "0 0 448 512", "", ""},
+		{"SysMul", "system", "action", 1, "menuMainMul", "Mul", "xmark", "0 0 384 512", "", ""},
+		{"SysDiv", "system", "action", 1, "menuMainDiv", "Div", "divide", "0 0 448 512", "", ""},
+
+		// ── Logic children ───────────────────────────────────────────────
+		{"SysEqualTo", "system", "action", 1, "menuMainEqualTo", "Equal to", "equals", "0 0 640 512", "", ""},
+		{"SysNotEqualTo", "system", "action", 1, "menuMainNotEqualTo", "Not equal to", "not-equal", "0 0 640 512", "", ""},
+		{"SysLessThan", "system", "action", 1, "menuMainLessThan", "Less than", "less-than", "0 0 640 512", "", ""},
+		{"SysLessThanOrEqualTo", "system", "action", 1, "menuMainLessThanOrEqualTo", "Less than or equal to", "less-than-equal", "0 0 640 512", "", ""},
+		{"SysGreaterThan", "system", "action", 1, "menuMainGreaterThan", "Greater than", "greater-than", "0 0 640 512", "", ""},
+		{"SysGreaterThanOrEqualTo", "system", "action", 1, "menuMainGreaterThanOrEqualTo", "Greater than or equal to", "greater-than-equal", "0 0 640 512", "", ""},
+		{"SysCaseItem", "system", "action", 1, "menuMainCase", "Case", "layer-group", "0 0 512 512", "", ""},
+
+		// ── Loop children ────────────────────────────────────────────────
+		{"SysLoopItem", "system", "action", 1, "menuMainLoop", "Loop", "repeat", "0 0 512 512", "", ""},
+		{"SysLoopDurationItem", "system", "action", 1, "menuMainLoopDuration", "Timed", "hourglass-half", "0 0 384 512", "", ""},
+
+		// ── Const children ───────────────────────────────────────────────
+		{"SysConstInt", "system", "action", 1, "menuMainConstInt", "Int", "bars", "0 0 448 512", "", ""},
+		{"SysConstBool", "system", "action", 1, "menuMainConstBool", "Bool", "toggle-on", "0 0 576 512", "", ""},
+		{"SysConstFloat", "system", "action", 1, "menuMainConstFloat", "Float", "divide", "0 0 448 512", "", ""},
+		{"SysConstString", "system", "action", 1, "menuMainConstString", "String", "pen", "0 0 512 512", "", ""},
+		{"SysConstDuration", "system", "action", 1, "menuMainConstDuration", "Duration", "hourglass-half", "0 0 384 512", "", ""},
+		{"SysConstArrayInt", "system", "action", 1, "menuMainConstArrayInt", "Int Array", "layer-group", "0 0 512 512", "", ""},
+		{"SysConstArrayFloat", "system", "action", 1, "menuMainConstArrayFloat", "Float Array", "layer-group", "0 0 512 512", "", ""},
+		{"SysConstArrayString", "system", "action", 1, "menuMainConstArrayString", "String Array", "layer-group", "0 0 512 512", "", ""},
+
+		// ── Variables children ───────────────────────────────────────────
+		{"SysGetVarInt", "system", "action", 1, "menuMainGetVarInt", "Get Int", "bars", "0 0 448 512", "", ""},
+		{"SysGetVarFloat32", "system", "action", 1, "menuMainGetVarFloat32", "Get Float32", "bars", "0 0 448 512", "", ""},
+		{"SysGetVarFloat64", "system", "action", 1, "menuMainGetVarFloat64", "Get Float64", "bars", "0 0 448 512", "", ""},
+		{"SysSetVarInt", "system", "action", 1, "menuMainSetVarInt", "Set Int", "bars", "0 0 448 512", "", ""},
+		{"SysSetVarFloat32", "system", "action", 1, "menuMainSetVarFloat32", "Set Float32", "bars", "0 0 448 512", "", ""},
+		{"SysSetVarFloat64", "system", "action", 1, "menuMainSetVarFloat64", "Set Float64", "bars", "0 0 448 512", "", ""},
+		{"SysGetVarString", "system", "action", 1, "menuMainGetVarString", "Get String", "bars", "0 0 448 512", "", ""},
+		{"SysSetVarString", "system", "action", 1, "menuMainSetVarString", "Set String", "bars", "0 0 448 512", "", ""},
+
+		// ── Display children ─────────────────────────────────────────────
+		{"SysGauge", "system", "action", 1, "menuMainGauge", "Gauge", "gauge-high", "0 0 512 512", "", ""},
+		{"SysLED", "system", "action", 1, "menuMainLED", "LED", "lightbulb", "0 0 576 512", "", ""},
+		{"SysBarGraph", "system", "action", 1, "menuMainBarGraph", "Bar", "chart-bar", "0 0 448 512", "", ""},
+		{"SysTextDisplay", "system", "action", 1, "menuMainTextDisplay", "Text", "font", "0 0 512 512", "", ""},
+		{"SysButton", "system", "action", 1, "menuMainButton", "Button", "circle-play", "0 0 384 512", "", ""},
+		{"SysSevenSeg", "system", "action", 1, "menuMainSevenSeg", "7-Seg", "display", "0 0 576 512", "", ""},
+		{"SysKnob", "system", "action", 1, "menuMainKnob", "Knob", "dial", "0 0 512 512", "", ""},
+		{"SysChart", "system", "action", 1, "menuMainChart", "Chart", "chart-line", "0 0 512 512", "", ""},
+		{"SysChartPro", "system", "action", 1, "menuMainChartPro", "Chart Pro", "chart-area", "0 0 512 512", "", ""},
+		{"SysPieChart", "system", "action", 1, "menuMainPieChart", "Pie Chart", "chart-pie", "0 0 576 512", "", ""},
+		{"SysBgImage", "system", "action", 1, "menuMainBackgroundImage", "Background", "image", "0 0 448 512", "", ""},
+		{"SysCommStatus", "system", "action", 1, "menuMainCommStatus", "Comm", "network-wired", "0 0 640 512", "", ""},
+
+		// ── Export children ──────────────────────────────────────────────
+		{"SysExportJSON", "system", "action", 1, "menuMainExportJSON", "JSON", "file-code", "0 0 576 512", "", ""},
+		// slot_id "SysExportGo" kept for historical reasons (avoids a
+		// menu_layout rewrite). The label is language-neutral: the
+		// codegen pipeline picks the backend from w.Language at click
+		// time, so the menu doesn't surface the choice. See
+		// stageWorkspace/workspace.go → export().
+		{"SysExportGo", "system", "action", 1, "menuMainExport", "Export", "code", "0 0 512 512", "", ""},
+		{"SysExportFiles", "system", "action", 1, "menuMainFiles", "Files", "folder-open", "0 0 448 512", "", ""},
+		{"SysExportImage", "system", "action", 1, "menuMainImage", "Image", "camera", "0 0 448 512", "", ""},
+	}
+
+	for _, item := range catalog {
+		_, err := DB.Exec(`
+			INSERT OR IGNORE INTO menu_items
+				(slot_id, slot_type, item_type, locked, label_key, label_fallback,
+				 icon_fa, icon_viewbox, color_brand, device_ref_id, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			item.slotID, item.slotType, item.itemType, item.locked,
+			item.labelKey, item.fallback,
+			nullIfEmpty(item.iconFA), nullIfEmpty(item.iconViewbox),
+			nullIfEmpty(item.colorBrand), nullIfEmpty(item.deviceRefID),
+			now,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	log.Printf("[menu_tree_seed] inserted %d catalog items", len(catalog))
+
+	// ── Step 2: Create default profile ───────────────────────────────────────
+
+	_, err := DB.Exec(`
+		INSERT OR IGNORE INTO menu_profiles
+			(profile_id, name, description, is_default, locked, created_at, updated_at)
+		VALUES ('default', 'Default', 'Full menu with all items visible. Cannot be deleted.', 1, 1, ?, ?)`,
+		now, now,
+	)
+	if err != nil {
+		return err
+	}
+	log.Printf("[menu_tree_seed] created default profile")
+
+	// ── Step 3: Seed default layout ──────────────────────────────────────────
+	//
+	// Each entry defines: slot_id, parent_id (NULL=root), position.
+	// All items are visible=1 in the default profile.
+
+	type layoutEntry struct {
+		slotID   string
+		parentID string // "" means NULL (root level)
+		position int
+	}
+
+	layout := []layoutEntry{
+		// Root items (rail level)
+		{"SysMath", "", 1},
+		{"SysLogic", "", 2},
+		{"SysLoop", "", 3},
+		{"SysConst", "", 4},
+		{"SysVar", "", 5},
+		{"SysDisplay", "", 6},
+		{"SysExport", "", 7},
+		{"SysSettings", "", 8},
+		{"SysMyItems", "", 9},
+		{"SysExit", "", 10},
+
+		// Math children
+		{"SysAdd", "SysMath", 1},
+		{"SysSub", "SysMath", 2},
+		{"SysMul", "SysMath", 3},
+		{"SysDiv", "SysMath", 4},
+
+		// Logic children
+		{"SysEqualTo", "SysLogic", 1},
+		{"SysNotEqualTo", "SysLogic", 2},
+		{"SysLessThan", "SysLogic", 3},
+		{"SysLessThanOrEqualTo", "SysLogic", 4},
+		{"SysGreaterThan", "SysLogic", 5},
+		{"SysGreaterThanOrEqualTo", "SysLogic", 6},
+		{"SysCaseItem", "SysLogic", 8},
+
+		// Loop children
+		{"SysLoopItem", "SysLoop", 1},
+		{"SysLoopDurationItem", "SysLoop", 2},
+
+		// Const children
+		{"SysConstInt", "SysConst", 1},
+		{"SysConstBool", "SysConst", 2},
+		{"SysConstFloat", "SysConst", 3},
+		{"SysConstString", "SysConst", 4},
+		{"SysConstDuration", "SysConst", 5},
+		{"SysConstArrayInt", "SysConst", 6},
+		{"SysConstArrayFloat", "SysConst", 7},
+		{"SysConstArrayString", "SysConst", 8},
+
+		// Variables children
+		{"SysSetVarInt", "SysVar", 1},
+		{"SysGetVarInt", "SysVar", 2},
+		{"SysSetVarFloat32", "SysVar", 3},
+		{"SysGetVarFloat32", "SysVar", 4},
+		{"SysSetVarFloat64", "SysVar", 5},
+		{"SysGetVarFloat64", "SysVar", 6},
+		{"SysSetVarString", "SysVar", 7},
+		{"SysGetVarString", "SysVar", 8},
+
+		// Display children
+		{"SysGauge", "SysDisplay", 1},
+		{"SysLED", "SysDisplay", 2},
+		{"SysBarGraph", "SysDisplay", 3},
+		{"SysTextDisplay", "SysDisplay", 4},
+		{"SysButton", "SysDisplay", 5},
+		{"SysSevenSeg", "SysDisplay", 6},
+		{"SysKnob", "SysDisplay", 7},
+		{"SysChart", "SysDisplay", 8},
+		{"SysChartPro", "SysDisplay", 9},
+		{"SysPieChart", "SysDisplay", 10},
+		{"SysBgImage", "SysDisplay", 11},
+		{"SysCommStatus", "SysDisplay", 12},
+
+		// Export children
+		{"SysExportJSON", "SysExport", 1},
+		{"SysExportGo", "SysExport", 2},
+		{"SysExportFiles", "SysExport", 3},
+		{"SysExportImage", "SysExport", 4},
+	}
+
+	for _, entry := range layout {
+		var parentID interface{}
+		if entry.parentID == "" {
+			parentID = nil
+		} else {
+			parentID = entry.parentID
+		}
+
+		_, err := DB.Exec(`
+			INSERT OR IGNORE INTO menu_layout
+				(profile_id, slot_id, parent_id, position, visible)
+			VALUES ('default', ?, ?, ?, 1)`,
+			entry.slotID, parentID, entry.position,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	log.Printf("[menu_tree_seed] inserted %d layout entries for default profile", len(layout))
+
+	return nil
+}
+
+// MigrateMenuTreeLoopDuration inserts the LoopDuration and ConstDuration
+// items into existing databases that were seeded before these items
+// existed. Uses INSERT OR IGNORE so it's safe to call multiple times.
+//
+// Called from migrate() in db.go after SeedMenuTree().
+//
+// Português: Insere os itens LoopDuration e ConstDuration em bancos
+// existentes que foram populados antes desses itens existirem.
+func MigrateMenuTreeLoopDuration() error {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// ── Catalog entries ──────────────────────────────────────────────────
+	type catItem struct {
+		slotID, labelKey, fallback, iconFA, iconViewbox string
+	}
+	newItems := []catItem{
+		{"SysLoopDurationItem", "menuMainLoopDuration", "Timed", "hourglass-half", "0 0 384 512"},
+		{"SysConstDuration", "menuMainConstDuration", "Duration", "hourglass-half", "0 0 384 512"},
+	}
+	for _, item := range newItems {
+		_, err := DB.Exec(`
+			INSERT OR IGNORE INTO menu_items
+				(slot_id, slot_type, item_type, locked, label_key, label_fallback,
+				 icon_fa, icon_viewbox, created_at)
+			VALUES (?, 'system', 'action', 1, ?, ?, ?, ?, ?)`,
+			item.slotID, item.labelKey, item.fallback,
+			item.iconFA, item.iconViewbox, now,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	// ── Layout entries (all profiles) ────────────────────────────────────
+	type layoutItem struct {
+		slotID, parentID string
+	}
+	newLayout := []layoutItem{
+		{"SysLoopDurationItem", "SysLoop"},
+		{"SysConstDuration", "SysConst"},
+	}
+
+	rows, err := DB.Query(`SELECT profile_id, is_default FROM menu_profiles`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type prof struct {
+		id        string
+		isDefault bool
+	}
+	var profiles []prof
+	for rows.Next() {
+		var p prof
+		var isDef int
+		if err := rows.Scan(&p.id, &isDef); err != nil {
+			return err
+		}
+		p.isDefault = isDef == 1
+		profiles = append(profiles, p)
+	}
+
+	for _, p := range profiles {
+		for _, item := range newLayout {
+			// Find the max position under this parent
+			var maxPos int
+			DB.QueryRow(`
+				SELECT COALESCE(MAX(position), 0) FROM menu_layout
+				WHERE profile_id = ? AND parent_id = ?`, p.id, item.parentID).Scan(&maxPos)
+
+			visible := 0
+			if p.isDefault {
+				visible = 1
+			}
+
+			DB.Exec(`
+				INSERT OR IGNORE INTO menu_layout
+					(profile_id, slot_id, parent_id, position, visible)
+				VALUES (?, ?, ?, ?, ?)`,
+				p.id, item.slotID, item.parentID, maxPos+1, visible,
+			)
+		}
+	}
+
+	log.Printf("[menu_tree_seed] migrated LoopDuration + ConstDuration menu items")
+	return nil
+}
+
+// nullIfEmpty returns nil if s is empty, otherwise returns s.
+// Used to store NULL instead of empty strings in optional TEXT columns.
+func nullIfEmpty(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// migrateMenuTreeLabels reconciles label drift between releases for
+// rows already present in menu_items. The catalog seed uses
+// INSERT OR IGNORE so a row written by an earlier server version is
+// preserved verbatim, including its now-outdated label_key and
+// label_fallback. Without this function, an existing installation
+// would never pick up label changes unless the user deleted the
+// database — and "delete the DB" is not a viable upgrade path once
+// the user has projects and saved files in it.
+//
+// Each block below targets a specific drift. The WHERE clause must
+// be tight enough that the UPDATE turns into a no-op once the row
+// already matches the new values, which is what makes the function
+// safe to run on every boot.
+//
+// To document a new drift: add a comment describing what changed
+// and why, then an UPDATE statement scoped to the old label_key (or
+// the old fallback, whichever uniquely identifies the row's
+// pre-migration state). The function returns the first error
+// without rolling back earlier successful UPDATEs — that matches
+// the broader migrate() contract in db.go, where each step is
+// independently idempotent.
+//
+// Português: Corrige labels de items de menu já gravados quando a
+// estratégia muda entre versões. O seed só insere; isto atualiza.
+// Idempotente — pode rodar todo boot.
+func migrateMenuTreeLabels() error {
+	// SysExportGo: had label_key "menuMainExportGo" with fallback
+	// "Go Code". The export-by-language refactor (May 2026) moved
+	// the language choice into the project itself; the menu now
+	// shows a single language-neutral "Export" button and the
+	// codegen pipeline reads w.Language at click time. The slot_id
+	// is kept ("SysExportGo") so menu_layout doesn't need a
+	// parallel rewrite — the maker never sees the slot_id.
+	if _, err := DB.Exec(`
+		UPDATE menu_items
+		   SET label_key      = 'menuMainExport',
+		       label_fallback = 'Export'
+		 WHERE slot_id        = 'SysExportGo'
+		   AND label_key      = 'menuMainExportGo'`); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// MigrateMenuTreeConstArrays inserts the three constant-collection menu
+// items (SysConstArrayInt / Float / String) into existing databases that
+// were seeded before these devices existed (docs/claude_const_array_plan.md).
+// Fresh installs get the items from the seed above; this migration closes
+// the gap for already-seeded databases, which SeedMenuTree deliberately
+// skips (count > 0 → early return).
+//
+// It also REMOVES the short-lived single "SysConstArray" slot (and its i18n
+// key) if a database picked it up from the intermediate delivery, before the
+// per-type split was decided — no legacy, per project rule. The DELETEs are
+// no-ops when the slot never existed.
+//
+// Mirrors MigrateMenuTreeLoopDuration: INSERT OR IGNORE everywhere, so it is
+// idempotent and safe to run on every boot. For each new item three things
+// are guaranteed:
+//
+//  1. The catalog row (menu_items) — system namespace, FontAwesome
+//     "layer-group".
+//  2. A layout row per EXISTING profile (menu_layout) — visible=1 in the
+//     default profile, visible=0 elsewhere, positioned after the last child
+//     of SysConst (same stance as InsertCatalogItem for admin-created items).
+//  3. The i18n keys for both locales — INSERT OR IGNORE never overwrites an
+//     admin-edited message, it only fills the key when absent, so the
+//     "admin edits are safe" contract of SeedTranslations is preserved.
+//
+// Called from migrate() in db.go after SeedMenuTree().
+//
+// Português: Insere os três itens de coleção constante em bancos existentes
+// (populados antes dos devices existirem) e remove o slot único
+// "SysConstArray" da entrega intermediária, se presente — sem legado.
+// Tudo idempotente: catálogo, layout por profile e chaves i18n, com
+// INSERT OR IGNORE, sem sobrescrever edições do admin.
+func MigrateMenuTreeConstArrays() error {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// ── Remove the pre-split single slot, if present ──────────────────────
+	for _, stmt := range []string{
+		`DELETE FROM menu_layout WHERE slot_id = 'SysConstArray'`,
+		`DELETE FROM menu_items  WHERE slot_id = 'SysConstArray'`,
+		`DELETE FROM i18n_messages WHERE message_id = 'menuMainConstArray'`,
+	} {
+		if _, err := DB.Exec(stmt); err != nil {
+			return err
+		}
+	}
+
+	// ── Catalog entries ───────────────────────────────────────────────────
+	type catItem struct {
+		slotID, labelKey, fallback string
+	}
+	newItems := []catItem{
+		{"SysConstArrayInt", "menuMainConstArrayInt", "Int Array"},
+		{"SysConstArrayFloat", "menuMainConstArrayFloat", "Float Array"},
+		{"SysConstArrayString", "menuMainConstArrayString", "String Array"},
+	}
+	for _, item := range newItems {
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO menu_items
+				(slot_id, slot_type, item_type, locked, label_key, label_fallback,
+				 icon_fa, icon_viewbox, created_at)
+			VALUES (?, 'system', 'action', 1, ?, ?, 'layer-group', '0 0 512 512', ?)`,
+			item.slotID, item.labelKey, item.fallback, now,
+		); err != nil {
+			return err
+		}
+	}
+
+	// ── Layout entries (all existing profiles) ────────────────────────────
+	rows, err := DB.Query(`SELECT profile_id, is_default FROM menu_profiles`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type prof struct {
+		id        string
+		isDefault bool
+	}
+	var profiles []prof
+	for rows.Next() {
+		var p prof
+		var isDef int
+		if err := rows.Scan(&p.id, &isDef); err != nil {
+			return err
+		}
+		p.isDefault = isDef == 1
+		profiles = append(profiles, p)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, p := range profiles {
+		for _, item := range newItems {
+			// Position after the last existing child of SysConst.
+			var maxPos int
+			if err := DB.QueryRow(`
+				SELECT COALESCE(MAX(position), 0) FROM menu_layout
+				WHERE profile_id = ? AND parent_id = 'SysConst'`, p.id,
+			).Scan(&maxPos); err != nil {
+				return err
+			}
+
+			visible := 0
+			if p.isDefault {
+				visible = 1
+			}
+
+			if _, err := DB.Exec(`
+				INSERT OR IGNORE INTO menu_layout
+					(profile_id, slot_id, parent_id, position, visible)
+				VALUES (?, ?, 'SysConst', ?, ?)`,
+				p.id, item.slotID, maxPos+1, visible,
+			); err != nil {
+				return err
+			}
+		}
+	}
+
+	// ── i18n keys (fill-if-absent — never overwrites admin edits) ─────────
+	// i18n_messages.locale is a foreign key into i18n_bundles, and SQLite's
+	// OR IGNORE does NOT swallow FK violations — so the bundle row is
+	// ensured first (same INSERT OR IGNORE stance ReplaceBundle takes).
+	type i18nKey struct {
+		id, en, pt string
+	}
+	keys := []i18nKey{
+		{"menuMainConstArrayInt", "Int Array", "Vetor Int"},
+		{"menuMainConstArrayFloat", "Float Array", "Vetor Float"},
+		{"menuMainConstArrayString", "String Array", "Vetor String"},
+	}
+	for _, loc := range []struct{ locale string }{{"en-US"}, {"pt-BR"}} {
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO i18n_bundles (locale, bundle_id, updated_at)
+			VALUES (?, ?, ?)`,
+			loc.locale, loc.locale+"-custom", now,
+		); err != nil {
+			return err
+		}
+		for _, k := range keys {
+			msg := k.en
+			if loc.locale == "pt-BR" {
+				msg = k.pt
+			}
+			if _, err := DB.Exec(`
+				INSERT OR IGNORE INTO i18n_messages
+					(locale, message_id, other, one, description)
+				VALUES (?, ?, ?, '', '')`,
+				loc.locale, k.id, msg,
+			); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// MigrateMenuTreeCase inserts the SysCaseItem (N-way selector container,
+// "Case") into databases that were first seeded before the Case device
+// existed. SeedMenuTree skips everything once the catalog is populated, so
+// new system items must arrive through an explicit, idempotent migration.
+//
+// Mirrors MigrateMenuTreeConstArrays: INSERT OR IGNORE everywhere, so it is
+// safe to run on every boot. Three things are guaranteed:
+//
+//  1. The catalog row (menu_items) — system namespace, FontAwesome
+//     "layer-group".
+//  2. A layout row per EXISTING profile (menu_layout) under SysLogic —
+//     visible=1 in the default profile, visible=0 elsewhere, positioned
+//     after the last existing child of SysLogic.
+//  3. The i18n keys for both locales — INSERT OR IGNORE never overwrites an
+//     admin-edited message, it only fills the key when absent, preserving
+//     the "admin edits are safe" contract of SeedTranslations.
+//
+// Called from migrate() in db.go after MigrateMenuTreeConstArrays().
+//
+// Português: Insere o item Case (container seletor N-vias) em bancos
+// existentes, populados antes do device existir. Tudo idempotente:
+// catálogo, layout por profile sob SysLogic e chaves i18n, com
+// INSERT OR IGNORE, sem sobrescrever edições do admin.
+func MigrateMenuTreeCase() error {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// ── Catalog entry ─────────────────────────────────────────────────────
+	if _, err := DB.Exec(`
+		INSERT OR IGNORE INTO menu_items
+			(slot_id, slot_type, item_type, locked, label_key, label_fallback,
+			 icon_fa, icon_viewbox, created_at)
+		VALUES ('SysCaseItem', 'system', 'action', 1, 'menuMainCase', 'Case',
+		        'layer-group', '0 0 512 512', ?)`,
+		now,
+	); err != nil {
+		return err
+	}
+
+	// ── Layout entries (all existing profiles) ────────────────────────────
+	rows, err := DB.Query(`SELECT profile_id, is_default FROM menu_profiles`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type prof struct {
+		id        string
+		isDefault bool
+	}
+	var profiles []prof
+	for rows.Next() {
+		var p prof
+		var isDef int
+		if err := rows.Scan(&p.id, &isDef); err != nil {
+			return err
+		}
+		p.isDefault = isDef == 1
+		profiles = append(profiles, p)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, p := range profiles {
+		// Position after the last existing child of SysLogic.
+		var maxPos int
+		if err := DB.QueryRow(`
+			SELECT COALESCE(MAX(position), 0) FROM menu_layout
+			WHERE profile_id = ? AND parent_id = 'SysLogic'`, p.id,
+		).Scan(&maxPos); err != nil {
+			return err
+		}
+
+		visible := 0
+		if p.isDefault {
+			visible = 1
+		}
+
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO menu_layout
+				(profile_id, slot_id, parent_id, position, visible)
+			VALUES (?, 'SysCaseItem', 'SysLogic', ?, ?)`,
+			p.id, maxPos+1, visible,
+		); err != nil {
+			return err
+		}
+	}
+
+	// ── i18n keys (fill-if-absent — never overwrites admin edits) ─────────
+	for _, loc := range []struct{ locale string }{{"en-US"}, {"pt-BR"}} {
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO i18n_bundles (locale, bundle_id, updated_at)
+			VALUES (?, ?, ?)`,
+			loc.locale, loc.locale+"-custom", now,
+		); err != nil {
+			return err
+		}
+		msg := "Case"
+		if loc.locale == "pt-BR" {
+			msg = "Caso"
+		}
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO i18n_messages
+				(locale, message_id, other, one, description)
+			VALUES (?, 'menuMainCase', ?, '', '')`,
+			loc.locale, msg,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// MigrateMenuTreeVariables ensures the Variables submenu (SysVar) and its
+// device children (SysGetVarInt, SysGetVarFloat, …) exist on databases that
+// were seeded before these items were added. SeedMenuTree only runs on a fresh
+// menu_items table, so — exactly like MigrateMenuTreeConstArrays and
+// MigrateMenuTreeCase — an always-run migration is required for the entries to
+// reach existing installations (the "dead migration" trap). Every statement is
+// INSERT OR IGNORE, so the migration is idempotent and never disturbs admin
+// edits or existing positions.
+//
+// Português: Garante o submenu Variables (SysVar) e seus filhos (SysGetVarInt,
+// SysGetVarFloat, …) em bancos semeados antes desses itens existirem.
+// SeedMenuTree só roda com menu_items vazio, então — como ConstArrays e Case —
+// é preciso uma migração que sempre roda para os itens chegarem a instalações
+// existentes (a armadilha da "dead migration"). Tudo é INSERT OR IGNORE:
+// idempotente, sem mexer em edições de admin nem em posições existentes.
+func MigrateMenuTreeVariables() error {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// ── Rename cleanup ────────────────────────────────────────────────────
+	// The abstract-float variable items (SysGetVarFloat / SysSetVarFloat) were
+	// split into explicit SysGetVarFloat32/64 and SysSetVarFloat32/64. Their
+	// factories no longer exist, so remove the orphaned catalog + layout rows
+	// from databases seeded before the split; the INSERT OR IGNORE statements
+	// below re-add the concrete items. On a fresh DB the old rows never existed,
+	// so these DELETEs are harmless no-ops.
+	//
+	// Português: Os itens de float abstrato (SysGetVarFloat / SysSetVarFloat)
+	// foram divididos em SysGetVarFloat32/64 e SysSetVarFloat32/64. A factory
+	// deles sumiu — remove as linhas órfãs de catálogo + layout de bancos
+	// semeados antes do split; os INSERT OR IGNORE abaixo re-adicionam os itens
+	// concretos. Em banco novo as linhas antigas nunca existiram (no-op).
+	for _, oldID := range []string{"SysGetVarFloat", "SysSetVarFloat"} {
+		if _, err := DB.Exec(`DELETE FROM menu_items WHERE slot_id = ?`, oldID); err != nil {
+			return err
+		}
+		if _, err := DB.Exec(`DELETE FROM menu_layout WHERE slot_id = ?`, oldID); err != nil {
+			return err
+		}
+	}
+
+	// ── Catalog: the SysVar category + its device children ────────────────
+	if _, err := DB.Exec(`
+		INSERT OR IGNORE INTO menu_items
+			(slot_id, slot_type, item_type, locked, label_key, label_fallback,
+			 icon_fa, icon_viewbox, created_at)
+		VALUES ('SysVar', 'system', 'submenu', 1, 'menuMainVar', 'Variables',
+		        'suitcase', '0 0 512 512', ?)`, now,
+	); err != nil {
+		return err
+	}
+
+	type catItem struct {
+		slotID, labelKey, fallback string
+	}
+	children := []catItem{
+		{"SysSetVarInt", "menuMainSetVarInt", "Set Int"},
+		{"SysGetVarInt", "menuMainGetVarInt", "Get Int"},
+		{"SysSetVarFloat32", "menuMainSetVarFloat32", "Set Float32"},
+		{"SysGetVarFloat32", "menuMainGetVarFloat32", "Get Float32"},
+		{"SysSetVarFloat64", "menuMainSetVarFloat64", "Set Float64"},
+		{"SysGetVarFloat64", "menuMainGetVarFloat64", "Get Float64"},
+		{"SysSetVarString", "menuMainSetVarString", "Set String"},
+		{"SysGetVarString", "menuMainGetVarString", "Get String"},
+	}
+	for _, c := range children {
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO menu_items
+				(slot_id, slot_type, item_type, locked, label_key, label_fallback,
+				 icon_fa, icon_viewbox, created_at)
+			VALUES (?, 'system', 'action', 1, ?, ?, 'bars', '0 0 448 512', ?)`,
+			c.slotID, c.labelKey, c.fallback, now,
+		); err != nil {
+			return err
+		}
+	}
+
+	// ── Layout (all profiles) ─────────────────────────────────────────────
+	rows, err := DB.Query(`SELECT profile_id, is_default FROM menu_profiles`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type prof struct {
+		id        string
+		isDefault bool
+	}
+	var profiles []prof
+	for rows.Next() {
+		var p prof
+		var isDef int
+		if err := rows.Scan(&p.id, &isDef); err != nil {
+			return err
+		}
+		p.isDefault = isDef == 1
+		profiles = append(profiles, p)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, p := range profiles {
+		visible := 0
+		if p.isDefault {
+			visible = 1
+		}
+
+		// SysVar at the rail root. Appended after the last existing root item
+		// only when absent — on a seeded DB it already sits at its slot and the
+		// INSERT OR IGNORE is a no-op.
+		var rootMax int
+		if err := DB.QueryRow(`
+			SELECT COALESCE(MAX(position), 0) FROM menu_layout
+			WHERE profile_id = ? AND (parent_id = '' OR parent_id IS NULL)`, p.id,
+		).Scan(&rootMax); err != nil {
+			return err
+		}
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO menu_layout
+				(profile_id, slot_id, parent_id, position, visible)
+			VALUES (?, 'SysVar', '', ?, ?)`,
+			p.id, rootMax+1, visible,
+		); err != nil {
+			return err
+		}
+
+		// Children under SysVar, each positioned after the last existing child.
+		for _, c := range children {
+			var maxPos int
+			if err := DB.QueryRow(`
+				SELECT COALESCE(MAX(position), 0) FROM menu_layout
+				WHERE profile_id = ? AND parent_id = 'SysVar'`, p.id,
+			).Scan(&maxPos); err != nil {
+				return err
+			}
+			if _, err := DB.Exec(`
+				INSERT OR IGNORE INTO menu_layout
+					(profile_id, slot_id, parent_id, position, visible)
+				VALUES (?, ?, 'SysVar', ?, ?)`,
+				p.id, c.slotID, maxPos+1, visible,
+			); err != nil {
+				return err
+			}
+		}
+
+		// Reorder the children into the grouped layout (Set+Get of each type
+		// together, Set first). The first release positioned all Gets, then all
+		// Sets; the INSERT OR IGNORE above cannot move rows that already exist,
+		// so this UPDATE repositions them on DBs seeded with the old order.
+		// Positions follow the children slice. Idempotent — re-running just
+		// re-sets the same values.
+		//
+		// Português: Reordena os filhos no layout agrupado (Set+Get de cada tipo
+		// juntos, Set primeiro). INSERT OR IGNORE não move linhas existentes,
+		// então este UPDATE reposiciona em DBs com a ordem antiga. As posições
+		// seguem o slice children. Idempotente.
+		for i, c := range children {
+			if _, err := DB.Exec(`
+				UPDATE menu_layout SET position = ?
+				WHERE profile_id = ? AND slot_id = ? AND parent_id = 'SysVar'`,
+				i+1, p.id, c.slotID,
+			); err != nil {
+				return err
+			}
+		}
+	}
+
+	// ── i18n keys (fill-if-absent — never overwrites admin edits) ─────────
+	// i18n_messages.locale is a foreign key into i18n_bundles, so the bundle is
+	// ensured first (OR IGNORE does not swallow FK violations).
+	type i18nKey struct {
+		id, en, pt string
+	}
+	keys := []i18nKey{
+		{"menuMainVar", "Variables", "Variáveis"},
+		{"menuMainGetVarInt", "Get Int", "Ler Int"},
+		{"menuMainGetVarFloat32", "Get Float32", "Ler Float32"},
+		{"menuMainGetVarFloat64", "Get Float64", "Ler Float64"},
+		{"menuMainSetVarInt", "Set Int", "Gravar Int"},
+		{"menuMainSetVarFloat32", "Set Float32", "Gravar Float32"},
+		{"menuMainSetVarFloat64", "Set Float64", "Gravar Float64"},
+		{"menuMainGetVarString", "Get String", "Ler String"},
+		{"menuMainSetVarString", "Set String", "Gravar String"},
+	}
+	for _, loc := range []struct{ locale string }{{"en-US"}, {"pt-BR"}} {
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO i18n_bundles (locale, bundle_id, updated_at)
+			VALUES (?, ?, ?)`,
+			loc.locale, loc.locale+"-custom", now,
+		); err != nil {
+			return err
+		}
+		for _, k := range keys {
+			msg := k.en
+			if loc.locale == "pt-BR" {
+				msg = k.pt
+			}
+			if _, err := DB.Exec(`
+				INSERT OR IGNORE INTO i18n_messages
+					(locale, message_id, other, one, description)
+				VALUES (?, ?, ?, '', '')`,
+				loc.locale, k.id, msg,
+			); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}

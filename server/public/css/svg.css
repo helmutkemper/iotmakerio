@@ -1,0 +1,98 @@
+/*
+ * svg.css — IoTMaker Portal
+ * ─────────────────────────────────────────────────────────────────────────────
+ * CSS classes for all SVG elements in the portal.
+ *
+ * WHY THIS FILE EXISTS
+ * ─────────────────────
+ * SVG presentation attributes (fill="#2255AA", stop-color="#FFD700", etc.)
+ * written directly in HTML do NOT accept CSS var(). They are parsed by the
+ * SVG attribute parser, not the CSS engine, so custom properties are ignored.
+ *
+ * The solution is to replace attribute-based colors with CSS classes.
+ * CSS properties like `fill`, `stroke`, and `stop-color` DO accept var()
+ * when applied via a stylesheet — the CSS engine resolves them correctly.
+ *
+ * HOW TO USE
+ * ──────────
+ * In the HTML, instead of:
+ *   <stop offset="0%" stop-color="#1A4499"/>
+ *
+ * Write:
+ *   <stop offset="0%" class="stop-blue-dk"/>
+ *
+ * And this file handles the color.
+ *
+ * NAMING CONVENTION
+ * ─────────────────
+ * Classes mirror the token name with a short prefix describing the property:
+ *   fill-*    → sets CSS fill
+ *   stroke-*  → sets CSS stroke
+ *   stop-*    → sets CSS stop-color (for <stop> inside <linearGradient>)
+ *   flood-*   → sets CSS flood-color (for <feDropShadow>, <feFlood>)
+ *   text-svg-*→ sets fill on SVG <text> elements (avoids conflict with
+ *               utility text color classes used in HTML elements)
+ *
+ * Dependencies: base.css (must be loaded first — defines all --variables)
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+
+/* ─── 1. GRADIENT STOP COLORS ───────────────────────────────────────────────
+ *
+ * Used inside <linearGradient> <stop> elements.
+ * stop-color is a CSS presentation property — var() works here.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+/* Blue gradient (logo text, hero title) */
+.stop-blue-dk  { stop-color: var(--blue-dk);  } /* 0%   — deepest blue  */
+.stop-blue     { stop-color: var(--blue);      } /* 60%  — mid blue      */
+.stop-blue-br  { stop-color: var(--blue-br);   } /* 100% — bright blue   */
+
+/* Gold gradient (accent bars, triangles) */
+.stop-gold-raw { stop-color: var(--gold-raw);  } /* 0%   — pure gold     */
+.stop-gold-lt2 { stop-color: var(--gold-lt2);  } /* 100% — soft gold     */
+
+/* Background gradient (hero SVG card background) */
+.stop-bg       { stop-color: var(--bg);        } /* 0%   — white         */
+.stop-bg2      { stop-color: var(--bg2);        } /* 100% — light blue-gray */
+
+
+/* ─── 2. FILL COLORS ────────────────────────────────────────────────────────
+ *
+ * Applied to <circle>, <polygon>, <path>, <rect>, <text> elements.
+ * CSS `fill` overrides the presentation attribute when both are present,
+ * but here we remove the attribute entirely and use only the class.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+.fill-blue     { fill: var(--blue);      } /* circuit dots, cog gear, misc decorations */
+.fill-gold-raw { fill: var(--gold-raw);  } /* gold triangles, status dots              */
+.fill-gold-lt2 { fill: var(--gold-lt2);  } /* softer gold polygon                      */
+.fill-pix      { fill: var(--pix-color); } /* PIX SVG icon (teal)                      */
+
+
+/* ─── 3. STROKE COLORS ──────────────────────────────────────────────────────
+ *
+ * Applied to <g>, <circle>, <line>, <polyline> stroke decorations.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+.stroke-blue   { stroke: var(--blue); } /* circuit traces, cog gear outline */
+
+
+/* ─── 4. FLOOD COLOR (feDropShadow / feFlood) ───────────────────────────────
+ *
+ * The flood-color attribute on <feDropShadow> is a CSS presentation property.
+ * Replacing it with a class allows var() to work.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+.flood-blue    { flood-color: var(--blue); } /* drop shadows on logo and hero title */
+
+
+/* ─── 5. SVG TEXT FILL ──────────────────────────────────────────────────────
+ *
+ * SVG <text> elements use `fill` not `color`. Separate classes prevent
+ * confusion with HTML text color utilities.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+.text-svg-blue-mid { fill: var(--blue-mid); } /* tagline "CONNECTING THINGS · BUILDING FUTURES" */
+.text-svg-blue     { fill: var(--blue);     } /* "Em construção" label text                      */

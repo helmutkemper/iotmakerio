@@ -1,0 +1,118 @@
+/*
+ * nav.css — IoTMaker Portal
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Fixed top navigation bar.
+ *
+ * The nav is shared across all portal pages (landing, login, blog, app).
+ * When adding new pages, include this file and use the same <nav> markup.
+ *
+ * Behavior:
+ *   - Starts transparent/borderless
+ *   - JS adds class ".scrolled" after 40px scroll, revealing the border
+ *     and a subtle shadow — see the scroll listener in main.js
+ *
+ * Dependencies: base.css, components.css (for .btn classes)
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+
+/* ─── 1. NAV CONTAINER ──────────────────────────────────────────────────────
+ *
+ * Fixed so it stays at the top while scrolling.
+ * backdrop-filter: blur gives a frosted-glass effect over page content.
+ * z-index:100 keeps it above everything, including the canvas (z-index:0)
+ * and section content (z-index:1).
+ * ─────────────────────────────────────────────────────────────────────────── */
+nav {
+    position:        fixed;
+    top:             0;
+    left:            0;
+    right:           0;
+    z-index:         100;
+    background:      rgba(255, 255, 255, .93);
+    backdrop-filter: blur(14px);
+    border-bottom:   1px solid transparent; /* becomes visible on .scrolled */
+    padding:         14px 0;
+    transition:      border-color .3s, box-shadow .3s;
+}
+
+/* Scrolled state — JS toggles this class after 40px of scroll */
+nav.scrolled {
+    border-bottom-color: var(--border);
+    box-shadow:          var(--sh-sm);
+}
+
+
+/* ─── 2. INNER FLEX ROW ─────────────────────────────────────────────────────
+ *
+ * Lays out logo, links, and CTA in a single horizontal row.
+ * .container (from layout.css) provides the max-width and centering.
+ * ─────────────────────────────────────────────────────────────────────────── */
+.nav-inner {
+    display:     flex;
+    align-items: center;
+}
+
+
+/* ─── 3. LOGO ───────────────────────────────────────────────────────────────
+ *
+ * The logo is an inline SVG to avoid an extra HTTP request and allow
+ * CSS-controlled scaling. height:44px matches the nav padding rhythm.
+ * ─────────────────────────────────────────────────────────────────────────── */
+.nav-logo {
+    display:     flex;
+    align-items: center;
+}
+
+.nav-logo svg {
+    height:  44px;
+    width:   auto;
+    display: block;
+}
+
+
+/* ─── 4. NAVIGATION LINKS ───────────────────────────────────────────────────
+ *
+ * Horizontal anchor list pushed to the right via margin-left:auto.
+ * Hidden on mobile (≤720px) to keep the nav clean; a hamburger menu
+ * can be added in a future iteration.
+ * ─────────────────────────────────────────────────────────────────────────── */
+.nav-links {
+    display:       flex;
+    gap:           26px;
+    font-size:     14px;
+    font-weight:   500;
+    color:         var(--text-dim);
+    margin-left:   auto;
+}
+
+.nav-links a:hover {
+    color: var(--blue);
+}
+
+
+/* ─── 5. CTA BUTTON ─────────────────────────────────────────────────────────
+ *
+ * "Entrar na plataforma" button sits after the links.
+ * margin-left:16px adds a small gap between the last link and the button.
+ * ─────────────────────────────────────────────────────────────────────────── */
+.nav-cta {
+    margin-left: 16px;
+}
+
+
+/* ─── 6. MOBILE OVERRIDES ───────────────────────────────────────────────────
+ *
+ * Below 720px, hide the text links (no hamburger menu yet).
+ * Shrink the CTA button so it fits alongside the logo.
+ * ─────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+    .nav-links {
+        display: none;
+    }
+
+    .nav-cta .btn {
+        padding:   10px 18px;
+        font-size: 13px;
+    }
+}
