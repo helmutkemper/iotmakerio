@@ -1,4 +1,6 @@
 // cmd/gen-fa-icons/main.go — FontAwesome SVG registry generator.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // # Purpose
 //

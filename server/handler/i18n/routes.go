@@ -1,4 +1,6 @@
 // server/handler/i18n/routes.go — Public translation routes.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // All write paths (bundle save, message upsert) have been moved to
 // server/handler/controlapi/translations.go under /api/control/v1/*. Only

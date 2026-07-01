@@ -1,3 +1,8 @@
+// platform/algorithm/density.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package algorithm
 
 import (
@@ -12,25 +17,25 @@ type density struct {
 //
 // English:
 //
-//  Increases the number of segments between points, in a straight line.
+//	Increases the number of segments between points, in a straight line.
 //
-//   Input:
-//     lineSegments: number of line segments to be added between points.
+//	 Input:
+//	   lineSegments: number of line segments to be added between points.
 //
-//   Notes:
-//     * Use this function when the stitch density is low when using easing tween functions, so the movement is more
-//       fluid.
+//	 Notes:
+//	   * Use this function when the stitch density is low when using easing tween functions, so the movement is more
+//	     fluid.
 //
 // Português:
 //
-//  Aumenta a quantidade de segmentos entre os pontos, em linha reta.
+//	Aumenta a quantidade de segmentos entre os pontos, em linha reta.
 //
-//   Entrada:
-//     lineSegments: quantidade de seguimentos de reta a serem adicionados entre os pontos.
+//	 Entrada:
+//	   lineSegments: quantidade de seguimentos de reta a serem adicionados entre os pontos.
 //
-//   Nota:
-//     * Use esta função quando a densidade de pontos for baixa durante o uso das funções easing tween, para que o
-//       movimento fique mais fluido.
+//	 Nota:
+//	   * Use esta função quando a densidade de pontos for baixa durante o uso das funções easing tween, para que o
+//	     movimento fique mais fluido.
 func (e *density) increaseDensityBetweenPoints(lineSegments int, processed *[]Point) {
 
 	if len(*processed) == 0 {
@@ -85,7 +90,7 @@ func (e *density) increaseDensityBetweenPoints(lineSegments int, processed *[]Po
 //
 // English:
 //
-//  Adjusts the number of line segments that make up the curve.
+//	Adjusts the number of line segments that make up the curve.
 //
 // Every curve is formed by N straight segments, where a curve with many segments of irregular sizes makes the movement
 // of objects unstable, so adjusting the number of segments when generating a curve makes the movement more uniform,
@@ -93,7 +98,7 @@ func (e *density) increaseDensityBetweenPoints(lineSegments int, processed *[]Po
 //
 // Português:
 //
-//  Ajusta a quantidade de segmentos de reta que formam a curva.
+//	Ajusta a quantidade de segmentos de reta que formam a curva.
 //
 // Toda curva é formada N segmentos de reta, onde uma curva com muitos seguimentos de tamanhos irregulares deixam o
 // movimento de objetos instável, por isto, ajustar o número de segmentos ao gerar uma curva, deixa o movimento mais

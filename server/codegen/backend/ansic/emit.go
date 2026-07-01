@@ -1,4 +1,6 @@
 // /server/codegen/backend/ansic/emit.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 
 // Package ansic emits C99 source code from an IoTMaker IR program.
 //

@@ -1,4 +1,6 @@
 // server/handler/stagefileapi/handlers.go — Stage file management API handlers.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Stage files are saved IDE scenes (JSON snapshots of the canvas). They are
 // private per-user and completely independent from the portal's "projects".

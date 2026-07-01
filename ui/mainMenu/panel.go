@@ -1,4 +1,6 @@
 // ide/ui/mainMenu/panel.go — DOM-based three-column menu panel.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // English:
 //
@@ -82,11 +84,9 @@ var helpCategoryByItemID = map[string]string{
 	"ConstArrayFloat":      "const",
 	"ConstArrayString":     "const",
 	"GetVarInt":            "var",
-	"GetVarFloat32":        "var",
-	"GetVarFloat64":        "var",
+	"GetVarFloat":          "var",
 	"SetVarInt":            "var",
-	"SetVarFloat32":        "var",
-	"SetVarFloat64":        "var",
+	"SetVarFloat":          "var",
 	"GetVarString":         "var",
 	"SetVarString":         "var",
 	"Loop":                 "loop",

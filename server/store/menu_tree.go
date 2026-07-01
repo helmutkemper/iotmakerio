@@ -1,4 +1,6 @@
 // server/store/menu_tree.go — CRUD functions for the database-driven menu tree.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // This file provides all database access for the menu tree system:
 //   - Catalog operations (menu_items)

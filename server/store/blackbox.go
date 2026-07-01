@@ -1,4 +1,6 @@
 // server/store/blackbox.go — Device (black-box) persistence for the IoTMaker portal.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // A device is an IDS-annotated Go struct published by a specialist on GitHub.
 // The specialist submits a GitHub release URL; the worker downloads the release

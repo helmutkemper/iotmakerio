@@ -1,4 +1,6 @@
 // server/handler/controlapi/users.go — Control panel user management endpoints.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Routes (mounted on /api/control/v1 by RegisterControl):
 //

@@ -1,4 +1,6 @@
 // server/handler/spaauth/github.go — GitHub OAuth for specialist identity verification.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // CSRF protection:
 //

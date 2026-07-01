@@ -1,4 +1,6 @@
 // server/handler/editorapi/handlers.go — Editor settings endpoints.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // These endpoints serve the "Editor Settings" portal page where the maker
 // configures IDE preferences: interface language, menu profile, per-item

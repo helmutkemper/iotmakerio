@@ -1,4 +1,6 @@
 // handler/projectapi/routes.go — Project management API routes.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // All project and file routes require a valid Bearer token.
 // The authenticated user ID is used as a scoping key — users can only

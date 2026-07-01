@@ -1,4 +1,6 @@
 // server/store/db_project_variables.go — Schema for user-declared project
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // variables (the GetVar/SetVar device family).
 //
 // A project variable is a named, typed value a maker declares for a project

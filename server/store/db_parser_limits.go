@@ -1,4 +1,6 @@
 // store/db_parser_limits.go — Migration and seed for parser complexity limits.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Two persistence mechanisms work together:
 //

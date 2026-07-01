@@ -1,4 +1,6 @@
 // server/handler/codegen/ownership_test.go — Tests for the ownsJob helper.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // We pin the helper's contract independently of the handlers that use it
 // because the deny-on-error policy (Redis hiccup → owns=false) is easy

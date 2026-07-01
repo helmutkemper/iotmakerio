@@ -1,4 +1,6 @@
 // Package types implements the codegen-level type compatibility rules
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // applied to every arithmetic or comparison node in the IR. Given two
 // operand types it decides whether the operation is allowed, what the
 // resulting type is, and whether a cast is needed on either side.

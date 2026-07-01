@@ -1,3 +1,8 @@
+// platform/factoryAlgorithm/NewBezierCurve.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package factoryAlgorithm
 
 import "github.com/helmutkemper/iotmakerio/platform/algorithm"

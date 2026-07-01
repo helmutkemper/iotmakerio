@@ -1,4 +1,6 @@
 // handler/feedapi/routes.go — Feed, community, and follow API routes.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Routes:
 //

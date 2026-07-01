@@ -1,4 +1,6 @@
 // server/handler/codegen/stream.go — Codegen result delivery over SSE.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // The submit handler enqueues an Asynq task; the worker publishes the
 // result to Redis under codegen:job:{id}:* and this handler streams it

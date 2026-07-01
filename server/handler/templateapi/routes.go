@@ -1,4 +1,6 @@
 // /ide/server/handler/templateapi/routes.go — Template Package API route registration.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Routes mounted on /api/v1/templates:
 //

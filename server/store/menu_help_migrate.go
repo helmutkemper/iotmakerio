@@ -1,4 +1,6 @@
 // server/store/menu_help_migrate.go — Migrate legacy help .md files to menu_help table.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // The legacy system stored help markdown files on disk under:
 //

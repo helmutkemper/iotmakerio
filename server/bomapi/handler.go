@@ -1,4 +1,6 @@
 // server/handler/bomapi/handler.go — GET /api/bom and GET /store/redirect/:listing_id
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Two related handlers that together implement the commerce feature:
 //

@@ -1,4 +1,6 @@
 // store/settings.go — Read/write access to the project_settings table.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Settings are server-side configurable values that control limits and feature
 // flags. They are seeded on startup and can be changed at runtime by editing

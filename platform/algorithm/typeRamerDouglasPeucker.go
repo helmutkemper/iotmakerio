@@ -1,3 +1,8 @@
+// platform/algorithm/typeRamerDouglasPeucker.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package algorithm
 
 import (
@@ -8,15 +13,15 @@ import (
 //
 // English:
 //
-//  The Ramer–Douglas–Peucker algorithm, also known as the Douglas–Peucker algorithm and iterative
-//  end-point fit algorithm, is an algorithm that decimates a curve composed of line segments to a
-//  similar curve with fewer points.
+//	The Ramer–Douglas–Peucker algorithm, also known as the Douglas–Peucker algorithm and iterative
+//	end-point fit algorithm, is an algorithm that decimates a curve composed of line segments to a
+//	similar curve with fewer points.
 //
 // Português:
 //
-//  O algoritmo Ramer-Douglas-Peucker, também conhecido como algoritmo de Douglas-Peucker e algoritmo
-//  iterativo de ajuste de ponto final, é um algoritmo que dizima uma curva composta de segmentos de
-//  linha para uma curva semelhante com menos pontos.
+//	O algoritmo Ramer-Douglas-Peucker, também conhecido como algoritmo de Douglas-Peucker e algoritmo
+//	iterativo de ajuste de ponto final, é um algoritmo que dizima uma curva composta de segmentos de
+//	linha para uma curva semelhante com menos pontos.
 type Rdp struct {
 	original  []Point
 	processed []Point

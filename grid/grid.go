@@ -1,3 +1,8 @@
+// grid/grid.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package grid
 
 import "github.com/helmutkemper/iotmakerio/rulesDensity"

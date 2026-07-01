@@ -1,4 +1,6 @@
 // server/handler/projectapi/integration_setup_test.go — TestMain and
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // shared helpers for the integration-level tests in this package.
 //
 // Why this file exists:

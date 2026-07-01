@@ -1,4 +1,6 @@
 // server/handler/codegen/cancel_test.go — Tests for handleCancel.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // What handleCancel does:
 //

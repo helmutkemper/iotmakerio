@@ -1,4 +1,6 @@
 // server/handler/projectapi/create_project_test.go — Validation tests
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // for handleCreateProject.
 //
 // Why this file is codegen-relevant:

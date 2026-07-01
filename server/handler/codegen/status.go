@@ -1,4 +1,6 @@
 // server/handler/codegen/status.go — Codegen job status endpoint.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Lightweight informational endpoint for the client (and for ops debugging).
 // The SSE stream endpoint is the primary delivery channel for results — this

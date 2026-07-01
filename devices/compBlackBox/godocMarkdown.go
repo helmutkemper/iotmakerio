@@ -1,3 +1,8 @@
+// devices/compBlackBox/godocMarkdown.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package compBlackBox
 
 // godocMarkdown.go — Auto-generates a Markdown help page from Go doc comments.

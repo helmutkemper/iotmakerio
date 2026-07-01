@@ -1,4 +1,6 @@
 // store/profiles.go — UserProfile CRUD and locale listing for the registration form.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // User profiles hold public-facing data (display name, bio, avatar, links)
 // that is separate from the authentication record in users. The profile row

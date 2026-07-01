@@ -1,4 +1,6 @@
 // ide/stageWorkspace/zipdownload.go — utility to package the codegen
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // multi-file output and offer it to the maker as a download.
 //
 // The C99 backend (and any future multi-file backend) returns a

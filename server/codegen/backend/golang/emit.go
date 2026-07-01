@@ -1,3 +1,8 @@
+// server/codegen/backend/golang/emit.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package golang
 
 // emit.go — Go language backend for the codegen pipeline.

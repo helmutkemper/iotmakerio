@@ -1,4 +1,6 @@
 // server/projectexport/builder.go — streaming ZIP archive builder.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Writes a single .zip stream containing the full project export:
 //

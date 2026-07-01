@@ -1,4 +1,6 @@
 // server/handler/projectapi/lookups_integration_test.go —
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // Integration tests for the public lookup endpoints used by the
 // "Create Project" form.
 //

@@ -1,4 +1,6 @@
 // server/store/panel_prefs.go — CRUD for IDE panel column widths.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Each user can save their preferred rail/list column widths per OS+browser.
 // The preview column (3rd) fills the remaining space automatically.

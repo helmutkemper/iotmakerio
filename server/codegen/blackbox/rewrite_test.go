@@ -1,4 +1,6 @@
 // server/codegen/blackbox/rewrite_test.go — Tests for the wizard rewrite engine.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Coverage goals (per CLAUDE_WIZARD_DESIGN.md §5):
 //

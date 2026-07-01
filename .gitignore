@@ -33,7 +33,7 @@ vendor/
 # The compiled WASM binary at the repository root (produced by make wasm /
 # make wasm-force). The canonical copy lives under server/public/ide/ and
 # is served to the browser; the root copy is an intermediate artefact.
-/main.wasm
+main.wasm
 
 # Do NOT ignore server/public/ide/main.wasm — that one IS served to the
 # browser and its presence is required for `docker compose up` to serve
@@ -148,3 +148,5 @@ _CLAUDE.md
 lixo.txt
 utilsZipFile/*.zip
 /IA
+CLAUDE*
+INVARIANTS.md

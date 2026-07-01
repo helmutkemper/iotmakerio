@@ -1,4 +1,7 @@
 // devices/compBlackBox/statementBlackBoxRun.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package compBlackBox
 
 // statementBlackBoxRun.go — Generic visual device for any non-Init black-box method.

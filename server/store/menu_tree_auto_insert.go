@@ -1,4 +1,6 @@
 // server/store/menu_tree_auto_insert.go — Auto-inserts devices, templates,
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // and their category/subcategory hierarchy into the menu tree.
 //
 // Called by the worker after a device or template is successfully persisted.

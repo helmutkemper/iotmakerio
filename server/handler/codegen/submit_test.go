@@ -1,4 +1,6 @@
 // server/handler/codegen/submit_test.go — Tests for handleSubmit.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // What handleSubmit does today (post-async refactor with ownership gate):
 //

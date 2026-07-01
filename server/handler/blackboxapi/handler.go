@@ -1,4 +1,6 @@
 // server/handler/blackboxapi/handler.go — Implementation of GET /api/v1/blackbox.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // This endpoint feeds the WASM IDE component bank.
 // It reads from two sources:

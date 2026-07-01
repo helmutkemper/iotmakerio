@@ -1,4 +1,7 @@
 // /ide/devices/compBlackBox/helpLang.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package compBlackBox
 
 // helpLang.go — Session language preference for the help panel.

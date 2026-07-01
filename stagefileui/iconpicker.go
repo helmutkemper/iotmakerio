@@ -1,4 +1,6 @@
 // ide/stagefileui/iconpicker.go — FontAwesome Free icon picker used by the
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // stage file Save and Edit dialogs.
 //
 // Replicates the visual + behavioural pattern of the wizard's icon picker

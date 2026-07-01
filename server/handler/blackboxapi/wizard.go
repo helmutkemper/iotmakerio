@@ -1,4 +1,6 @@
 // server/handler/blackboxapi/wizard.go — Wizard endpoints used by the
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // Projects page (and, in later slices, by the Wizard tab itself).
 //
 // Why this file exists

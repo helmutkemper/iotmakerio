@@ -1,3 +1,8 @@
+// browser/html/typeLanguage.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package html
 
 // source: https://www.w3schools.com/tags/ref_language_codes.asp

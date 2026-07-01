@@ -1,4 +1,6 @@
 // store/comments.go — Project comment CRUD.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Comments are append-only: there is no Update endpoint.
 // A user may post multiple comments on the same project over time.

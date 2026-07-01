@@ -1,4 +1,6 @@
 // email/mailer.go — Email delivery simulation for the IoTMaker portal.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // During development, all emails are printed to stdout with a clear visual
 // format. When a real SMTP service is needed, replace the Send() function body

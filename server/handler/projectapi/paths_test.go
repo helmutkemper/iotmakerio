@@ -1,4 +1,6 @@
 // server/handler/projectapi/paths_test.go — Tests for projectBasePath,
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // the helper that computes the on-disk root of a project's file tree.
 //
 // Why this file is codegen-relevant:

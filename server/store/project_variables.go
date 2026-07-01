@@ -1,4 +1,6 @@
 // server/store/project_variables.go — CRUD for user-declared project variables
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // (the GetVar/SetVar device family). See db_project_variables.go for the schema
 // and storage rationale.
 //

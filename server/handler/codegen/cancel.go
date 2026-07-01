@@ -1,4 +1,6 @@
 // server/handler/codegen/cancel.go — Cancel an in-flight codegen job.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Endpoint: POST /api/v1/codegen/jobs/{id}/cancel
 //

@@ -1,4 +1,6 @@
 // server/tasks/device.go — Asynq task definitions for GitHub-sourced device processing.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Task types:
 //

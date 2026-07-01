@@ -1,4 +1,6 @@
 // server/store/db_api_keys_table.go — DDL for the api_keys table.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // API keys provide device-scoped authentication for webhook endpoints.
 // Each key is tied to exactly one (user, project, device) triple,

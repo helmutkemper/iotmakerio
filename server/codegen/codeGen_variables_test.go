@@ -1,4 +1,7 @@
 // /server/codegen/codeGen_variables_test.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package codegen
 
 import (
@@ -199,7 +202,7 @@ func TestVariables_EmbeddedInScene(t *testing.T) {
 }
 
 // sceneVariablesFloat mirrors sceneVariables with float types: ConstFloat(0) →
-// SetVarFloat64("temp") and GetVarFloat64("temp") → SetVarFloat64("mirrorF"). It
+// SetVarFloat("temp") and GetVarFloat("temp") → SetVarFloat("mirrorF"). It
 // proves the float branch of the variable slice end-to-end.
 const sceneVariablesFloat = `{
   "devices": [
@@ -208,63 +211,63 @@ const sceneVariablesFloat = `{
       "type": "StatementConstFloat",
       "properties": { "value": 0.0 },
       "connectors": [
-        { "port": "output", "dataType": "float64", "isOutput": true, "connections": [
+        { "port": "output", "dataType": "float", "isOutput": true, "connections": [
           { "wireId": "wf1", "targetDevice": "setVarF_temp", "targetPort": "value" }
         ]}
       ]
     },
     {
       "id": "setVarF_temp",
-      "type": "StatementSetVarFloat64",
+      "type": "StatementSetVarFloat",
       "properties": { "varName": "temp" },
       "connectors": [
-        { "port": "value", "dataType": "float64", "isOutput": false, "connections": [
+        { "port": "value", "dataType": "float", "isOutput": false, "connections": [
           { "wireId": "wf1", "targetDevice": "constF_0", "targetPort": "output" }
         ]}
       ]
     },
     {
       "id": "getVarF_temp",
-      "type": "StatementGetVarFloat64",
+      "type": "StatementGetVarFloat",
       "properties": { "varName": "temp" },
       "connectors": [
-        { "port": "output", "dataType": "float64", "isOutput": true, "connections": [
+        { "port": "output", "dataType": "float", "isOutput": true, "connections": [
           { "wireId": "wf2", "targetDevice": "setVarF_mirror", "targetPort": "value" }
         ]}
       ]
     },
     {
       "id": "setVarF_mirror",
-      "type": "StatementSetVarFloat64",
+      "type": "StatementSetVarFloat",
       "properties": { "varName": "mirrorF" },
       "connectors": [
-        { "port": "value", "dataType": "float64", "isOutput": false, "connections": [
+        { "port": "value", "dataType": "float", "isOutput": false, "connections": [
           { "wireId": "wf2", "targetDevice": "getVarF_temp", "targetPort": "output" }
         ]}
       ]
     }
   ],
   "wires": [
-    { "id": "wf1", "from": {"device": "constF_0", "port": "output"}, "to": {"device": "setVarF_temp", "port": "value"}, "dataType": "float64" },
-    { "id": "wf2", "from": {"device": "getVarF_temp", "port": "output"}, "to": {"device": "setVarF_mirror", "port": "value"}, "dataType": "float64" }
+    { "id": "wf1", "from": {"device": "constF_0", "port": "output"}, "to": {"device": "setVarF_temp", "port": "value"}, "dataType": "float" },
+    { "id": "wf2", "from": {"device": "getVarF_temp", "port": "output"}, "to": {"device": "setVarF_mirror", "port": "value"}, "dataType": "float" }
   ],
   "variables": [
-    { "name": "temp",    "type": "float64" },
-    { "name": "mirrorF", "type": "float64" }
+    { "name": "temp",    "type": "float" },
+    { "name": "mirrorF", "type": "float" }
   ]
 }`
 
 // TestVariables_FloatZeroInit proves the float branch of the variable slice: a
 // float variable is declared with its zero initialiser formatted for C as
-// "0.0f" (the cLiteral float case + the emitVar varInit path) — the GetVarFloat64
+// "0.0f" (the cLiteral float case + the emitVar varInit path) — the GetVarFloat
 // device's codegen contract.
 //
 // Português: Prova o ramo float da fatia — variável float declarada com o
 // inicializador zero formatado em C como "0.0f".
 func TestVariables_FloatZeroInit(t *testing.T) {
 	vars := []ir.VariableDecl{
-		{Name: "temp", Type: "float64"},
-		{Name: "mirrorF", Type: "float64"},
+		{Name: "temp", Type: "float"},
+		{Name: "mirrorF", Type: "float"},
 	}
 	cResp := Generate(context.Background(), Request{
 		Scene:     json.RawMessage(sceneVariablesFloat),
@@ -278,56 +281,12 @@ func TestVariables_FloatZeroInit(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"double temp = 0.0;",
-		"double mirrorF = 0.0;",
+		"float temp = 0.0f;",
+		"float mirrorF = 0.0f;",
 	} {
 		if !strings.Contains(cCode, want) {
 			t.Fatalf("C float var not zero-initialised: missing %q\n--- C ---\n%s\ndiag: %+v", want, cCode, cResp.Diagnostics)
 		}
-	}
-}
-
-// TestVariables_Float32ZeroInit proves the float32 precision path is distinct
-// from float64: a float32 variable declares with the C single-precision literal
-// "0.0f" and C type "float" (vs "double" / "0.0" for float64). This is what
-// makes Float32 and Float64 separate devices meaningful at the codegen level.
-//
-// Português: Prova que o caminho float32 é distinto do float64 — variável
-// float32 declara com o literal C de precisão simples "0.0f" e tipo C "float"
-// (vs "double" / "0.0" do float64). É o que torna Float32 e Float64 devices
-// separados significativos no codegen.
-func TestVariables_Float32ZeroInit(t *testing.T) {
-	const sceneF32 = `{
-  "devices": [
-    { "id": "cf32", "type": "StatementConstFloat", "properties": { "value": 0.0 },
-      "connectors": [ { "port": "output", "dataType": "float32", "isOutput": true, "connections": [
-        { "wireId": "w32", "targetDevice": "sv32", "targetPort": "value" } ] } ] },
-    { "id": "sv32", "type": "StatementSetVarFloat32", "properties": { "varName": "x32" },
-      "connectors": [ { "port": "value", "dataType": "float32", "isOutput": false, "connections": [
-        { "wireId": "w32", "targetDevice": "cf32", "targetPort": "output" } ] } ] }
-  ],
-  "wires": [
-    { "id": "w32", "from": {"device": "cf32", "port": "output"}, "to": {"device": "sv32", "port": "value"}, "dataType": "float32" }
-  ],
-  "variables": [ { "name": "x32", "type": "float32" } ]
-}`
-	vars := []ir.VariableDecl{{Name: "x32", Type: "float32"}}
-	cResp := Generate(context.Background(), Request{
-		Scene:     json.RawMessage(sceneF32),
-		Language:  "c",
-		Variables: vars,
-	})
-	cCode := cResp.Files["main.c"]
-	for name, f := range cResp.Files {
-		if name != "main.c" {
-			cCode += f
-		}
-	}
-	if !strings.Contains(cCode, "float x32 = 0.0f;") {
-		t.Fatalf("C float32 var not single-precision zero-init: missing %q\n--- C ---\n%s\ndiag: %+v", "float x32 = 0.0f;", cCode, cResp.Diagnostics)
-	}
-	if strings.Contains(cCode, "double x32") {
-		t.Fatalf("float32 var wrongly declared as double\n--- C ---\n%s", cCode)
 	}
 }
 

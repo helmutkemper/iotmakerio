@@ -1,4 +1,6 @@
 // handler/feedapi/handlers.go — Feed and marketplace handler implementations.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // All feed endpoints are public (no auth required) with one exception:
 // rating and follow operations require a Bearer token.

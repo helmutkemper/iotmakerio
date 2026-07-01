@@ -1,4 +1,6 @@
 // server/codegen/blackbox/type_shape_test.go — Tests for the
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // analyseGoType helper that decomposes Go type strings into the
 // (container, keyType, valueType, nativeKey, nativeValue) tuple
 // that PropDef carries on the wire.

@@ -1,4 +1,6 @@
 // server/store/db_live_projects_table.go — DDL for the live_projects table.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // A live project groups all live communication resources (API keys, WebSocket
 // connections) under a unique server-generated ID. The project name is a

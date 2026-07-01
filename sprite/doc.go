@@ -1,4 +1,6 @@
 // Package sprite provides a high-performance, z-indexed sprite management system
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // for Go WebAssembly applications.
 //
 // It renders SVG objects as cached images on a single visible canvas, supporting

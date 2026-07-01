@@ -1,3 +1,8 @@
+// browser/event/mouse/typeEvent.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package mouse
 
 import (
@@ -130,9 +135,9 @@ func (e Event) GetOffsetY() (offsetY float64) {
 // (in pixels) at which the mouse was clicked, relative to the left edge of the entire document.
 // This includes any portion of the document not currently visible.
 //
-//   Output:
-//     pageX: A floating-point number of pixels from the left edge of the document at which the mouse
-//     was clicked, regardless of any scrolling or viewport positioning that may be in effect.
+//	Output:
+//	  pageX: A floating-point number of pixels from the left edge of the document at which the mouse
+//	  was clicked, regardless of any scrolling or viewport positioning that may be in effect.
 //
 // Being based on the edge of the document as it is, this property takes into account any horizontal
 // scrolling of the page. For example, if the page is scrolled such that 200 pixels of the left side
@@ -160,10 +165,10 @@ func (e Event) GetOffsetY() (offsetY float64) {
 // (em pixels) na qual o mouse foi clicado, em relação à borda esquerda do documento inteiro. Isso
 // inclui qualquer parte do documento não visível no momento.
 //
-//   Saída:
-//     pageX: Um número de pixels de ponto flutuante da borda esquerda do documento em que o mouse foi
-//     clicado, independentemente de qualquer rolagem ou posicionamento da janela de visualização que
-//     possa estar em vigor.
+//	Saída:
+//	  pageX: Um número de pixels de ponto flutuante da borda esquerda do documento em que o mouse foi
+//	  clicado, independentemente de qualquer rolagem ou posicionamento da janela de visualização que
+//	  possa estar em vigor.
 //
 // Baseando-se na borda do documento como está, essa propriedade leva em consideração qualquer rolagem
 // horizontal da página. Por exemplo, se a página for rolada de forma que 200 pixels do lado esquerdo
@@ -196,8 +201,8 @@ func (e Event) GetPageX() (pageX float64) {
 // pixels of the event relative to the whole document. This property takes into account any vertical
 // scrolling of the page.
 //
-//   Output:
-//     pageY: A double floating point value.
+//	Output:
+//	  pageY: A double floating point value.
 //
 // Português:
 //
@@ -206,8 +211,8 @@ func (e Event) GetPageX() (pageX float64) {
 //
 // Esta propriedade leva em consideração qualquer rolagem vertical da página.
 //
-//   Saída:
-//     pageY: Um valor de ponto flutuante duplo.
+//	Saída:
+//	  pageY: Um valor de ponto flutuante duplo.
 func (e Event) GetPageY() (pageY float64) {
 	return e.Object.Get("pageY").Float()
 }
@@ -219,20 +224,20 @@ func (e Event) GetPageY() (pageY float64) {
 // The screenX read-only property of the MouseEvent interface provides the horizontal coordinate
 // (offset) of the mouse pointer in global (screen) coordinates.
 //
-//   Note:
-//     * In a multiscreen environment, screens aligned horizontally will be treated as a single
-//       device, and so the range of the screenX value will increase to the combined width of the
-//       screens.
+//	Note:
+//	  * In a multiscreen environment, screens aligned horizontally will be treated as a single
+//	    device, and so the range of the screenX value will increase to the combined width of the
+//	    screens.
 //
 // Português:
 //
 // A propriedade somente leitura screenX da interface MouseEvent fornece a coordenada horizontal
 // (deslocamento) do ponteiro do mouse em coordenadas globais (tela).
 //
-//   Nota:
-//     * Em um ambiente de várias telas, as telas alinhadas horizontalmente serão tratadas como um
-//       único dispositivo e, portanto, o intervalo do valor screenX aumentará para a largura
-//       combinada das telas.
+//	Nota:
+//	  * Em um ambiente de várias telas, as telas alinhadas horizontalmente serão tratadas como um
+//	    único dispositivo e, portanto, o intervalo do valor screenX aumentará para a largura
+//	    combinada das telas.
 func (e Event) GetScreenX() (screenX float64) {
 	return e.Object.Get("screenX").Float()
 }
@@ -288,10 +293,10 @@ func (e Event) GetY() (y float64) {
 // In practice, it returns the html element of the target. Like, if the target is a div,
 // it returns the div with all its attributes.
 //
-//   Example:
-//     if RelatedTarget.IsNull() == false {
-//       log.Print("id: ", target.Get("id"))
-//     }
+//	Example:
+//	  if RelatedTarget.IsNull() == false {
+//	    log.Print("id: ", target.Get("id"))
+//	  }
 //
 // Português:
 //
@@ -301,10 +306,10 @@ func (e Event) GetY() (y float64) {
 // Na prática, ele retorna o elemento html do destino. Tipo, se o alvo for um div, ele retorna o
 // div com todos os seus atributos.
 //
-//   Exemplo:
-//     if RelatedTarget.IsNull() == false {
-//       log.Print("id: ", target.Get("id"))
-//     }
+//	Exemplo:
+//	  if RelatedTarget.IsNull() == false {
+//	    log.Print("id: ", target.Get("id"))
+//	  }
 func (e Event) GetRelatedTarget() (object js.Value) {
 	return e.Object.Get("relatedTarget")
 }
@@ -316,16 +321,16 @@ func (e Event) GetRelatedTarget() (object js.Value) {
 // The MouseEvent.region read-only property returns the id of the canvas hit region affected by the
 // event. If no hit region is affected, null is returned.
 //
-//   Output:
-//     region: A DOMString representing the id of the hit region.
+//	Output:
+//	  region: A DOMString representing the id of the hit region.
 //
 // Português:
 //
 // A propriedade somente leitura MouseEvent.region retorna o id da região de acerto da tela afetada
 // pelo evento. Se nenhuma região de hit for afetada, null será retornado.
 //
-//   Saída:
-//     region: Um DOMString que representa o id da região do hit.
+//	Saída:
+//	  region: Um DOMString que representa o id da região do hit.
 func (e Event) GetRegion() (region string) {
 	return e.Object.Get("region").String()
 }
@@ -357,8 +362,8 @@ func (e Event) GetButton() (mouseButton Button) {
 // On some Linux variants, for example, a left mouse click combined with the alt key is used to move
 // or resize windows.
 //
-//   Note:
-//     * On Macintosh keyboards, this key is also known as the option key.
+//	Note:
+//	  * On Macintosh keyboards, this key is also known as the option key.
 //
 // Português:
 //
@@ -371,8 +376,8 @@ func (e Event) GetButton() (mouseButton Button) {
 // Em algumas variantes do Linux, por exemplo, um clique esquerdo do mouse combinado com a tecla alt
 // é usado para mover ou redimensionar janelas.
 //
-//   Nota:
-//     * Em teclados Macintosh, essa tecla também é conhecida como tecla de opção.
+//	Nota:
+//	  * Em teclados Macintosh, essa tecla também é conhecida como tecla de opção.
 func (e Event) GetAltKey() (altKey bool) {
 	return e.Object.Get("altKey").Bool()
 }
@@ -403,9 +408,9 @@ func (e Event) GetShiftKey() (shiftKey bool) {
 // may be false even when the key is actually pressed. On Windows, for example, this key may open the
 // Start menu.
 //
-//   Note:
-//     * On Macintosh keyboards, this key is the command key (⌘). On Windows keyboards, this key is
-//       the Windows key (⊞).
+//	Note:
+//	  * On Macintosh keyboards, this key is the command key (⌘). On Windows keyboards, this key is
+//	    the Windows key (⊞).
 //
 // Português:
 //
@@ -416,9 +421,9 @@ func (e Event) GetShiftKey() (shiftKey bool) {
 // portanto, essa propriedade pode ser falsa mesmo quando a tecla é realmente pressionada. No Windows,
 // por exemplo, essa tecla pode abrir o menu Iniciar.
 //
-//   Nota:
-//     * Em teclados Macintosh, esta tecla é a tecla de comando (⌘). Em teclados Windows, esta tecla
-//       é a tecla Windows (⊞).
+//	Nota:
+//	  * Em teclados Macintosh, esta tecla é a tecla de comando (⌘). Em teclados Windows, esta tecla
+//	    é a tecla Windows (⊞).
 func (e Event) GetMetaKey() (metaKey bool) {
 	return e.Object.Get("metaKey").Bool()
 }
@@ -430,16 +435,16 @@ func (e Event) GetMetaKey() (metaKey bool) {
 // The MouseEvent.ctrlKey read-only property is a boolean value that indicates whether the ctrl key
 // was pressed or not when a given mouse event occurs.
 //
-//   Note:
-//     * On Macintosh keyboards, this key is the control key.
+//	Note:
+//	  * On Macintosh keyboards, this key is the control key.
 //
 // Português:
 //
 // A propriedade somente leitura MouseEvent.ctrlKey é um valor booleano que indica se a tecla ctrl
 // foi pressionada ou não quando ocorre um determinado evento de mouse.
 //
-//   Nota:
-//     * Em teclados Macintosh, esta tecla é a tecla de controle.
+//	Nota:
+//	  * Em teclados Macintosh, esta tecla é a tecla de controle.
 func (e Event) GetCtrlKey() (ctrlKey bool) {
 	return e.Object.Get("ctrlKey").Bool()
 }

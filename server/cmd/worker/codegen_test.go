@@ -1,4 +1,6 @@
 // server/cmd/worker/codegen_test.go — Tests for the codegen Asynq handler
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // inside the worker process.
 //
 // What we pin here:

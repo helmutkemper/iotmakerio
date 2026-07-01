@@ -1,4 +1,6 @@
 // handler/projectapi/handlers.go — Project and file management implementations.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Each handler:
 //  1. Extracts and validates input.

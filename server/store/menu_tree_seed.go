@@ -1,4 +1,6 @@
 // /ide/server/store/menu_tree_seed.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 
 // server/store/menu_tree_seed.go — Populates the menu tree tables on first boot.
 //
@@ -119,11 +121,9 @@ func SeedMenuTree() error {
 
 		// ── Variables children ───────────────────────────────────────────
 		{"SysGetVarInt", "system", "action", 1, "menuMainGetVarInt", "Get Int", "bars", "0 0 448 512", "", ""},
-		{"SysGetVarFloat32", "system", "action", 1, "menuMainGetVarFloat32", "Get Float32", "bars", "0 0 448 512", "", ""},
-		{"SysGetVarFloat64", "system", "action", 1, "menuMainGetVarFloat64", "Get Float64", "bars", "0 0 448 512", "", ""},
+		{"SysGetVarFloat", "system", "action", 1, "menuMainGetVarFloat", "Get Float", "bars", "0 0 448 512", "", ""},
 		{"SysSetVarInt", "system", "action", 1, "menuMainSetVarInt", "Set Int", "bars", "0 0 448 512", "", ""},
-		{"SysSetVarFloat32", "system", "action", 1, "menuMainSetVarFloat32", "Set Float32", "bars", "0 0 448 512", "", ""},
-		{"SysSetVarFloat64", "system", "action", 1, "menuMainSetVarFloat64", "Set Float64", "bars", "0 0 448 512", "", ""},
+		{"SysSetVarFloat", "system", "action", 1, "menuMainSetVarFloat", "Set Float", "bars", "0 0 448 512", "", ""},
 		{"SysGetVarString", "system", "action", 1, "menuMainGetVarString", "Get String", "bars", "0 0 448 512", "", ""},
 		{"SysSetVarString", "system", "action", 1, "menuMainSetVarString", "Set String", "bars", "0 0 448 512", "", ""},
 
@@ -240,12 +240,10 @@ func SeedMenuTree() error {
 		// Variables children
 		{"SysSetVarInt", "SysVar", 1},
 		{"SysGetVarInt", "SysVar", 2},
-		{"SysSetVarFloat32", "SysVar", 3},
-		{"SysGetVarFloat32", "SysVar", 4},
-		{"SysSetVarFloat64", "SysVar", 5},
-		{"SysGetVarFloat64", "SysVar", 6},
-		{"SysSetVarString", "SysVar", 7},
-		{"SysGetVarString", "SysVar", 8},
+		{"SysSetVarFloat", "SysVar", 3},
+		{"SysGetVarFloat", "SysVar", 4},
+		{"SysSetVarString", "SysVar", 5},
+		{"SysGetVarString", "SysVar", 6},
 
 		// Display children
 		{"SysGauge", "SysDisplay", 1},
@@ -724,28 +722,6 @@ func MigrateMenuTreeCase() error {
 func MigrateMenuTreeVariables() error {
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	// ── Rename cleanup ────────────────────────────────────────────────────
-	// The abstract-float variable items (SysGetVarFloat / SysSetVarFloat) were
-	// split into explicit SysGetVarFloat32/64 and SysSetVarFloat32/64. Their
-	// factories no longer exist, so remove the orphaned catalog + layout rows
-	// from databases seeded before the split; the INSERT OR IGNORE statements
-	// below re-add the concrete items. On a fresh DB the old rows never existed,
-	// so these DELETEs are harmless no-ops.
-	//
-	// Português: Os itens de float abstrato (SysGetVarFloat / SysSetVarFloat)
-	// foram divididos em SysGetVarFloat32/64 e SysSetVarFloat32/64. A factory
-	// deles sumiu — remove as linhas órfãs de catálogo + layout de bancos
-	// semeados antes do split; os INSERT OR IGNORE abaixo re-adicionam os itens
-	// concretos. Em banco novo as linhas antigas nunca existiram (no-op).
-	for _, oldID := range []string{"SysGetVarFloat", "SysSetVarFloat"} {
-		if _, err := DB.Exec(`DELETE FROM menu_items WHERE slot_id = ?`, oldID); err != nil {
-			return err
-		}
-		if _, err := DB.Exec(`DELETE FROM menu_layout WHERE slot_id = ?`, oldID); err != nil {
-			return err
-		}
-	}
-
 	// ── Catalog: the SysVar category + its device children ────────────────
 	if _, err := DB.Exec(`
 		INSERT OR IGNORE INTO menu_items
@@ -763,10 +739,8 @@ func MigrateMenuTreeVariables() error {
 	children := []catItem{
 		{"SysSetVarInt", "menuMainSetVarInt", "Set Int"},
 		{"SysGetVarInt", "menuMainGetVarInt", "Get Int"},
-		{"SysSetVarFloat32", "menuMainSetVarFloat32", "Set Float32"},
-		{"SysGetVarFloat32", "menuMainGetVarFloat32", "Get Float32"},
-		{"SysSetVarFloat64", "menuMainSetVarFloat64", "Set Float64"},
-		{"SysGetVarFloat64", "menuMainGetVarFloat64", "Get Float64"},
+		{"SysSetVarFloat", "menuMainSetVarFloat", "Set Float"},
+		{"SysGetVarFloat", "menuMainGetVarFloat", "Get Float"},
 		{"SysSetVarString", "menuMainSetVarString", "Set String"},
 		{"SysGetVarString", "menuMainGetVarString", "Get String"},
 	}
@@ -882,11 +856,9 @@ func MigrateMenuTreeVariables() error {
 	keys := []i18nKey{
 		{"menuMainVar", "Variables", "Variáveis"},
 		{"menuMainGetVarInt", "Get Int", "Ler Int"},
-		{"menuMainGetVarFloat32", "Get Float32", "Ler Float32"},
-		{"menuMainGetVarFloat64", "Get Float64", "Ler Float64"},
+		{"menuMainGetVarFloat", "Get Float", "Ler Float"},
 		{"menuMainSetVarInt", "Set Int", "Gravar Int"},
-		{"menuMainSetVarFloat32", "Set Float32", "Gravar Float32"},
-		{"menuMainSetVarFloat64", "Set Float64", "Gravar Float64"},
+		{"menuMainSetVarFloat", "Set Float", "Gravar Float"},
 		{"menuMainGetVarString", "Get String", "Ler String"},
 		{"menuMainSetVarString", "Set String", "Gravar String"},
 	}

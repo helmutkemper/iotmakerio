@@ -1,14 +1,19 @@
+// browser/html/typeDir.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package html
 
 // Dir
 //
 // English:
 //
-//  Specifies the text direction for the content in an element.
+//	Specifies the text direction for the content in an element.
 //
 // Português:
 //
-//  Especifica a direção do texto para o conteúdo em um elemento.
+//	Especifica a direção do texto para o conteúdo em um elemento.
 type Dir string
 
 func (e Dir) String() (element string) {

@@ -1,4 +1,6 @@
 // ide/stagefileui/filemanager.go — Stage file manager overlay for the WASM IDE.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Opens a draggable overlay panel (same visual language as ui/overlay) that lets
 // the maker save, load, rename, and delete stage files organised in virtual

@@ -1,4 +1,6 @@
 // server/handler/adminapi/categories.go — Admin CRUD for categories and subcategories.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // All write operations require the same menu OTP as sections. Read operations
 // do not require OTP.

@@ -1,4 +1,6 @@
 // server/tasks/template.go — Asynq task definitions for GitHub-sourced template processing.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Task types:
 //

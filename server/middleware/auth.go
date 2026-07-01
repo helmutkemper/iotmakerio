@@ -1,4 +1,6 @@
 // server/middleware/auth.go — HTTP middleware for the IoTMaker server.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Three middlewares are exported:
 //

@@ -1,3 +1,8 @@
+// server/codegen/blackbox/parser_c_enum_test.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package blackbox
 
 // parser_c_enum_test.go — Tests for C99 enum type devices

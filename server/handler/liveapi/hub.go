@@ -1,4 +1,6 @@
 // server/handler/liveapi/hub.go — WebSocket connection hub with Redis PubSub bridge.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // The Hub manages all active WebSocket connections from browsers. Each connection
 // is scoped to a (userID, projectID) pair. Messages flow in two directions:

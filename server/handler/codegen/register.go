@@ -1,4 +1,6 @@
 // handler/codegen/register.go — Code generation route registration.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Mounts four routes on /api/v1/codegen, all protected by
 // spaauth.RequireBearerToken():

@@ -1,4 +1,6 @@
 // server/store/menu_visibility_rules.go — CRUD for menu visibility rules.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Visibility rules are the 2nd layer of the menu visibility system (see
 // docs/CLAUDE_MENU_TREE.md §4.2). A rule whitelists a menu item for a

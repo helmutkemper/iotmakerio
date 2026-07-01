@@ -1,4 +1,7 @@
 // server/codegen/blackbox/types.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package blackbox
 
 // types.go — Black-box device definitions extracted from user Go source files.

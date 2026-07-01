@@ -1,4 +1,6 @@
 // server/codegen/blackbox/completion_test.go — Tests for ComputeIncomplete.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // One test per rule from CLAUDE_WIZARD_DESIGN.md §6.2 + slice-6
 // addendum:

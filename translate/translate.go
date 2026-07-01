@@ -1,4 +1,7 @@
 // /ide/translate/translate.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package translate
 
 // translate — Loads i18n translations from the server at startup.

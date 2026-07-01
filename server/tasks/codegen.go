@@ -1,4 +1,6 @@
 // server/tasks/codegen.go — Asynq task definition for asynchronous code generation.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Task type:
 //

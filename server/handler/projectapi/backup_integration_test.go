@@ -1,4 +1,6 @@
 // server/handler/projectapi/backup_integration_test.go —
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // Integration tests for the working-source backup endpoints.
 //
 // Why this file is codegen-relevant:

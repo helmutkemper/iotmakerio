@@ -1,4 +1,7 @@
 // /server/codegen/blackbox/rewrite_c_function_execorder_test.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package blackbox
 
 import (

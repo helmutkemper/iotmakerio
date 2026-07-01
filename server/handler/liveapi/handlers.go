@@ -1,4 +1,6 @@
 // server/handler/liveapi/handlers.go — HTTP handlers for live device communication.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Endpoints:
 //

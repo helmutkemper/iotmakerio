@@ -1,4 +1,6 @@
 // store/categories.go — CRUD for project_categories and project_subcategories.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Categories and subcategories form the taxonomy used by the IDE component
 // menu, the marketplace feed, and branded vendor sections.

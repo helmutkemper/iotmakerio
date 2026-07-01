@@ -1,4 +1,6 @@
 // Package splashScreen provides a loading splash screen rendered entirely through
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // the sprite package's canvas-based Stage/Element system.
 //
 // Unlike the previous SVG DOM-based implementation, this package creates sprite

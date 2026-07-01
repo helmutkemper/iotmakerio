@@ -1,4 +1,6 @@
 // server/handler/projectapi/help_files_test.go — Tests for path
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // validation and MIME whitelist used by the help-files endpoints.
 //
 // These tests cover the pure helpers (validateHelpFilePath,

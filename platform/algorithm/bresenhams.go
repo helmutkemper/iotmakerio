@@ -1,18 +1,23 @@
+// platform/algorithm/bresenhams.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package algorithm
 
 // Bresenham
 //
 // English:
 //
-//  Bresenham's line algorithm is a line drawing algorithm that determines the points of an
-//  n-dimensional raster that should be selected in order to form a close approximation to a straight
-//  line between two points.
+//	Bresenham's line algorithm is a line drawing algorithm that determines the points of an
+//	n-dimensional raster that should be selected in order to form a close approximation to a straight
+//	line between two points.
 //
 // Português:
 //
-//  O algoritmo de linha de Bresenham é um algoritmo de desenho de linha que determina os pontos de um
-//  raster n-dimensional que deve ser selecionado para formar uma aproximação próxima a uma linha reta
-//  entre dois pontos.
+//	O algoritmo de linha de Bresenham é um algoritmo de desenho de linha que determina os pontos de um
+//	raster n-dimensional que deve ser selecionado para formar uma aproximação próxima a uma linha reta
+//	entre dois pontos.
 type Bresenham struct {
 	points []Point
 }

@@ -1,4 +1,6 @@
 // ide/stagefileclient/client.go — HTTP client for the stage file API.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Provides blocking fetch functions for the WASM IDE to communicate with the
 // server's stage file endpoints. Every function blocks on a channel until the

@@ -1,3 +1,8 @@
+// server/codegen/codeGen_type_compat_test.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package codegen
 
 // codeGen_type_compat_test.go — Regression for the APDS9960 uint16 vs

@@ -1,4 +1,6 @@
 // Package hexagon provides a complete implementation of hexagonal grid math,
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // including cube, offset, and doubled coordinate systems, distance and direction
 // calculations, layout transformations, and support for rendering via pixel-space
 // conversion.

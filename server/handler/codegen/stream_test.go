@@ -1,4 +1,6 @@
 // server/handler/codegen/stream_test.go — Tests for handleStream.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // What handleStream does today (post-async refactor with ownership gate):
 //

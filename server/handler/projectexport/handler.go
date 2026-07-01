@@ -1,4 +1,6 @@
 // server/handler/projectexport/handler.go — HTTP handlers for the
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // "Github package" export feature.
 //
 // Two endpoints, both per-project, both gated by the bearer token

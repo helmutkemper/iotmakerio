@@ -1,4 +1,6 @@
 // /ide/templateclient/clientTypes.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 
 // Package templateclient handles all template-related communication between
 // the WASM IDE and the server.

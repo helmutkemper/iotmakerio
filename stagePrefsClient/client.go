@@ -1,4 +1,6 @@
 // ide/stagePrefsClient/client.go — HTTP client for the stage preferences API.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // The WASM IDE reads the user's stage preferences at workspace startup
 // and applies them to the sprite camera. Writes happen in the portal

@@ -1,4 +1,6 @@
 // server/store/menu_sections.go — DB access for the dynamic menu system.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Covers:
 //   - menu_sections        — branded sections with colors and icon

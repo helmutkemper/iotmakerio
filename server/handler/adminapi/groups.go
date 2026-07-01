@@ -1,4 +1,6 @@
 // server/handler/adminapi/groups.go — Admin CRUD for user groups.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Routes (all under /admin, with RequireAdmin middleware):
 //

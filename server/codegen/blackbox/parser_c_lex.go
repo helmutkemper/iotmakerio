@@ -1,3 +1,8 @@
+// server/codegen/blackbox/parser_c_lex.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package blackbox
 
 // parser_c_lex.go — Low-level lexical helpers for the C99 parser.

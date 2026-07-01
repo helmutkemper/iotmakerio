@@ -1,4 +1,7 @@
 // server/codegen/ir/emit.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package ir
 
 // emit.go — Transforms a computation Graph into a linear IR Program.
@@ -1301,8 +1304,7 @@ func (e *emitter) emitNode(nodeID string) {
 	case node.Type == "StatementBool":
 		e.emitConstBool(node)
 	case node.Type == "StatementGetVarInt",
-		node.Type == "StatementGetVarFloat32",
-		node.Type == "StatementGetVarFloat64",
+		node.Type == "StatementGetVarFloat",
 		node.Type == "StatementGetVarString":
 		// A GetVar emits no instruction: its output is a register alias for
 		// the project variable it names (resolved in resolveInput2), so a
@@ -1312,10 +1314,8 @@ func (e *emitter) emitNode(nodeID string) {
 		// o consumidor lê a variável direto, sem cópia.
 	case node.Type == "StatementSetVarInt":
 		e.emitSetVar(node, "int")
-	case node.Type == "StatementSetVarFloat32":
-		e.emitSetVar(node, "float32")
-	case node.Type == "StatementSetVarFloat64":
-		e.emitSetVar(node, "float64")
+	case node.Type == "StatementSetVarFloat":
+		e.emitSetVar(node, "float")
 	case node.Type == "StatementSetVarString":
 		e.emitSetVar(node, "string")
 	case node.Type == "StatementAdd":
@@ -1903,7 +1903,7 @@ func (e *emitter) emitSetVar(node *graph.Node, dataType string) {
 // direto pro registrador da variável, sem o GetVar emitir instrução própria.
 func getVarName(node *graph.Node) (string, bool) {
 	switch node.Type {
-	case "StatementGetVarInt", "StatementGetVarFloat32", "StatementGetVarFloat64", "StatementGetVarString":
+	case "StatementGetVarInt", "StatementGetVarFloat", "StatementGetVarString":
 		if v, ok := node.Properties["varName"].(string); ok && v != "" {
 			return v, true
 		}

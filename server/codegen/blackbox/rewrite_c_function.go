@@ -1,4 +1,6 @@
 // server/codegen/blackbox/rewrite_c_function.go — Rewrite handlers for standalone function
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // devices (Slice C99-8, "one device per function").
 //
 // Paths (intercepted in RewriteC before the shared parsePath, like

@@ -1,4 +1,6 @@
 // server/codegen/blackbox/tagcodec.go — Order-preserving codec for Go struct tags.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Why this file exists
 // ====================

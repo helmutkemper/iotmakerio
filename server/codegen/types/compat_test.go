@@ -1,3 +1,8 @@
+// server/codegen/types/compat_test.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package types
 
 // compat_test.go — Unit tests for every documented case in the

@@ -1,4 +1,6 @@
 // server/store/db_stage_prefs.go — Migration for stage preferences storage.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Stage preferences are per-user knobs that tune the IDE's stage (the
 // visual workspace where devices are placed and connected). Examples:

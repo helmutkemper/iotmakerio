@@ -1,4 +1,6 @@
 // server/handler/stagefileapi/routes.go — Stage file API route registration.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // All routes require a valid Bearer token (RequireBearerToken middleware).
 //

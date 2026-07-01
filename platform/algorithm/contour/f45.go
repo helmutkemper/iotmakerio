@@ -1,3 +1,8 @@
+// platform/algorithm/contour/f45.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package contour
 
 func (e *Contour) f45(x, y int) (dx, dy int) {

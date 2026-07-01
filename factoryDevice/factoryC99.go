@@ -1,4 +1,7 @@
 // factoryDevice/factoryC99.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package factoryDevice
 
 // factoryC99.go — C99 device-function block creation for DeviceFactory.

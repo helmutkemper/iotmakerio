@@ -1,4 +1,6 @@
 // server/store/menu_help_files.go — CRUD for the menu_help_files table.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Mirrors server/store/project_help_files.go in shape, but scoped per
 // menu slot rather than per project. The two share the same conceptual

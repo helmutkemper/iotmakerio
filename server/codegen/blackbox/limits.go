@@ -1,4 +1,6 @@
 // server/codegen/blackbox/limits.go — Parser complexity limits type.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // ParserLimits is defined in the codegen/blackbox package rather than in store
 // to keep the parser free of any database dependency. The store package imports

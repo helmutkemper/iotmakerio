@@ -1,4 +1,6 @@
 // server/projectexport/license.go — Apache License 2.0 template.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Bundled with every exported project. The user picked Apache 2.0 in
 // the export spec discussion; see WIZARD_TASKS.md slice 8.

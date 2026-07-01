@@ -1,4 +1,6 @@
 // server/store/parser_limits.go — Resolver for parser complexity limits.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Parser limits control the maximum structural complexity of a single black-box
 // or template device file: number of methods, ports, and prop-tagged fields.

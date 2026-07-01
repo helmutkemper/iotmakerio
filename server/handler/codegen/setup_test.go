@@ -1,4 +1,6 @@
 // server/handler/codegen/setup_test.go — Shared helpers for the
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // codegen handler integration tests.
 //
 // Why this file exists:

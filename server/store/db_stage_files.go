@@ -1,4 +1,6 @@
 // server/store/db_stage_files.go — Migration for stage file storage tables.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Stage files are the user's saved IDE scenes — JSON snapshots of the canvas
 // (devices, wires, containment, camera state). They are completely independent

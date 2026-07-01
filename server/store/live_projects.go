@@ -1,4 +1,6 @@
 // server/store/live_projects.go — CRUD for the live_projects table.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // A live project is a server-side record that holds a unique ID and a
 // human-friendly name. The ID is used in webhook URLs and WebSocket channels.

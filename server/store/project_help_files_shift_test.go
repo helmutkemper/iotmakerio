@@ -1,4 +1,6 @@
 // server/store/project_help_files_shift_test.go — Tests for the
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // pure helpers used by InsertHelpFileWithShift: classifyHelpPath
 // and numberedHelpPath.
 //

@@ -1,4 +1,6 @@
 // Package diagnostics defines the structured issue type shared across
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // the codegen pipeline (builder, IR emitter, validator, backends).
 //
 // Why a separate package:

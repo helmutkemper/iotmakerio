@@ -1,4 +1,6 @@
 // server/tasks/wizard_cleanup.go — Daily cleanup of stale wizard drafts.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Why this file exists
 // ====================

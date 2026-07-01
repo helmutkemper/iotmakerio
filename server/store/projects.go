@@ -1,4 +1,6 @@
 // store/projects.go — Project CRUD, lookup-table queries, and code version management.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // This file is limited to database operations only.
 // Filesystem operations live in handler/projectapi to keep concerns separated.

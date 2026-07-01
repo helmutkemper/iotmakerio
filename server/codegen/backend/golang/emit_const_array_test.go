@@ -1,4 +1,6 @@
 // /server/codegen/backend/golang/emit_const_array_test.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 
 package golang
 

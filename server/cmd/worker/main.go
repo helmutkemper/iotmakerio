@@ -1,4 +1,6 @@
 // server/cmd/worker/main.go — IoTMaker Portal background worker.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Queues and tasks handled:
 //

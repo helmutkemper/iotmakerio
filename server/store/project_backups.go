@@ -1,4 +1,6 @@
 // store/project_backups.go — single-slot backup of a project's working source.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Backups are distinct from project_code_versions (the user-facing Save
 // history, incremental and immutable). A backup is a single row per

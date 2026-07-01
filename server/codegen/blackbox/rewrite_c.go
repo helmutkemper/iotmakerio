@@ -1,3 +1,8 @@
+// server/codegen/blackbox/rewrite_c.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package blackbox
 
 // rewrite_c.go — Apply WizardEdits to C99 source.

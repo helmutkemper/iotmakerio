@@ -1,4 +1,6 @@
 // server/store/stage_prefs.go — Per-user stage preference CRUD.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Stage preferences tune the IDE's visual workspace (zoom sensitivity,
 // pan behaviour, cursor hints). The table stores sparse rows — a knob

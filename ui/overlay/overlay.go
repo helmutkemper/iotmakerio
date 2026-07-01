@@ -1,3 +1,8 @@
+// ui/overlay/overlay.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package overlay
 
 // overlay.go — Draggable floating panel with tabs for form, markdown, and Monaco editor.

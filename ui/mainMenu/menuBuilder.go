@@ -1,4 +1,6 @@
 // ui/mainMenu/menuBuilder.go — Defines the main hex menu structure and hierarchy.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // English:
 //
@@ -78,11 +80,9 @@ type DeviceCreator interface {
 	CreateConstArrayFloat()
 	CreateConstArrayString()
 	CreateGetVarInt()
-	CreateGetVarFloat32()
-	CreateGetVarFloat64()
+	CreateGetVarFloat()
 	CreateSetVarInt()
-	CreateSetVarFloat32()
-	CreateSetVarFloat64()
+	CreateSetVarFloat()
 	CreateGetVarString()
 	CreateSetVarString()
 	CreateGauge()
@@ -2576,23 +2576,13 @@ func (b *MenuBuilder) registerFactories() {
 			Styles:          styles,
 		}
 	}
-	b.factories["SysGetVarFloat32"] = func(label string) hexMenu.MenuItem {
+	b.factories["SysGetVarFloat"] = func(label string) hexMenu.MenuItem {
 		return hexMenu.MenuItem{
-			ID: "SysGetVarFloat32", Label: label,
+			ID: "SysGetVarFloat", Label: label,
 			FontAwesomePath: rulesIcon.KFABars,
 			ViewBox:         "0 0 448 512",
 			Type:            hexMenu.ItemAction,
-			OnClick:         func() { b.factory.SafeRun("CreateGetVarFloat32", b.factory.CreateGetVarFloat32) },
-			Styles:          styles,
-		}
-	}
-	b.factories["SysGetVarFloat64"] = func(label string) hexMenu.MenuItem {
-		return hexMenu.MenuItem{
-			ID: "SysGetVarFloat64", Label: label,
-			FontAwesomePath: rulesIcon.KFABars,
-			ViewBox:         "0 0 448 512",
-			Type:            hexMenu.ItemAction,
-			OnClick:         func() { b.factory.SafeRun("CreateGetVarFloat64", b.factory.CreateGetVarFloat64) },
+			OnClick:         func() { b.factory.SafeRun("CreateGetVarFloat", b.factory.CreateGetVarFloat) },
 			Styles:          styles,
 		}
 	}
@@ -2606,23 +2596,13 @@ func (b *MenuBuilder) registerFactories() {
 			Styles:          styles,
 		}
 	}
-	b.factories["SysSetVarFloat32"] = func(label string) hexMenu.MenuItem {
+	b.factories["SysSetVarFloat"] = func(label string) hexMenu.MenuItem {
 		return hexMenu.MenuItem{
-			ID: "SysSetVarFloat32", Label: label,
+			ID: "SysSetVarFloat", Label: label,
 			FontAwesomePath: rulesIcon.KFABars,
 			ViewBox:         "0 0 448 512",
 			Type:            hexMenu.ItemAction,
-			OnClick:         func() { b.factory.SafeRun("CreateSetVarFloat32", b.factory.CreateSetVarFloat32) },
-			Styles:          styles,
-		}
-	}
-	b.factories["SysSetVarFloat64"] = func(label string) hexMenu.MenuItem {
-		return hexMenu.MenuItem{
-			ID: "SysSetVarFloat64", Label: label,
-			FontAwesomePath: rulesIcon.KFABars,
-			ViewBox:         "0 0 448 512",
-			Type:            hexMenu.ItemAction,
-			OnClick:         func() { b.factory.SafeRun("CreateSetVarFloat64", b.factory.CreateSetVarFloat64) },
+			OnClick:         func() { b.factory.SafeRun("CreateSetVarFloat", b.factory.CreateSetVarFloat) },
 			Styles:          styles,
 		}
 	}

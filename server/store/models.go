@@ -1,4 +1,6 @@
 // server/store/models.go — shared data models for the IoTMaker portal.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Every persistent entity is defined here as a plain Go struct.
 // Packages that need a model import store; they never redeclare fields.

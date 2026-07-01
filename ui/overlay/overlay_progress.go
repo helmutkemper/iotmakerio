@@ -1,4 +1,6 @@
 // ui/overlay/overlay_progress.go — Progress overlay for long-running tasks.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // ShowProgress opens a centred, modal overlay with three elements:
 //

@@ -1,4 +1,6 @@
 // /live/client.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 
 // live/client.go — Bidirectional live communication between browser and hardware.
 //

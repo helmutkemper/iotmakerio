@@ -1,4 +1,6 @@
 // /ide/server/handler/templateapi/handlers.go — Template Package API handler implementations.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // See routes.go for the full route list and the lifecycle description.
 package templateapi

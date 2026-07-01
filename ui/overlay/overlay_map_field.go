@@ -1,4 +1,6 @@
 // /ide/ui/overlay/overlay_map_field.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 
 package overlay
 

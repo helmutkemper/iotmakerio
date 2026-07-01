@@ -1,4 +1,6 @@
 // server/projectexport/validator.go — pre-flight checks for ZIP export.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // The user picked the strictest possible bar in the spec discussion:
 // "no errors, no warnings, no incomplete cards, no missing helps, no

@@ -1,4 +1,6 @@
 // blackbox/analyzer.go — Semantic analyzer for BlackBox Go source code.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Ported from the original blackboxAnalyzer.go in the legacy project.
 // Two analysis passes:

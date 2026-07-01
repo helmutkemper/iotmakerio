@@ -1,4 +1,6 @@
 // store/db_community_tables.go — Migration for community interaction tables.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Tables added here:
 //

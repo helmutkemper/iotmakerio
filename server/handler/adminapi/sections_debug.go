@@ -1,4 +1,6 @@
 // server/handler/adminapi/sections.go — Admin CRUD for menu sections.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Every write operation (create, update, delete) on sections, items, and
 // visibility rules requires a valid OTP code. The admin requests the code

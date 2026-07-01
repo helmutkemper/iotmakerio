@@ -1,3 +1,8 @@
+// browser/event/document/typeEvent.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package document
 
 import (
@@ -82,7 +87,7 @@ func (e Event) GetFrameLength() (length int) {
 //
 // English:
 //
-// The Window.closed read-only property indicates whether the referenced window is closed or not
+// # The Window.closed read-only property indicates whether the referenced window is closed or not
 //
 // Português:
 //
@@ -98,16 +103,16 @@ func (e Event) GetClosed() (closed bool) {
 // The Window.outerHeight read-only property returns the height in pixels of the whole browser window, including any
 // sidebar, window chrome, and window-resizing borders/handles.
 //
-//   Notes:
-//     * To change the size of a window, see window.resizeBy() and window.resizeTo().
+//	Notes:
+//	  * To change the size of a window, see window.resizeBy() and window.resizeTo().
 //
 // Português:
 //
 // A propriedade somente leitura Window.outerHeight retorna a altura em pixels de toda a janela do navegador, incluindo
 // qualquer barra lateral, cromo de janela e alças de borda de redimensionamento de janela.
 //
-//   Notas:
-//     * Para alterar o tamanho de uma janela, consulte window.resizeBy() e window.resizeTo().
+//	Notas:
+//	  * Para alterar o tamanho de uma janela, consulte window.resizeBy() e window.resizeTo().
 func (e Event) GetOuterHeight() (outerHeight float64) {
 	return e.Object.Get("outerHeight").Float()
 }
@@ -119,8 +124,8 @@ func (e Event) GetOuterHeight() (outerHeight float64) {
 // Window.outerWidth read-only property returns the width of the outside of the browser window. It represents the width
 // of the whole browser window including sidebar (if expanded), window chrome and window resizing borders/handles.
 //
-//   Notes:
-//    * To change the size of a window, see window.resizeBy() and window.resizeTo().
+//	Notes:
+//	 * To change the size of a window, see window.resizeBy() and window.resizeTo().
 //
 // Português:
 //
@@ -128,8 +133,8 @@ func (e Event) GetOuterHeight() (outerHeight float64) {
 // Ele representa a largura de toda a janela do navegador, incluindo barra lateral (se expandida), cromo da janela e
 // alças de bordas de redimensionamento de janela.
 //
-//   Notas:
-//    * Para alterar o tamanho de uma janela, consulte window.resizeBy() e window.resizeTo().
+//	Notas:
+//	 * Para alterar o tamanho de uma janela, consulte window.resizeBy() e window.resizeTo().
 func (e Event) GetOuterWidth() (outerWidth float64) {
 	return e.Object.Get("outerWidth").Float()
 }
@@ -231,12 +236,12 @@ func (e Event) GetScreenY() (screenY float64) {
 // replaced by a phishing page by the newly opened page.
 //
 // In the following cases, the browser does not populate window.opener, but leaves it null:
-//  * The opener can be omitted by specifying rel=noopener on a link, or passing noopener in the windowFeatures
-//    parameter.
-//  * Windows opened because of links with a target of _blank don't get an opener, unless explicitly requested with
-//    rel=opener.
-//  * Having a Cross-Origin-Opener-Policy header with a value of same-origin prevents setting opener.
-//    Since the new window is loaded in a different browsing context, it won't have a reference to the opening window.
+//   - The opener can be omitted by specifying rel=noopener on a link, or passing noopener in the windowFeatures
+//     parameter.
+//   - Windows opened because of links with a target of _blank don't get an opener, unless explicitly requested with
+//     rel=opener.
+//   - Having a Cross-Origin-Opener-Policy header with a value of same-origin prevents setting opener.
+//     Since the new window is loaded in a different browsing context, it won't have a reference to the opening window.
 //
 // Português:
 //
@@ -252,13 +257,13 @@ func (e Event) GetScreenY() (screenY float64) {
 // substituída por uma página de phishing pela página recém-aberta.
 //
 // Nos casos a seguir, o navegador não preenche window.opener, mas o deixa nulo:
-//  * O opener pode ser omitido especificando rel=noopener em um link ou passando noopener no parâmetro
-//    windowFeatures.
-//  * O Windows aberto devido a links com um destino de _blank não obtém um abridor, a menos que solicitado
-//    explicitamente com rel=opener.
-//  * Ter um cabeçalho Cross-Opener-Policy com um valor de mesma origem impede a configuração do abridor.
-//    Como a nova janela é carregada em um contexto de navegação diferente, ela não terá uma referência à janela de
-//    abertura.
+//   - O opener pode ser omitido especificando rel=noopener em um link ou passando noopener no parâmetro
+//     windowFeatures.
+//   - O Windows aberto devido a links com um destino de _blank não obtém um abridor, a menos que solicitado
+//     explicitamente com rel=opener.
+//   - Ter um cabeçalho Cross-Opener-Policy com um valor de mesma origem impede a configuração do abridor.
+//     Como a nova janela é carregada em um contexto de navegação diferente, ela não terá uma referência à janela de
+//     abertura.
 func (e Event) GetOpener() (opener js.Value) {
 	return e.Object.Get("opener")
 }

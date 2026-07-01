@@ -1,4 +1,6 @@
 // server/projectexport/publishing.go — PUBLISHING.md generator.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Produces the step-by-step Git/GitHub instructions bundled with
 // every export. Lives alongside the project files (NOT as

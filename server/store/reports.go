@@ -1,4 +1,6 @@
 // store/reports.go — Project report CRUD.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // A report is a moderation signal filed by a community member against a project.
 // One user can file at most one report per project (UNIQUE constraint).

@@ -1,4 +1,6 @@
 // server/store/users_control.go — Store functions used by the control panel.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Kept separate from users.go (portal-facing functions) so the control panel
 // functions are easy to audit independently.

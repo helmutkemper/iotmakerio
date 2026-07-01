@@ -1,4 +1,6 @@
 // server/handler/storeapi/handler.go — GET /store/redirect/:listing_id
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Handles the transparent redirect to external stores with affiliate tracking.
 // The WASM never receives the affiliate URL — the server builds it here at

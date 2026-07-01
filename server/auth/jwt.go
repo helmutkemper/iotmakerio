@@ -1,4 +1,6 @@
 // auth/jwt.go — JWT creation and verification for the IoTMaker API.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // JWT tokens are used for stateless API authentication (Authorization: Bearer …).
 // Web UI uses session cookies (store/sessions.go) which are stateful and can be

@@ -1,4 +1,6 @@
 // server/handler/controlapi/controlapi.go — Control panel API handler and middleware.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // This package owns two responsibilities:
 //

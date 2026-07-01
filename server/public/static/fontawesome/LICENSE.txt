@@ -1,0 +1,27 @@
+Font Awesome Free
+https://fontawesome.com
+
+The files in this directory are from Font Awesome Free, bundled with IoTMaker.
+
+Font Awesome Free is distributed under three licenses, by file type:
+
+  Icons (SVG and JS file types)
+    Creative Commons Attribution 4.0 International (CC BY 4.0)
+    https://creativecommons.org/licenses/by/4.0/
+
+  Fonts (web and desktop font files, e.g. the .woff2 files in ./webfonts)
+    SIL Open Font License, Version 1.1
+    https://scripts.sil.org/OFL
+
+  All other (non-font, non-icon) files, e.g. the CSS in ./css
+    MIT License
+
+Attribution is required by all three licenses. Please keep this notice and the
+attribution comments embedded in the bundled files:
+
+    Font Awesome Free by @fontawesome - https://fontawesome.com
+
+Full license text: https://fontawesome.com/license/free
+
+All brand icons are trademarks of their respective owners; their inclusion does
+not indicate endorsement.

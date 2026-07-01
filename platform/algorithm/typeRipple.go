@@ -1,3 +1,8 @@
+// platform/algorithm/typeRipple.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package algorithm
 
 import (
@@ -12,21 +17,21 @@ type ripple struct {
 //
 // English:
 //
-//  Generates a sine ripple in the list of processed points, losing the original points
+//	Generates a sine ripple in the list of processed points, losing the original points
 //
-//   Input:
-//     distance: maximum ripple distance, wavelength;
-//     ripples: amounts of ripples;
-//     processed: pointer of the processed points list.
+//	 Input:
+//	   distance: maximum ripple distance, wavelength;
+//	   ripples: amounts of ripples;
+//	   processed: pointer of the processed points list.
 //
 // Português:
 //
-//  Gera uma ondulação senoidal na lista de pontos processados, perdendo os pontos originais
+//	Gera uma ondulação senoidal na lista de pontos processados, perdendo os pontos originais
 //
-//   Entrada:
-//     distance: distância máxima da ondulação, ou comprimento de onda;
-//     ripples: quantidades de ondulações;
-//     processed: ponteiro da lista de pontos processados.
+//	 Entrada:
+//	   distance: distância máxima da ondulação, ou comprimento de onda;
+//	   ripples: quantidades de ondulações;
+//	   processed: ponteiro da lista de pontos processados.
 func (e *ripple) generateRipple(distance float64, ripples int, processed *[]Point) {
 	tmp := make([]Point, len(*processed))
 	angle := 0.0

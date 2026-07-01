@@ -1,4 +1,6 @@
 // server/store/project_help_files_test.go — Tests for the help-files
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // CRUD layer.
 //
 // Each test uses a fresh in-memory SQLite database so they are isolated

@@ -1,4 +1,6 @@
 // server/store/seed_users_test.go — Seeds 50 random users for frontend testing.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // This test is intentionally NOT a unit test — it writes to a real SQLite file
 // so you can point the server at it and test the control panel UI with realistic

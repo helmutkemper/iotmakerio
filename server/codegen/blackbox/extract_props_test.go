@@ -1,4 +1,6 @@
 // server/codegen/blackbox/extract_props_test.go — Tests for the
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // "discovery" path of extractProps and its native-type gate.
 //
 // Background:

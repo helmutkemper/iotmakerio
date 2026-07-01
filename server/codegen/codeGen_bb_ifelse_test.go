@@ -1,4 +1,6 @@
 // codeGen_bb_ifelse_test.go — Regression test for the 2026-06-18 session:
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // a black-box instance used in BOTH branches of an if/else had its variable
 // declaration dropped, so the generated Go called `test0.SortInt(...)` in
 // both branches while `var test0 Test` was never emitted ("the device does

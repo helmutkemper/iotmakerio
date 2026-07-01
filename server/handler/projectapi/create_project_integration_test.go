@@ -1,4 +1,6 @@
 // server/handler/projectapi/create_project_integration_test.go —
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // Integration tests for handleCreateProject that need a live SQLite
 // database and a real Echo middleware chain.
 //

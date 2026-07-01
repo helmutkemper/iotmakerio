@@ -1,4 +1,7 @@
 // /ide/devices/compFlow/statementCase_caseRestore.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package compFlow
 
 // CaseRestoreEntry carries one case's persisted data across the import

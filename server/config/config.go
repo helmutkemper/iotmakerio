@@ -1,4 +1,6 @@
 // server/config/config.go — Application configuration for the IoTMaker portal.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Configuration is loaded once from environment variables at startup.
 // Call Load() from main(), then Get() anywhere in the application.

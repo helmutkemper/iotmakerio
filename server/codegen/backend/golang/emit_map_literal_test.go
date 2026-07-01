@@ -1,4 +1,6 @@
 // server/codegen/backend/golang/emit_map_literal_test.go — Tests for
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // encodeMapLiteral and goLiteralForMapValue, the helpers that turn
 // JSON-encoded map values from the wizard's row-builder UI into
 // Go map literals at code-emission time.

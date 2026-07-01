@@ -1,4 +1,6 @@
 // server/handler/blackboxapi/submit.go — Device submit and job status endpoints.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // POST /api/v1/blackbox/submit
 //

@@ -1,4 +1,6 @@
 // codeGen_ifelse_condition_test.go — Regression test for the 2026-06-18
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // session: an if/else whose `condition` port is fed by a comparator that
 // sits OUTSIDE the branch (the normal way to build a branch test) was being
 // rejected by validateControlPortSources, which applied its loop-only rule

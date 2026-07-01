@@ -1,4 +1,6 @@
 // handler/spaauth/routes.go — Auth API routes for the SPA.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Routes:
 //

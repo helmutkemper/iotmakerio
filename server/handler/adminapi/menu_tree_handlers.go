@@ -1,4 +1,6 @@
 // server/handler/adminapi/menu_tree_handlers.go — Admin CRUD for the
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // database-driven menu tree system.
 //
 // All write operations require OTP confirmation, reusing the same

@@ -1,4 +1,6 @@
 // server/store/db_menu_tree_tables.go — Migration statements for the
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // database-driven menu tree system.
 //
 // Called from migrate() in db.go, following the same pattern as

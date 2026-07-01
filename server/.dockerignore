@@ -1,0 +1,36 @@
+# server/.dockerignore — Controls what the Docker build context sends to the daemon.
+#
+# The build context is everything under server/ sent to Docker on every
+# "docker-compose up --build". Without this file Docker sends ~50 MB
+# (public/ alone is 31 MB). With it, only the Go source is sent.
+#
+# Rule: the builder stage copies each Go package dir explicitly, so Docker
+# only needs those. public/ is copied by the runtime stage via COPY public/,
+# which still works because .dockerignore exclusions apply to the context
+# sent to the daemon — the COPY instruction in the Dockerfile still resolves
+# from inside the context. We must NOT exclude public/ here because the
+# runtime stage needs it. What we exclude is everything else that is large
+# and not needed by either stage.
+
+# ── Never needed by any stage ─────────────────────────────────────────────────
+
+# Local persistent data — never goes into an image
+data/
+
+# Docker and Make files — already consumed by the daemon, not needed inside
+Dockerfile*
+docker-compose.yml
+Makefile
+README.md
+*.sh
+
+# Go test cache and tool artifacts
+**/*_test.go
+**/*.test
+
+# Editor and OS noise
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/

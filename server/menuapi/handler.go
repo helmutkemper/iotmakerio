@@ -1,4 +1,6 @@
 // server/handler/menuapi/handler.go — GET /api/menu/sections
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Returns the list of active menu sections visible to the requesting user,
 // with their items pre-loaded. The WASM frontend calls this once at startup

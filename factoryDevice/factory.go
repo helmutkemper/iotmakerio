@@ -1,4 +1,6 @@
 // factoryDevice/factory.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 
 package factoryDevice
 
@@ -944,15 +946,15 @@ func (f *DeviceFactory) CreateGetVarInt() {
 	log.Printf("[Factory] Created StatementGetVarInt at (%v, %v)", cx, cy)
 }
 
-// CreateGetVarFloat64 places a GetVarFloat64 device — reads a float64 variable
-// and emits its value on a single output connector (peach/float-typed). Mirrors
+// CreateGetVarFloat places a GetVarFloat device — reads a float variable and
+// emits its value on a single output connector (peach/float-typed). Mirrors
 // CreateGetVarInt; the only difference is the concrete device type.
 //
-// Português: Coloca um device GetVarFloat64 — lê uma variável float64 e emite
-// seu valor num único conector de saída (pêssego/tipo float). Espelha
+// Português: Coloca um device GetVarFloat — lê uma variável float e emite seu
+// valor num único conector de saída (pêssego/tipo float). Espelha
 // CreateGetVarInt; só muda o tipo concreto do device.
-func (f *DeviceFactory) CreateGetVarFloat64() {
-	stm := new(compVars.StatementGetVarFloat64)
+func (f *DeviceFactory) CreateGetVarFloat() {
+	stm := new(compVars.StatementGetVarFloat)
 	stm.SetStage(f.Stage)
 	stm.SetWireManager(f.WireMgr)
 	stm.SetResizerButton(f.ResizeButton)
@@ -960,7 +962,7 @@ func (f *DeviceFactory) CreateGetVarFloat64() {
 	stm.SetContextMenu(f.ContextMenu)
 
 	if err := stm.Init(); err != nil {
-		log.Printf("[Factory] StatementGetVarFloat64.Init: %v", err)
+		log.Printf("[Factory] StatementGetVarFloat.Init: %v", err)
 		return
 	}
 
@@ -973,37 +975,7 @@ func (f *DeviceFactory) CreateGetVarFloat64() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
-	log.Printf("[Factory] Created StatementGetVarFloat64 at (%v, %v)", cx, cy)
-}
-
-// CreateGetVarFloat32 places a GetVarFloat32 device — the single-precision
-// counterpart of CreateGetVarFloat64 (reads a float32 variable, peach output).
-//
-// Português: Coloca um device GetVarFloat32 — contraparte de precisão simples
-// do CreateGetVarFloat64 (lê uma variável float32, saída pêssego).
-func (f *DeviceFactory) CreateGetVarFloat32() {
-	stm := new(compVars.StatementGetVarFloat32)
-	stm.SetStage(f.Stage)
-	stm.SetWireManager(f.WireMgr)
-	stm.SetResizerButton(f.ResizeButton)
-	stm.SetGridAdjust(f.GridAdjust)
-	stm.SetContextMenu(f.ContextMenu)
-
-	if err := stm.Init(); err != nil {
-		log.Printf("[Factory] StatementGetVarFloat32.Init: %v", err)
-		return
-	}
-
-	stm.RegisterConnectors()
-	f.SceneMgr.Register(stm)
-	stm.SetSceneNotify(f.SceneNotifyFn)
-	stm.SetOnRemove(f.makeOnRemove())
-
-	cx, cy := f.devicePosition()
-	stm.SetPosition(cx, cy)
-	stm.SetDragEnable(true)
-	stm.Append()
-	log.Printf("[Factory] Created StatementGetVarFloat32 at (%v, %v)", cx, cy)
+	log.Printf("[Factory] Created StatementGetVarFloat at (%v, %v)", cx, cy)
 }
 
 // CreateSetVarInt places a SetVarInt device — a sink that assigns the value
@@ -1038,13 +1010,13 @@ func (f *DeviceFactory) CreateSetVarInt() {
 	log.Printf("[Factory] Created StatementSetVarInt at (%v, %v)", cx, cy)
 }
 
-// CreateSetVarFloat64 places a SetVarFloat64 device — the float64 sink
-// counterpart of CreateSetVarInt (peach/float-typed input, no output).
+// CreateSetVarFloat places a SetVarFloat device — the float counterpart of
+// CreateSetVarInt (sink, peach/float-typed input, no output).
 //
-// Português: Coloca um device SetVarFloat64 — sink float64, contraparte do
-// CreateSetVarInt (entrada pêssego/tipo float, sem saída).
-func (f *DeviceFactory) CreateSetVarFloat64() {
-	stm := new(compVars.StatementSetVarFloat64)
+// Português: Coloca um device SetVarFloat — contraparte float do CreateSetVarInt
+// (sink, entrada pêssego/tipo float, sem saída).
+func (f *DeviceFactory) CreateSetVarFloat() {
+	stm := new(compVars.StatementSetVarFloat)
 	stm.SetStage(f.Stage)
 	stm.SetWireManager(f.WireMgr)
 	stm.SetResizerButton(f.ResizeButton)
@@ -1052,7 +1024,7 @@ func (f *DeviceFactory) CreateSetVarFloat64() {
 	stm.SetContextMenu(f.ContextMenu)
 
 	if err := stm.Init(); err != nil {
-		log.Printf("[Factory] StatementSetVarFloat64.Init: %v", err)
+		log.Printf("[Factory] StatementSetVarFloat.Init: %v", err)
 		return
 	}
 
@@ -1065,37 +1037,7 @@ func (f *DeviceFactory) CreateSetVarFloat64() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
-	log.Printf("[Factory] Created StatementSetVarFloat64 at (%v, %v)", cx, cy)
-}
-
-// CreateSetVarFloat32 places a SetVarFloat32 device — the single-precision sink
-// counterpart of CreateSetVarFloat64 (writes a float32 variable, no output).
-//
-// Português: Coloca um device SetVarFloat32 — sink de precisão simples,
-// contraparte do CreateSetVarFloat64 (grava uma variável float32, sem saída).
-func (f *DeviceFactory) CreateSetVarFloat32() {
-	stm := new(compVars.StatementSetVarFloat32)
-	stm.SetStage(f.Stage)
-	stm.SetWireManager(f.WireMgr)
-	stm.SetResizerButton(f.ResizeButton)
-	stm.SetGridAdjust(f.GridAdjust)
-	stm.SetContextMenu(f.ContextMenu)
-
-	if err := stm.Init(); err != nil {
-		log.Printf("[Factory] StatementSetVarFloat32.Init: %v", err)
-		return
-	}
-
-	stm.RegisterConnectors()
-	f.SceneMgr.Register(stm)
-	stm.SetSceneNotify(f.SceneNotifyFn)
-	stm.SetOnRemove(f.makeOnRemove())
-
-	cx, cy := f.devicePosition()
-	stm.SetPosition(cx, cy)
-	stm.SetDragEnable(true)
-	stm.Append()
-	log.Printf("[Factory] Created StatementSetVarFloat32 at (%v, %v)", cx, cy)
+	log.Printf("[Factory] Created StatementSetVarFloat at (%v, %v)", cx, cy)
 }
 
 // CreateGetVarString places a GetVarString device — reads a string variable and

@@ -1,4 +1,6 @@
 // /ide/server/store/i18n_locale_exists.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // store/i18n_locale_exists.go — Locale existence check for the IoTMaker portal.
 //
 // This file provides a lightweight validation function used by the locale

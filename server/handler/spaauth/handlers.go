@@ -1,4 +1,6 @@
 // handler/spaauth/handlers.go — JWT auth handler implementations for the SPA.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // All responses follow the SPA envelope format:
 //

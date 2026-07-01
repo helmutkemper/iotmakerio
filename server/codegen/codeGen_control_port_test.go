@@ -1,3 +1,8 @@
+// server/codegen/codeGen_control_port_test.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package codegen
 
 // codeGen_control_port_test.go — Regression test for the pattern

@@ -1,4 +1,6 @@
 // server/store/commerce.go — DB access for the BOM and store redirect system.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Covers:
 //   - components           — physical chip/module catalogue

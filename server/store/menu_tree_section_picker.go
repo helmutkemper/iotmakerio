@@ -1,4 +1,6 @@
 // server/store/menu_tree_section_picker.go — Section item picker and assignment.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // The admin opens a full-screen modal showing all public devices and templates
 // from official_specialist and admin users. Checking items adds them to the

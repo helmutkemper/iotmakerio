@@ -1,4 +1,6 @@
 // store/ratings.go — Project rating CRUD.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Each user can rate each project once with a score of 1–5.
 // Updating the rating replaces the previous value (UPSERT).

@@ -1,4 +1,6 @@
 // server/handler/blackboxapi/attach_help_files.go — Read a project's
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // markdown help files from the SQLite store and attach them to the
 // in-memory BlackBoxDef before it is converted to the wire shape that
 // the WASM IDE expects.

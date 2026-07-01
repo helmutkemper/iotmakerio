@@ -1,4 +1,6 @@
 // /ide/server/handler/profileapi/routes.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // handler/profileapi/routes.go — User profile API routes.
 //
 // Routes:

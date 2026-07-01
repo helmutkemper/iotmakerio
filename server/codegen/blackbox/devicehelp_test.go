@@ -1,4 +1,6 @@
 // server/codegen/blackbox/devicehelp_test.go — Round-trip tests for
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // the extracted help-build pipeline. No I/O — pure function tests.
 package blackbox
 

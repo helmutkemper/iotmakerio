@@ -1,4 +1,6 @@
 // server/handler/projectexport/routes.go — route registration.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Mounted by main.go via projectexport.Register(v1) on the
 // /api/v1 group. Both routes nest under /projects/:id so the

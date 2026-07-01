@@ -1,4 +1,6 @@
 // server/handler/projectapi/variables.go — HTTP handlers for user-declared
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // project variables (the GetVar/SetVar device family).
 //
 // Routes (registered in routes.go), mirroring the /projects/:id/files group —

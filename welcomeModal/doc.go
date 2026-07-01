@@ -1,4 +1,6 @@
 // /welcomeModal/doc.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 
 // Package welcomeModal renders a modal overlay that the IDE shows once
 // at boot, before the workspace exists. The maker uses it to pick the

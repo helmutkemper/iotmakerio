@@ -1,4 +1,6 @@
 // store/invites.go — Invite code CRUD for the IoTMaker portal.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Invite codes control access to registration when invite_required=1.
 // Any verified user can create an invite. Each code is single-use and

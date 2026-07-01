@@ -1,14 +1,19 @@
+// browser/html/typeDraggable.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package html
 
 // Draggable
 //
 // English:
 //
-//  Specifies whether an element is draggable or not
+//	Specifies whether an element is draggable or not
 //
 // Português:
 //
-//  Especifica se um elemento pode ser arrastado ou não
+//	Especifica se um elemento pode ser arrastado ou não
 type Draggable string
 
 func (e Draggable) String() (element string) {

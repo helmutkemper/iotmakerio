@@ -1,4 +1,6 @@
 // /factoryDevice/catalog/catalog.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 
 // Package catalog declares the static metadata for every primitive
 // device the IDE knows about. The data here drives two filtering

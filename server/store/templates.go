@@ -1,4 +1,6 @@
 // server/store/templates.go — Template Package persistence.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // A template package is a Go project published by a specialist on GitHub.
 // The specialist submits a GitHub release URL; the worker downloads the ZIP,

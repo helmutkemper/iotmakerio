@@ -1,4 +1,6 @@
 // server/store/project_help_files.go — CRUD for the project_help_files
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // table.
 //
 // All functions here are pure data access; path validation, MIME mapping,

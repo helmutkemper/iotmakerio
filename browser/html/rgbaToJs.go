@@ -1,3 +1,8 @@
+// browser/html/rgbaToJs.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package html
 
 import (
@@ -9,11 +14,11 @@ import (
 //
 // English:
 //
-//  Convert the color format color.RGBA to javascript format rgba(R, G, B, A)
+//	Convert the color format color.RGBA to javascript format rgba(R, G, B, A)
 //
 // Português:
 //
-//  Converte uma cor em formato color.RGBA para o formato javascript rgba(R, G, B, A)
+//	Converte uma cor em formato color.RGBA para o formato javascript rgba(R, G, B, A)
 func RGBAToJs(color color.RGBA) string {
 	return "rgba(" +
 		strconv.Itoa(int(color.R)) +

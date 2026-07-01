@@ -1,4 +1,6 @@
 // store/db_feed_tables.go — Migration additions for the feed feature.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // This file is separate from db.go to keep the migration list manageable
 // as the project grows. The init() function appends new statements and seeds

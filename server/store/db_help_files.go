@@ -1,4 +1,6 @@
 // server/store/db_help_files.go — Migration and seeds for the help-files
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // feature.
 //
 // Project help files are markdown / image / SVG assets that travel with a

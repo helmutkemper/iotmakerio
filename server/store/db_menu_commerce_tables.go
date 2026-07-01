@@ -1,4 +1,6 @@
 // server/store/db_menu_commerce_tables.go — migration statements for the dynamic
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // menu section system and commerce/BOM feature.
 //
 // Called from migrate() in db.go, following the same pattern as

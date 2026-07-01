@@ -1,4 +1,6 @@
 // server/handler/controlapi/translations.go — Admin translation write API.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Routes (mounted on /api/control/v1 by RegisterTranslations):
 //

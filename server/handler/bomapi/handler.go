@@ -1,4 +1,6 @@
 // server/handler/bomapi/handler.go — GET /api/v1/bom
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Returns the Bill of Materials for a list of black-box struct names present
 // on the maker's canvas, filtered to the user's country. Each entry in the

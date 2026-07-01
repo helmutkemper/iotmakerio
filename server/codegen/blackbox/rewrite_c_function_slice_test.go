@@ -1,4 +1,6 @@
 // rewrite_c_function_slice_test.go — regression for the 2026-06-20 report:
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // editing a collection input port in the Wizard dropped the structural
 // `slice:<len>.` directive, silently un-collapsing the (pointer, length)
 // pair. The port reverted from []string to `const char **` and the length

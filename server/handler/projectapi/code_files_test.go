@@ -1,4 +1,6 @@
 // server/handler/projectapi/code_files_test.go — Validation tests for
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // the code-file endpoints that gate what gets stored as a project's
 // source code.
 //

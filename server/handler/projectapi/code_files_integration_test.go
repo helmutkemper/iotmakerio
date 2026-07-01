@@ -1,4 +1,6 @@
 // server/handler/projectapi/code_files_integration_test.go —
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // Integration tests for the handlers that persist codegen output:
 // save, get, list, rename of code versions.
 //

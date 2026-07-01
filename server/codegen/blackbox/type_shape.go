@@ -1,4 +1,6 @@
 // server/codegen/blackbox/type_shape.go — Decompose a Go type string
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // into the (container, keyType, valueType, nativeKey, nativeValue)
 // tuple that PropDef carries on the wire.
 //

@@ -1,3 +1,8 @@
+// browser/html/typeTransformFunctions.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package html
 
 import (
@@ -12,21 +17,21 @@ import (
 // The transform functions defines a list of transform definitions that are applied to an element and the element's
 // children.
 //
-//   Notes:
-//     * As of SVG2, transform is a presentation attribute, meaning it can be used as a CSS property. However, be aware
-//       that there are some differences in syntax between the CSS property and the attribute. See the documentation for
-//       the CSS property transform for the specific syntax to use in that case.
+//	Notes:
+//	  * As of SVG2, transform is a presentation attribute, meaning it can be used as a CSS property. However, be aware
+//	    that there are some differences in syntax between the CSS property and the attribute. See the documentation for
+//	    the CSS property transform for the specific syntax to use in that case.
 //
 // Português:
 //
 // As funções de transformação definem uma lista de definições de transformação que são aplicadas a um elemento e aos
 // filhos do elemento.
 //
-//   Notes:
-//     * A partir do SVG2, transform é um atributo de apresentação, o que significa que pode ser usado como uma
-//       propriedade CSS. No entanto, esteja ciente de que existem algumas diferenças na sintaxe entre a propriedade CSS
-//       e o atributo. Consulte a documentação da transformação da propriedade CSS para obter a sintaxe específica a ser
-//       usada nesse caso.
+//	Notes:
+//	  * A partir do SVG2, transform é um atributo de apresentação, o que significa que pode ser usado como uma
+//	    propriedade CSS. No entanto, esteja ciente de que existem algumas diferenças na sintaxe entre a propriedade CSS
+//	    e o atributo. Consulte a documentação da transformação da propriedade CSS para obter a sintaxe específica a ser
+//	    usada nesse caso.
 type TransformFunctions struct {
 	data []string
 }
@@ -38,94 +43,94 @@ type TransformFunctions struct {
 // The matrix(<a> <b> <c> <d> <e> <f>) transform function specifies a transformation in the form of a transformation
 // matrix of six values. matrix(a,b,c,d,e,f) is equivalent to applying the transformation matrix:
 //
-//     a c e
-//   ( b d f )
-//     0 0 1
+//	  a c e
+//	( b d f )
+//	  0 0 1
 //
 // which maps coordinates from a previous coordinate system into a new coordinate system by the following matrix
 // equalities:
 //
-//     x_newCoordSys       a c e       x_prevCoordSys       a*x_prevCoordSys + c*y_prevCoordSys + e
-//   ( y_newCoordSys ) = ( b d f )   ( y_prevCoordSys )   ( b*x_prevCoordSys + d*y_prevCoordSys + f )
-//          1              0 0 1             1                                 1
+//	  x_newCoordSys       a c e       x_prevCoordSys       a*x_prevCoordSys + c*y_prevCoordSys + e
+//	( y_newCoordSys ) = ( b d f )   ( y_prevCoordSys )   ( b*x_prevCoordSys + d*y_prevCoordSys + f )
+//	       1              0 0 1             1                                 1
 //
-//   Example:
-//     <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-//       <rect x="10" y="10" width="30" height="20" fill="green" />
+//	Example:
+//	  <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+//	    <rect x="10" y="10" width="30" height="20" fill="green" />
 //
-//       <!--
-//       In the following example we are applying the matrix:
-//       [a c e]    [3 -1 30]
-//       [b d f] => [1  3 40]
-//       [0 0 1]    [0  0  1]
+//	    <!--
+//	    In the following example we are applying the matrix:
+//	    [a c e]    [3 -1 30]
+//	    [b d f] => [1  3 40]
+//	    [0 0 1]    [0  0  1]
 //
-//       which transform the rectangle as such:
+//	    which transform the rectangle as such:
 //
-//       top left corner: oldX=10 oldY=10
-//       newX = a * oldX + c * oldY + e = 3 * 10 - 1 * 10 + 30 = 50
-//       newY = b * oldX + d * oldY + f = 1 * 10 + 3 * 10 + 40 = 80
+//	    top left corner: oldX=10 oldY=10
+//	    newX = a * oldX + c * oldY + e = 3 * 10 - 1 * 10 + 30 = 50
+//	    newY = b * oldX + d * oldY + f = 1 * 10 + 3 * 10 + 40 = 80
 //
-//       top right corner: oldX=40 oldY=10
-//       newX = a * oldX + c * oldY + e = 3 * 40 - 1 * 10 + 30 = 140
-//       newY = b * oldX + d * oldY + f = 1 * 40 + 3 * 10 + 40 = 110
+//	    top right corner: oldX=40 oldY=10
+//	    newX = a * oldX + c * oldY + e = 3 * 40 - 1 * 10 + 30 = 140
+//	    newY = b * oldX + d * oldY + f = 1 * 40 + 3 * 10 + 40 = 110
 //
-//       bottom left corner: oldX=10 oldY=30
-//       newX = a * oldX + c * oldY + e = 3 * 10 - 1 * 30 + 30 = 30
-//       newY = b * oldX + d * oldY + f = 1 * 10 + 3 * 30 + 40 = 140
+//	    bottom left corner: oldX=10 oldY=30
+//	    newX = a * oldX + c * oldY + e = 3 * 10 - 1 * 30 + 30 = 30
+//	    newY = b * oldX + d * oldY + f = 1 * 10 + 3 * 30 + 40 = 140
 //
-//       bottom right corner: oldX=40 oldY=30
-//       newX = a * oldX + c * oldY + e = 3 * 40 - 1 * 30 + 30 = 120
-//       newY = b * oldX + d * oldY + f = 1 * 40 + 3 * 30 + 40 = 170
-//       -->
-//       <rect x="10" y="10" width="30" height="20" fill="red" transform="matrix(3 1 -1 3 30 40)" />
-//     </svg>
+//	    bottom right corner: oldX=40 oldY=30
+//	    newX = a * oldX + c * oldY + e = 3 * 40 - 1 * 30 + 30 = 120
+//	    newY = b * oldX + d * oldY + f = 1 * 40 + 3 * 30 + 40 = 170
+//	    -->
+//	    <rect x="10" y="10" width="30" height="20" fill="red" transform="matrix(3 1 -1 3 30 40)" />
+//	  </svg>
 //
 // Português:
 //
 // A função de transformação matrix(<a> <b> <c> <d> <e> <f>) especifica uma transformação na forma de uma matriz de
 // transformação de seis valores. matrix(a,b,c,d,e,f) é equivalente a aplicar a matriz de transformação:
 //
-//     a c e
-//   ( b d f )
-//     0 0 1
+//	  a c e
+//	( b d f )
+//	  0 0 1
 //
 // que mapeia as coordenadas de um sistema de coordenadas anterior em um novo sistema de coordenadas pelas seguintes
 // igualdades de matriz:
 //
-//     x_newCoordSys       a c e       x_prevCoordSys       a*x_prevCoordSys + c*y_prevCoordSys + e
-//   ( y_newCoordSys ) = ( b d f )   ( y_prevCoordSys )   ( b*x_prevCoordSys + d*y_prevCoordSys + f )
-//          1              0 0 1             1                                 1
+//	  x_newCoordSys       a c e       x_prevCoordSys       a*x_prevCoordSys + c*y_prevCoordSys + e
+//	( y_newCoordSys ) = ( b d f )   ( y_prevCoordSys )   ( b*x_prevCoordSys + d*y_prevCoordSys + f )
+//	       1              0 0 1             1                                 1
 //
-//   Example:
-//     <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-//       <rect x="10" y="10" width="30" height="20" fill="green" />
+//	Example:
+//	  <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+//	    <rect x="10" y="10" width="30" height="20" fill="green" />
 //
-//       <!--
-//       In the following example we are applying the matrix:
-//       [a c e]    [3 -1 30]
-//       [b d f] => [1  3 40]
-//       [0 0 1]    [0  0  1]
+//	    <!--
+//	    In the following example we are applying the matrix:
+//	    [a c e]    [3 -1 30]
+//	    [b d f] => [1  3 40]
+//	    [0 0 1]    [0  0  1]
 //
-//       which transform the rectangle as such:
+//	    which transform the rectangle as such:
 //
-//       top left corner: oldX=10 oldY=10
-//       newX = a * oldX + c * oldY + e = 3 * 10 - 1 * 10 + 30 = 50
-//       newY = b * oldX + d * oldY + f = 1 * 10 + 3 * 10 + 40 = 80
+//	    top left corner: oldX=10 oldY=10
+//	    newX = a * oldX + c * oldY + e = 3 * 10 - 1 * 10 + 30 = 50
+//	    newY = b * oldX + d * oldY + f = 1 * 10 + 3 * 10 + 40 = 80
 //
-//       top right corner: oldX=40 oldY=10
-//       newX = a * oldX + c * oldY + e = 3 * 40 - 1 * 10 + 30 = 140
-//       newY = b * oldX + d * oldY + f = 1 * 40 + 3 * 10 + 40 = 110
+//	    top right corner: oldX=40 oldY=10
+//	    newX = a * oldX + c * oldY + e = 3 * 40 - 1 * 10 + 30 = 140
+//	    newY = b * oldX + d * oldY + f = 1 * 40 + 3 * 10 + 40 = 110
 //
-//       bottom left corner: oldX=10 oldY=30
-//       newX = a * oldX + c * oldY + e = 3 * 10 - 1 * 30 + 30 = 30
-//       newY = b * oldX + d * oldY + f = 1 * 10 + 3 * 30 + 40 = 140
+//	    bottom left corner: oldX=10 oldY=30
+//	    newX = a * oldX + c * oldY + e = 3 * 10 - 1 * 30 + 30 = 30
+//	    newY = b * oldX + d * oldY + f = 1 * 10 + 3 * 30 + 40 = 140
 //
-//       bottom right corner: oldX=40 oldY=30
-//       newX = a * oldX + c * oldY + e = 3 * 40 - 1 * 30 + 30 = 120
-//       newY = b * oldX + d * oldY + f = 1 * 40 + 3 * 30 + 40 = 170
-//       -->
-//       <rect x="10" y="10" width="30" height="20" fill="red" transform="matrix(3 1 -1 3 30 40)" />
-//     </svg>
+//	    bottom right corner: oldX=40 oldY=30
+//	    newX = a * oldX + c * oldY + e = 3 * 40 - 1 * 30 + 30 = 120
+//	    newY = b * oldX + d * oldY + f = 1 * 40 + 3 * 30 + 40 = 170
+//	    -->
+//	    <rect x="10" y="10" width="30" height="20" fill="red" transform="matrix(3 1 -1 3 30 40)" />
+//	  </svg>
 func (el *TransformFunctions) Matrix(a, b, c, d, e, f float64) (ref *TransformFunctions) {
 	if el.data == nil {
 		el.data = make([]string, 0)
@@ -143,8 +148,8 @@ func (el *TransformFunctions) Matrix(a, b, c, d, e, f float64) (ref *TransformFu
 //
 // In other words:
 //
-//   xnew = xold + <x>
-//   ynew = yold + <y>
+//	xnew = xold + <x>
+//	ynew = yold + <y>
 //
 // Português:
 //
@@ -152,8 +157,8 @@ func (el *TransformFunctions) Matrix(a, b, c, d, e, f float64) (ref *TransformFu
 //
 // Em outras palavras:
 //
-//   xnew = xold + <x>
-//   ynew = yold + <y>
+//	xnew = xold + <x>
+//	ynew = yold + <y>
 func (el *TransformFunctions) Translate(x, y float64) (ref *TransformFunctions) {
 	if el.data == nil {
 		el.data = make([]string, 0)

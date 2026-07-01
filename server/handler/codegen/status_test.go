@@ -1,4 +1,6 @@
 // server/handler/codegen/status_test.go — Tests for handleStatus.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // What handleStatus does today (post-async refactor with ownership gate):
 //

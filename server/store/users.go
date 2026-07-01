@@ -1,4 +1,6 @@
 // store/users.go — User CRUD for the IoTMaker portal.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // All functions accept a *sql.DB (or *sql.Tx) so callers can participate
 // in transactions. The package-level DB variable is used by default.

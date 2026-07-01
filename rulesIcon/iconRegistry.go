@@ -1,3 +1,8 @@
+// rulesIcon/iconRegistry.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package rulesIcon
 
 // iconRegistry.go — Maps FontAwesome icon name strings to SVG path data,

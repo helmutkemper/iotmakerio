@@ -1,4 +1,6 @@
 // server/permission/permission.go — Role-based access control (RBAC) for the IoTMaker portal.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Design: Opção B — permissions are hardcoded per role, verified locally without
 // a database query. Each endpoint declares exactly which permission it requires.

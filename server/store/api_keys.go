@@ -1,4 +1,6 @@
 // server/store/api_keys.go — API key management for IoTMaker live device communication.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // API keys authenticate external hardware and scripts that send data to the
 // IoTMaker server via webhooks. Each key is scoped to a single device within

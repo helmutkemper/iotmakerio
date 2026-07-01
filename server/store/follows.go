@@ -1,4 +1,6 @@
 // store/follows.go — User follow/unfollow CRUD.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // The user_follows table records (follower_id, following_id) pairs.
 // The primary key is the composite (follower_id, following_id) so there

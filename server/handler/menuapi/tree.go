@@ -1,4 +1,6 @@
 // server/handler/menuapi/tree.go — GET /api/v1/menu/tree
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Returns the complete resolved menu tree for the requesting user's profile
 // and locale. The WASM frontend calls this once at startup to build the full

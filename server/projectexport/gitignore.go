@@ -1,4 +1,6 @@
 // server/projectexport/gitignore.go — basic .gitignore for Go projects.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Bundled with every exported project so the user can `git init`
 // without immediately tracking build artefacts, IDE config, or OS

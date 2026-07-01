@@ -1,4 +1,6 @@
 // server/store/i18n.go — Translation (i18n) persistence for the IoTMaker portal.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Overview
 // --------
@@ -306,11 +308,9 @@ var seedTranslations = []seedEntry{
 	{ID: "menuMainConstInt", EnUS: "Int", PtBR: "Inteiro"},
 	{ID: "menuMainVar", EnUS: "Variables", PtBR: "Variáveis"},
 	{ID: "menuMainGetVarInt", EnUS: "Get Int", PtBR: "Ler Int"},
-	{ID: "menuMainGetVarFloat32", EnUS: "Get Float32", PtBR: "Ler Float32"},
-	{ID: "menuMainGetVarFloat64", EnUS: "Get Float64", PtBR: "Ler Float64"},
+	{ID: "menuMainGetVarFloat", EnUS: "Get Float", PtBR: "Ler Float"},
 	{ID: "menuMainSetVarInt", EnUS: "Set Int", PtBR: "Gravar Int"},
-	{ID: "menuMainSetVarFloat32", EnUS: "Set Float32", PtBR: "Gravar Float32"},
-	{ID: "menuMainSetVarFloat64", EnUS: "Set Float64", PtBR: "Gravar Float64"},
+	{ID: "menuMainSetVarFloat", EnUS: "Set Float", PtBR: "Gravar Float"},
 	{ID: "menuMainGetVarString", EnUS: "Get String", PtBR: "Ler String"},
 	{ID: "menuMainSetVarString", EnUS: "Set String", PtBR: "Gravar String"},
 	{ID: "menuMainConstFloat", EnUS: "Float", PtBR: "Ponto flutuante"},

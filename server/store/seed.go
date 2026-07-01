@@ -1,4 +1,6 @@
 // server/store/seed.go — Database seeding for the IoTMaker portal.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Seeding is split across files by domain:
 //

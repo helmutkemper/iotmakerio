@@ -1,4 +1,6 @@
 // server/handler/i18n/handlers.go — Public translation read API.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Scope
 // -----

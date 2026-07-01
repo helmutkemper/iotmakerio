@@ -1,4 +1,7 @@
 // /ide/devices/compFlow/statementIfElse_branchRestore.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package compFlow
 
 // RestoreBranchState re-applies the persisted branch membership (which child

@@ -1,4 +1,6 @@
 // server/handler/projectapi/help_files.go — HTTP handlers for the
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // project help-files feature.
 //
 // All endpoints live under /api/v1/projects/:id/files/help/* and require

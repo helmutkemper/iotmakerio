@@ -1,4 +1,6 @@
 // codeGen_case_cond_test.go — StatementCase codegen, the if/else-if lowering.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // A switch `case` label only accepts discrete constants in both Go and C, so a
 // StatementCase whose int selector uses any range or comparison case

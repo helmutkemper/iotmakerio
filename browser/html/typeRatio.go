@@ -1,16 +1,21 @@
+// browser/html/typeRatio.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package html
 
 // Ratio
 //
 // English:
 //
-//  The alignment value indicates whether to force uniform scaling and, if so, the alignment method to use in case the
-//  aspect ratio of the viewBox doesn't match the aspect ratio of the viewport.
+//	The alignment value indicates whether to force uniform scaling and, if so, the alignment method to use in case the
+//	aspect ratio of the viewBox doesn't match the aspect ratio of the viewport.
 //
 // Português:
 //
-//  O valor de alinhamento indica se deve-se forçar o dimensionamento uniforme e, em caso afirmativo, o método de
-//  alinhamento a ser usado caso a proporção da viewBox não corresponda à proporção da janela de visualização.
+//	O valor de alinhamento indica se deve-se forçar o dimensionamento uniforme e, em caso afirmativo, o método de
+//	alinhamento a ser usado caso a proporção da viewBox não corresponda à proporção da janela de visualização.
 type Ratio string
 
 func (e Ratio) String() string {

@@ -1,4 +1,6 @@
 // server/codegen/backend/golang/emit_slice_literal_test.go — Tests
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 // for encodeSliceLiteral, the helper that turns JSON-encoded slice
 // values from the wizard's row-builder UI into Go slice literals at
 // code-emission time.

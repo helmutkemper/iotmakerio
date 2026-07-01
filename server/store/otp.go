@@ -1,4 +1,6 @@
 // store/otp.go — One-time password persistence for the IoTMaker portal.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // OTP codes are stored in the database rather than in-memory so they survive
 // server restarts and work correctly in multi-process deployments.

@@ -1,4 +1,6 @@
 // server/store/stage_files.go — CRUD and limit resolution for stage files.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Stage files are saved IDE scenes. Each file belongs to one user and
 // optionally lives inside a virtual folder. Files are private — only

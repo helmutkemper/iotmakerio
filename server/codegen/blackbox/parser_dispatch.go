@@ -1,4 +1,7 @@
 // /server/codegen/blackbox/parser_dispatch.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package blackbox
 
 // parser_dispatch.go — Single language dispatch point for the black-box parser.

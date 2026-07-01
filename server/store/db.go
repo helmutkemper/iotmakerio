@@ -1,4 +1,6 @@
 // server/store/db.go — SQLite database lifecycle for the IoTMaker portal.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Responsibilities:
 //   - Open the database with sane WAL pragmas for concurrent reads.

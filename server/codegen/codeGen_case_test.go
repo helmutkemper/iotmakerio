@@ -1,4 +1,6 @@
 // codeGen_case_test.go — Slice 1 of the StatementCase device: codegen.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // StatementCase replaces StatementIfElse. A boolean selector with true/false
 // cases lowers to an if/else (reusing that pipeline); any other selector emits

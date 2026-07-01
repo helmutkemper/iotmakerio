@@ -1,4 +1,6 @@
 // auth/password.go — Password validation rules for the IoTMaker portal.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // Rules (NIST SP 800-63B aligned):
 //   - Minimum 8 characters

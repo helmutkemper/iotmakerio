@@ -1,3 +1,8 @@
+// blackbox/loader.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package blackbox
 
 // loader.go — Fetches black-box device definitions from the server at startup.

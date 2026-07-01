@@ -1,4 +1,6 @@
 // store/registration.go — Atomic user registration transaction.
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 //
 // This file owns the single entry point for creating a new user account.
 // All three DB operations (create user, redeem invite, create profile) are
