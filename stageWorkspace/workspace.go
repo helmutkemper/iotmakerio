@@ -1,4 +1,4 @@
-// /ide/stageWorkspace/workspace.go
+// stageWorkspace/workspace.go
 // SPDX-FileCopyrightText: 2026 Helmut Kemper
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -810,6 +810,18 @@ func (w *Workspace) Init(cfg Config) error {
 		CanvasEl:      w.CanvasEl,
 		PreviewCaseFn: w.previewCaseCode,
 	}
+
+	// Wire the context-menu "copy" action to this stage's factory. Init runs
+	// once per workspace (backend and frontend each have their own CtxMenu and
+	// Factory), so each controller gets a handler bound to ITS factory — a copy
+	// started on a backend device is placed by the backend factory, and vice
+	// versa. See ui/contextMenu/copy.go and DeviceFactory.CreateCopy.
+	//
+	// Português: Liga a ação "copy" do menu de contexto à factory deste stage.
+	// Init roda uma vez por workspace (backend e frontend têm seu próprio
+	// CtxMenu e Factory), então cada controller recebe um handler ligado à SUA
+	// factory.
+	w.CtxMenu.SetCopyHandler(w.Factory.CreateCopy)
 
 	// --- Main Menu ---
 	exportJSONFn := func() {
@@ -3979,34 +3991,14 @@ func (w *Workspace) importScene(sceneJSON string) {
 			}
 		}
 
-		// Restore properties (value, label, dataType, etc.).
-		// The JSON stores properties as map[string]interface{} but ApplyProperties
-		// expects map[string]string with flat keys.
-		//
-		// BlackBox devices store their BB_PROP values as a nested map under the
-		// key "props": {"sdaPin": "GP14", ...}. ApplyProperties expects these as
-		// flat keys with "prop_" prefix: "prop_sdaPin" → "GP14".
-		//
-		// The flattening rule: if a value is a nested map, strip the trailing "s"
-		// from the key to get the prefix (e.g. "props" → "prop_") and expand
-		// each entry. Scalar values are converted via Sprintf as-is.
-		if len(dev.Properties) > 0 {
-			if inspectable, iok := lastDev.(scene.Inspectable); iok {
-				props := make(map[string]string, len(dev.Properties)*2)
-				for k, v := range dev.Properties {
-					switch val := v.(type) {
-					case map[string]interface{}:
-						// Nested map: "props" → "prop_sdaPin", "prop_sclPin", etc.
-						prefix := strings.TrimSuffix(k, "s") + "_"
-						for subKey, subVal := range val {
-							props[prefix+subKey] = fmt.Sprintf("%v", subVal)
-						}
-					default:
-						props[k] = fmt.Sprintf("%v", v)
-					}
-				}
-				inspectable.ApplyProperties(props)
-			}
+		// Restore properties (value, label, dataType, etc.). The conversion from
+		// the JSON map[string]interface{} to the flat map[string]string that
+		// ApplyProperties expects lives in scene.ReplayProperties — the SAME
+		// helper the context-menu "copy" action uses, so a reloaded device and a
+		// copied device are configured identically. See that function for the
+		// flattening rule (scalars, and BlackBox nested "props" → "prop_<key>").
+		if inspectable, iok := lastDev.(scene.Inspectable); iok {
+			scene.ReplayProperties(inspectable, dev.Properties)
 		}
 
 		// RefreshVisual for devices that need explicit visual recache after

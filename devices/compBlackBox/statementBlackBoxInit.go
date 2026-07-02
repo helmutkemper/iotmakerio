@@ -468,7 +468,7 @@ func (e *StatementBlackBoxInit) wireEvents() {
 		}
 
 		// Body click → device menu
-		go e.ctxMenu.OpenAtWorld(e.bodyMenuItems(), clickWX, clickWY)
+		go e.ctxMenu.OpenForDevice(e, e.bodyMenuItems(), clickWX, clickWY)
 	})
 
 	// [SCENE] real-time conflict feedback — notify scene

@@ -134,9 +134,15 @@ var DefaultTypeStyles = map[string]WireStyle{
 		CornerRadius:  6.0,
 	},
 	"float": {
-		StrokeColor:   "#F44336", // red | vermelho
+		// Abstract float wire — teal, matching the device badge/border accent
+		// (rulesDevice KColorTypeFloat64). It was previously "#F44336", the exact
+		// red of the "error" style, so a valid float wire looked like an error;
+		// float is now the maker-facing default type, so it gets its own clearly
+		// non-red identity. Português: fio de float abstrato — teal, igual ao
+		// badge; antes era o vermelho do erro e confundia.
+		StrokeColor:   "#55DDAA",
 		StrokeWidth:   2.0,
-		SelectedColor: "#EF9A9A",
+		SelectedColor: "#A7EFD8",
 		SelectedWidth: 4.0,
 		CornerRadius:  6.0,
 	},
@@ -179,9 +185,11 @@ var DefaultTypeStyles = map[string]WireStyle{
 		CornerRadius:  6.0,
 	},
 	"[]float": {
-		StrokeColor:   "#F44336", // red thick | vermelho grosso
+		// Teal thick — the collection variant of the abstract float wire, same
+		// accent as the scalar "float" above (was the error red "#F44336").
+		StrokeColor:   "#55DDAA",
 		StrokeWidth:   4.0,
-		SelectedColor: "#EF9A9A",
+		SelectedColor: "#A7EFD8",
 		SelectedWidth: 6.0,
 		CornerRadius:  6.0,
 	},
@@ -298,23 +306,22 @@ var DefaultCompatibility = map[string][]string{
 	// ("const char*") plus the spaced variants, const and non-const.
 	"string": {"string", "const char*", "char*", "const char *", "char *"},
 	"bool":   {"bool", "int"},
-	// T6 decision B — the abstract int COLLECTION (ConstArrayInt) may wire
-	// into any concrete integer-collection parameter ([]uint16 of an
-	// authored Go method, etc.): the IR infers the declaration's element
-	// type FROM the consumer port (inferredCollectionElem), so the
-	// generated slice literal always matches the parameter exactly.
-	// Slices have no call-site conversion, hence inference at the
-	// DECLARATION instead of a cast at the call. Float/string collections
-	// are concrete devices and stay on the exact-match fallback.
+	// T6 decision B — the abstract COLLECTIONS (ConstArrayInt, ConstArrayFloat)
+	// may wire into any concrete same-family collection parameter ([]uint16 of
+	// an authored Go method, []float32 of a C sensor, etc.): the IR infers the
+	// declaration's element type FROM the consumer port (inferredCollectionElem),
+	// so the generated slice literal always matches the parameter exactly.
+	// Slices have no call-site conversion, hence inference at the DECLARATION
+	// instead of a cast at the call. Only the string collection stays concrete
+	// on the exact-match fallback.
 	//
-	// Português: Decisão B — a coleção de int abstrato pode ligar em
-	// qualquer parâmetro de coleção inteira concreta; o IR infere o tipo
-	// do elemento a partir do consumidor, então o literal gerado sempre
-	// casa com o parâmetro. Coleções float/string são concretas e ficam
-	// no exact-match.
+	// Português: Decisão B — as coleções abstratas (int e float) podem ligar em
+	// qualquer parâmetro concreto da mesma família; o IR infere o tipo do
+	// elemento a partir do consumidor, então o literal gerado sempre casa. Só a
+	// coleção de string fica concreta no exact-match.
 	"[]int": {"[]int", "[]int8", "[]int16", "[]int32", "[]int64",
 		"[]uint", "[]uint8", "[]uint16", "[]uint32", "[]uint64", "[]byte"},
-	"[]float":  {"[]float"},
+	"[]float":  {"[]float", "[]float32", "[]float64"},
 	"[]string": {"[]string"},
 	"[]bool":   {"[]bool"},
 	// NOTE: Struct and pointer types (*T) are intentionally absent.

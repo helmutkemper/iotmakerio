@@ -60,6 +60,7 @@ import (
 	"sort"
 	"strings"
 
+	"server/codegen/blackbox"
 	"server/codegen/ir"
 )
 
@@ -158,7 +159,11 @@ func Emit(prog *ir.Program, profile TargetProfile) map[string]string {
 	// os valores do map no lugar é seguro — o range não adiciona nem remove
 	// chaves.
 	for name := range out {
-		out[name] = generatedCodeHeader + "\n" + out[name]
+		// After the exception notice, list the black-box authors whose code the
+		// project embeds (empty string when there are none). See
+		// blackbox.AttributionManifest. Added to every emitted file, mirroring
+		// the header itself.
+		out[name] = generatedCodeHeader + blackbox.AttributionManifest(prog.BlackBoxDefs) + "\n" + out[name]
 	}
 
 	return out

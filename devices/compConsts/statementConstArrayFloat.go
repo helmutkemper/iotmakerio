@@ -8,9 +8,9 @@ package compConsts
 //
 // Visual design:
 //
-//	┌─────────────────────┐  ← border color matches precision (the float
-//	│ []F64           ◉   │    family): []F32 green, []F64 teal — the wire
-//	├─────────────────────┤    is the thick variant of it
+//	┌─────────────────────┐  ← border color is the float-family color; the
+//	│ []FLOAT         ◉   │    wire is the thick (collection) variant of it
+//	├─────────────────────┤
 //	│                     │
 //	│   {0.5, 1.5}        │  ← values, truncated with "…" if long
 //	│                     │
@@ -18,12 +18,18 @@ package compConsts
 //	constArrayFloat1
 //
 // One of THREE sibling collection devices (Int / Float / String), mirroring
-// how the scalar constants are separate devices. Like its scalar sibling
-// StatementConstFloat, the PRECISION (float32 / float64) is selected in the
-// Inspect overlay — changing it re-registers the connector type, so the port
-// flips between "[]float32" and "[]float64".
+// how the scalar constants are separate devices. Float is ABSTRACT here, just
+// like the "int" sibling and the abstract-float variables: the maker does not
+// pick a bit-width. The output port is the fixed "[]float", and the target
+// PROFILE decides the element width at codegen (float[] on AVR, double[] on a
+// 64-bit target). See docs/CLAUDE_NUMERIC_TYPES_AND_TARGETS.md.
 //
-// The device holds a COMPILE-TIME literal collection (e.g. []float32{0.5, 1.5}):
+// Because there is no per-device precision, there is nothing to select in
+// Inspect, nothing to store in the scene, and nothing to restore on reload —
+// which is exactly what dissolves the old float32-const-array reload bug
+// (KNOWN_ISSUES §2A.3) at the root rather than patching it.
+//
+// The device holds a COMPILE-TIME literal collection (e.g. []float{0.5, 1.5}):
 // the size is fixed at design time, so the generated code never touches the
 // heap — Go emits a slice literal, C emits a fixed array plus an explicit
 // `_len` length companion (see ir.OpConstArray for the exact backend forms).
@@ -72,21 +78,16 @@ import (
 )
 
 // StatementConstArrayFloat is a constant fixed-size float collection device.
-// No inputs — single output connector typed "[]float32" or "[]float64",
-// following the precision selected in Inspect (reuses the package-level
-// FloatPrecision type shared with the scalar StatementConstFloat).
+// No inputs — single output connector typed "[]float" (abstract). The maker
+// never picks a bit-width: the target profile owns it (float[] on AVR, double[]
+// on 64-bit targets), exactly like the abstract "int" collection sibling and
+// the abstract-float variables. See docs/CLAUDE_NUMERIC_TYPES_AND_TARGETS.md.
 type StatementConstArrayFloat struct {
 	stage sprite.Stage
 	elem  sprite.Element
 
 	id   string
 	name string
-
-	// precision selects the element type: float32 or float64. Default
-	// Float64 (full precision) — same default as the scalar sibling.
-	// Changing it in Inspect re-registers the connector with the new
-	// collection type.
-	precision FloatPrecision
 
 	// values holds the collection content EXACTLY as typed in the Inspect
 	// text field ("0.5, 1.5"). Stored raw on purpose: the scene round-trip
@@ -145,21 +146,18 @@ func (e *StatementConstArrayFloat) SetValues(v string) {
 	}
 }
 func (e *StatementConstArrayFloat) GetValues() string              { return e.values }
-func (e *StatementConstArrayFloat) SetPrecision(p FloatPrecision)  { e.precision = p }
-func (e *StatementConstArrayFloat) GetPrecision() FloatPrecision   { return e.precision }
 func (e *StatementConstArrayFloat) SetOnRemove(fn func(id string)) { e.onRemove = fn }
 
-// portType returns the collection type advertised on the output port —
-// "[]float32" or "[]float64" per the precision select (plan §6 token
-// convention, matched by types.Classify identity and by the wire registry's
-// thick slice styles).
-func (e *StatementConstArrayFloat) portType() string { return "[]" + string(e.precision) }
+// portType returns the collection type advertised on the output port — the
+// abstract "[]float". The element bit-width is decided by the target profile at
+// codegen (float[] on AVR, double[] on 64-bit targets), never by the maker, so
+// there is no per-device precision to register, restore on reload, or diverge.
+func (e *StatementConstArrayFloat) portType() string { return "[]float" }
 
-// previewGoType mirrors the Go backend for the Code Preview tab: a CONCRETE
-// float type passes through goTypeName verbatim — unlike the abstract int of
-// the sibling device, the maker's precision is honoured exactly (same stance
-// as the scalar StatementConstFloat).
-func (e *StatementConstArrayFloat) previewGoType() string { return string(e.precision) }
+// previewGoType mirrors the Go backend for the Code Preview tab: goTypeName
+// widens the abstract "float" element to Go's float64, exactly like emitVar and
+// the abstract-float variables do.
+func (e *StatementConstArrayFloat) previewGoType() string { return "float64" }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
@@ -279,9 +277,6 @@ func (e *StatementConstArrayFloat) Init() (err error) {
 	}
 	e.id = rulesSequentialId.GetIdFromBase("constArrayFloat")
 	e.resizeLocked = true
-	if e.precision == "" {
-		e.precision = Float64 // default to full precision, like the scalar sibling
-	}
 	if e.width == 0 {
 		e.width = rulesDevice.KConstDefaultWidth
 	}
@@ -363,7 +358,7 @@ func (e *StatementConstArrayFloat) wireEvents() {
 			return
 		}
 
-		go e.ctxMenu.OpenAtWorld(e.bodyMenuItems(), menuX, menuY)
+		go e.ctxMenu.OpenForDevice(e, e.bodyMenuItems(), menuX, menuY)
 	})
 
 	// [SCENE] real-time conflict feedback — notify scene
@@ -418,13 +413,6 @@ func (e *StatementConstArrayFloat) showInspectOverlay() { overlay.Show(e.inspect
 
 func (e *StatementConstArrayFloat) inspectConfig() overlay.Config {
 	previewValues := strings.TrimSpace(e.values)
-	precValue := string(e.precision)
-	cElem := "float"
-	cSuffix := "f"
-	if e.precision == Float64 {
-		cElem = "double"
-		cSuffix = ""
-	}
 
 	return overlay.Config{
 		Title: e.id,
@@ -441,16 +429,6 @@ func (e *StatementConstArrayFloat) inspectConfig() overlay.Config {
 						Value:       e.values,
 						Placeholder: "0.5, 1.5, 3.25",
 					},
-					{
-						Key:   "precision",
-						Label: translate.T("propPrecision", "Precision"),
-						Type:  overlay.FieldSelect,
-						Value: precValue,
-						Options: []overlay.Option{
-							{Value: "float32", Label: "float32 — 32-bit (RP2040 friendly)"},
-							{Value: "float64", Label: "float64 — 64-bit (full precision)"},
-						},
-					},
 					{Key: "label", Label: translate.T("propLabel", "Label"), Type: overlay.FieldText, Value: e.label},
 					{Key: "id", Label: "ID", Type: overlay.FieldText, Value: e.id, ReadOnly: true},
 				},
@@ -458,14 +436,16 @@ func (e *StatementConstArrayFloat) inspectConfig() overlay.Config {
 			{
 				Label: "Code Preview",
 				Type:  overlay.TabMonaco,
-				// The preview mirrors the REAL generator output: a concrete
-				// float precision passes through verbatim (Go) and maps to
-				// float/double with per-element suffixing (C); the `_len`
-				// companion survives pointer decay at call sites.
+				// The preview mirrors the REAL generator output. Float is
+				// abstract: Go widens the element to float64 (goTypeName), while
+				// C maps it through the target profile — `float`/`double` — so
+				// the same collection is single-precision on AVR and double on a
+				// 64-bit target. The `_len` companion survives pointer decay at
+				// call sites.
 				Content: fmt.Sprintf(
-					"// Generated code (Go):\n%s := []%s{%s}\n\n// Generated code (C):\n// %s %s[] = {…%s};\n// const size_t %s_len = N;",
+					"// Generated code (Go):\n%s := []%s{%s}\n\n// Generated code (C):\n// float/double %s[] = {…};   // element width follows the target profile\n// const size_t %s_len = N;",
 					e.id, e.previewGoType(), previewValues,
-					cElem, e.id, cSuffix, e.id,
+					e.id, e.id,
 				),
 				Language: "go",
 				ReadOnly: true,
@@ -478,20 +458,6 @@ func (e *StatementConstArrayFloat) inspectConfig() overlay.Config {
 				// emitter parses, formats and warns (empty list, garbage
 				// tokens). The Code Preview makes mistakes visible here.
 				e.values = v
-			}
-			if p, ok := values["precision"]; ok {
-				newPrec := FloatPrecision(p)
-				if newPrec != e.precision {
-					e.precision = newPrec
-					// Re-register the connector with the updated collection
-					// type — mirrors the scalar StatementConstFloat's
-					// precision change. Existing wires of the other float
-					// width will break, by design (exact-match typing).
-					if e.wireMgr != nil {
-						e.wireMgr.UnregisterElement(e.id)
-						e.RegisterConnectors()
-					}
-				}
 			}
 			if lbl, ok := values["label"]; ok {
 				e.label = lbl
@@ -512,54 +478,22 @@ func (e *StatementConstArrayFloat) ApplyProperties(values map[string]string) {
 	if v, ok := values["values"]; ok {
 		e.values = v
 	}
-	// Remember the precision the output connector currently reflects (the
-	// factory registered it at creation with the default float64) so a real
-	// change below can be detected and the connector refreshed.
-	prevPrecision := e.precision
-	if p, ok := values["elementType"]; ok && (p == "float32" || p == "float64") {
-		// Scene reload path: the exported "elementType" property carries the
-		// precision token — accept it back. (Inspect saves use "precision";
-		// both spellings land on the same field.)
-		e.precision = FloatPrecision(p)
-	}
-	if p, ok := values["precision"]; ok && (p == "float32" || p == "float64") {
-		e.precision = FloatPrecision(p)
-	}
 	if lbl, ok := values["label"]; ok {
 		e.label = lbl
 	}
 
-	// Re-register the output connector when the reload changed the precision.
+	// No precision to restore, and no connector to re-register. Because the
+	// output type is the fixed abstract "[]float", the reload can never leave
+	// the registered connector type diverging from portType(). This is what
+	// dissolves the old float32-const-array reload bug (KNOWN_ISSUES §2A.3) at
+	// the root: the bug existed only because a per-device precision had to be
+	// read back from the scene and the connector re-registered to match; with
+	// an abstract element type there is nothing to read back or refresh.
 	//
-	// The connector advertises "[]"+precision (portType). The factory
-	// registers it at creation with the DEFAULT precision (float64); the scene
-	// reload above only updated e.precision and, without this, never refreshed
-	// the connector — so a float32 collection kept advertising []float64. The
-	// importer's wire pass then dropped the saved wire as type-incompatible and
-	// the port could no longer be re-wired (StartConnect finds zero compatible
-	// targets and silently cancels). The live Inspect-save path (OnSave) already
-	// re-registers on precision change; ApplyProperties is its reload twin and
-	// must do the same.
-	//
-	// This MUST stay synchronous — NOT inside the recacheSVG goroutine below.
-	// The importer wires devices immediately after applying properties
-	// (stageWorkspace import: properties, a short settle sleep, then the wire
-	// pass), so a deferred re-registration would land after the wires are
-	// reconnected and the wire would still be dropped. Both e.wireMgr and
-	// e.elem are already set at this point (the factory sets the manager and
-	// Init creates the element before its RegisterConnectors call), so
-	// RegisterConnectors is not a no-op here.
-	//
-	// Português: Re-registra o connector de saída quando o reload mudou a
-	// precisão. O connector é criado em float64 (default) e o reload só ajusta
-	// e.precision; sem isto, uma coleção float32 continua anunciando []float64
-	// e o importador descarta o fio por tipo incompatível (e a porta não pode
-	// mais ser religada). Tem de ser SÍNCRONO (não no goroutine do recacheSVG):
-	// o importador liga os fios logo após aplicar as properties.
-	if e.precision != prevPrecision && e.wireMgr != nil {
-		e.wireMgr.UnregisterElement(e.id)
-		e.RegisterConnectors()
-	}
+	// Português: Não há precisão a restaurar nem connector a re-registrar. Como
+	// a saída é o "[]float" abstrato fixo, o reload nunca deixa o tipo do
+	// connector divergir de portType() — é isto que dissolve o bug de reload do
+	// const-array float32 (KNOWN_ISSUES §2A.3) na raiz.
 
 	go func() {
 		time.Sleep(200 * time.Millisecond)
@@ -766,10 +700,12 @@ func (e *StatementConstArrayFloat) getIcon(data rulesIcon.Data) js.Value {
 func (e *StatementConstArrayFloat) GetDeviceType() string { return "StatementConstArrayFloat" }
 func (e *StatementConstArrayFloat) GetProperties() map[string]interface{} {
 	return map[string]interface{}{
-		// elementType carries the PRECISION token ("float32"/"float64") —
-		// the IR emitter reads it to type the CONST_ARRAY instruction, and
-		// the scene reload path feeds it back through ApplyProperties.
-		"elementType": string(e.precision),
+		// elementType is the abstract "float" — the IR emitter (emitConstArray)
+		// reads it to type the CONST_ARRAY instruction, then goTypeName/cTypeName
+		// widen it per backend (Go float64; C float/double per target profile).
+		// No precision token is stored, so the reload path has nothing to feed
+		// back and cannot desync the connector (KNOWN_ISSUES §2A.3).
+		"elementType": "float",
 		"values":      e.values,
 		"label":       e.label,
 	}
@@ -799,45 +735,42 @@ func (e *StatementConstArrayFloat) SetSceneNotify(fn func()) { e.sceneNotify = f
 func constArrayFloatHelp() string {
 	return `# ConstArrayFloat — Constant Float Collection
 
-Outputs a fixed **floating-point collection literal** (e.g. ` + "`[]float32{0.5, 1.5}`" + `)
+Outputs a fixed **floating-point collection literal** (e.g. ` + "`[]float{0.5, 1.5}`" + `)
 whose size is known at design time — the generated code never allocates on
 the heap, which makes it safe for embedded targets.
 
-## Precision
+## Precision is the target's job, not yours
 
-| Setting | Element type | Notes                                     |
-|---------|--------------|-------------------------------------------|
-| float32 | float32      | 32-bit — efficient on RP2040 hardware FPU |
-| float64 | float64      | 64-bit — default, full precision          |
-
-Changing precision **re-registers the connector type** (` + "`[]float32`" + ` ↔
-` + "`[]float64`" + `), so existing wires will break if the connected device
-expects the other width.
+Float is **abstract**, just like ` + "`int`" + `. You do not pick 32- or 64-bit here;
+the **target profile** decides the element width when the code is generated —
+` + "`float[]`" + ` on an 8/32-bit MCU (AVR, RP2040), ` + "`double[]`" + ` on a 64-bit target.
+The same collection is portable across targets, and there is no width setting
+to get wrong or to lose on reload.
 
 ## Generated code
 
-| Language | Output                                                  |
-|----------|---------------------------------------------------------|
-| Go       | ` + "`constArrayFloat1 := []float32{0.5, 1.5}`" + `              |
-| C        | ` + "`float constArrayFloat1[] = {0.5f, 1.5f};`" + ` + ` + "`const size_t constArrayFloat1_len = 2;`" + ` |
+| Language | Output                                                        |
+|----------|---------------------------------------------------------------|
+| Go       | ` + "`constArrayFloat1 := []float64{0.5, 1.5}`" + `                       |
+| C (MCU)  | ` + "`float constArrayFloat1[] = {0.5f, 1.5f};`" + `                      |
+| C (64b)  | ` + "`double constArrayFloat1[] = {0.5, 1.5};`" + `                       |
 
-float64 maps to C ` + "`double`" + ` with plain decimal literals (no suffix). The
-explicit **length companion** (` + "`_len`" + `) survives pointer decay when the
+Every C form also emits an explicit **length companion**
+(` + "`const size_t constArrayFloat1_len = 2;`" + `) that survives pointer decay when the
 array is passed to a function taking ` + "`(const T*, size_t)`" + `.
 
 ## Properties
 
-| Property  | Type   | Description                                       |
-|-----------|--------|---------------------------------------------------|
-| Values    | text   | Comma-separated numbers, e.g. ` + "`0.5, 1.5, 3.25`" + ` |
-| Precision | select | float32 or float64                                |
-| Label     | string | Name shown below the device                       |
+| Property | Type   | Description                                       |
+|----------|--------|---------------------------------------------------|
+| Values   | text   | Comma-separated numbers, e.g. ` + "`0.5, 1.5, 3.25`" + ` |
+| Label    | string | Name shown below the device                       |
 
 ## Output
 
-| Port   | Type                     |
-|--------|--------------------------|
-| output | []float32 or []float64   |
+| Port   | Type      |
+|--------|-----------|
+| output | []float   |
 
 Collection wires are drawn **thicker** than scalar wires, in the float
 family color. Sibling devices exist for **int** and **string** collections.
@@ -848,7 +781,6 @@ family color. Sibling devices exist for **int** and **string** collections.
   error before code generation.
 - An **empty Values field** generates an empty collection and a warning;
   fill it before exporting.
-- Use **float32** when targeting RP2040 to avoid slow emulated float64.
 
 ## Tips
 

@@ -1,4 +1,4 @@
-// /ide/rulesDevice/palette.go
+// rulesDevice/palette.go
 // SPDX-FileCopyrightText: 2026 Helmut Kemper
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -245,6 +245,20 @@ func TypeStyleFor(goType string) TypeStyle {
 		return TypeStyle{Tag: "F32", Color: KColorTypeFloat32}
 	case "float64":
 		return TypeStyle{Tag: "F64", Color: KColorTypeFloat64}
+	case "float":
+		// Abstract float — the maker-facing default, mirroring abstract "int".
+		// The maker never picks a bit-width; the target profile decides it, so
+		// the tag is the plain word "FLOAT" (read as "a decimal number") rather
+		// than a width like F32/F64. It shares the full-precision float64 accent
+		// color, exactly as abstract "int" shares the int64 accent above — so
+		// the primary numeric families each read as one color regardless of the
+		// concrete width the profile ends up emitting.
+		//
+		// Português: Float abstrato — o padrão que o maker vê, espelhando o
+		// "int" abstrato. O maker não escolhe largura; o profile decide, então o
+		// tag é a palavra "FLOAT", não F32/F64. Reusa a cor do float64, igual ao
+		// "int" abstrato reusa a do int64.
+		return TypeStyle{Tag: "FLOAT", Color: KColorTypeFloat64}
 	case "bool":
 		return TypeStyle{Tag: "BOOL", Color: KColorTypeBool}
 	case "string":

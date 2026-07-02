@@ -806,7 +806,7 @@ func (e *StatementChart) wireBackendEvents() {
 			go e.backendCtxMenu.OpenAtWorld(mainMenu.ConnectorMenu(e.wireMgr, e.id, "current"), menuX, menuY)
 			return
 		}
-		go e.backendCtxMenu.OpenAtWorld(e.getBackendMenuItems(), menuX, menuY)
+		go e.backendCtxMenu.OpenForDevice(e, e.getBackendMenuItems(), menuX, menuY)
 	})
 
 	// [SCENE] real-time conflict feedback — notify scene
@@ -944,7 +944,7 @@ func (e *StatementChart) wireFrontendEvents() {
 		}
 		ex, ey := e.frontendElem.GetPosition()
 		clickWX, clickWY := ex+event.LocalX, ey+event.LocalY
-		go e.frontendCtxMenu.OpenAtWorld(e.frontendContextItems(), clickWX, clickWY)
+		go e.frontendCtxMenu.OpenForDevice(e, e.frontendContextItems(), clickWX, clickWY)
 	})
 
 	// Hover: show value tooltip at the nearest data point.

@@ -195,13 +195,30 @@ func (e *StatementGreaterThanOrEqualTo) updateConnectorTypes() {
 	if e.wireMgr == nil {
 		return
 	}
-	ports := []string{"inputX", "inputY", "output"}
-	for _, port := range ports {
+	// Only the OPERAND inputs follow the selected data type. The output of a
+	// comparison is ALWAYS bool (dataTypeOutput) — it is a result, not an
+	// operand — so it must never be retyped to e.dataType. The bug retyped
+	// every port including "output", so a float comparison advertised a float
+	// output: it wired to float consumers and drew as a float (red) wire
+	// instead of a bool (orange) one. Codegen was already correct (emitCmp
+	// forces Type: "bool"); this only realigns the visual/wire type.
+	//
+	// Português: Só as ENTRADAS (operandos) seguem o tipo selecionado. A SAÍDA
+	// da comparação é SEMPRE bool (dataTypeOutput), nunca retipada para
+	// e.dataType. O bug retipava todas as portas, inclusive "output", então uma
+	// comparação float anunciava saída float. O codegen já estava certo.
+	for _, port := range []string{"inputX", "inputY", "output"} {
 		conn := e.wireMgr.GetConnector(wire.ConnectorID{
 			ElementID: e.id,
 			PortName:  port,
 		})
-		if conn != nil {
+		if conn == nil {
+			continue
+		}
+		if port == "output" {
+			// Comparison result is fixed: bool, never the operand type.
+			conn.AllowedTypes = []string{e.dataTypeOutput}
+		} else {
 			conn.AllowedTypes = []string{e.dataType}
 		}
 	}
@@ -791,7 +808,7 @@ func (e *StatementGreaterThanOrEqualTo) wireEvents() {
 
 		// No connection hit → body menu
 		log.Printf("[CTXMENU] body clicked on: %v", e.id)
-		go e.ctxMenu.OpenAtWorld(e.getBodyMenuItems(), clickWX, clickWY)
+		go e.ctxMenu.OpenForDevice(e, e.getBodyMenuItems(), clickWX, clickWY)
 	})
 
 	// Drag: grid snap on end.

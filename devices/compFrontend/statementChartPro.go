@@ -1522,7 +1522,7 @@ func (e *StatementChartPro) wireBackendEvents() {
 		}
 		if event.LocalY <= e.backendBodyHeight() {
 			log.Printf("[ChartPro/backend] %s: opening body menu at (%.1f, %.1f)", e.id, mx, my)
-			go e.backendCtxMenu.OpenAtWorld(e.backendBodyItems(), mx, my)
+			go e.backendCtxMenu.OpenForDevice(e, e.backendBodyItems(), mx, my)
 		}
 	})
 
@@ -1678,7 +1678,7 @@ func (e *StatementChartPro) wireFrontendEvents() {
 		clickWY := elemY + event.LocalY
 		log.Printf("[ChartPro/frontend] %s: opening frontend menu at world (%.1f, %.1f)",
 			e.id, clickWX, clickWY)
-		go e.frontendCtxMenu.OpenAtWorld(e.frontendContextItems(), clickWX, clickWY)
+		go e.frontendCtxMenu.OpenForDevice(e, e.frontendContextItems(), clickWX, clickWY)
 	})
 }
 

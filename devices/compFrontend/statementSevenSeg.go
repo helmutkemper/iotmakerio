@@ -537,7 +537,7 @@ func (e *StatementSevenSeg) wireBackendEvents() {
 			return
 		}
 
-		go e.backendCtxMenu.OpenAtWorld(e.getBackendMenuItems(), menuX, menuY)
+		go e.backendCtxMenu.OpenForDevice(e, e.getBackendMenuItems(), menuX, menuY)
 	})
 
 	// [SCENE] real-time conflict feedback — notify scene

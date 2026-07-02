@@ -78,6 +78,19 @@ type Controller struct {
 	// ids. Two workspaces with their own controllers can both show
 	// a menu at once (though unusual) without id collision.
 	counter int
+
+	// copyHandler performs the context-menu "copy" action: it duplicates a
+	// device of the given type, pre-configured with the given properties, at the
+	// user's next click on the stage. It is installed once by the workspace
+	// (SetCopyHandler, wired to DeviceFactory.CreateCopy). When nil — the
+	// zero-value default — OpenForDevice omits the "copy" item, so the feature
+	// degrades cleanly instead of showing a dead entry.
+	//
+	// Português: Executa a ação "copy" do menu: duplica um device do tipo dado,
+	// já configurado com as props dadas, no próximo clique no stage. Fixado uma
+	// vez pelo workspace (SetCopyHandler → DeviceFactory.CreateCopy). Quando nil
+	// (o padrão), OpenForDevice omite o item "copy".
+	copyHandler func(deviceType string, props map[string]interface{})
 }
 
 // New constructs a Controller. The stage is stored for world→viewport

@@ -499,7 +499,7 @@ func (e *StatementBarGraph) wireBackendEvents() {
 			}
 		}
 
-		go e.backendCtxMenu.OpenAtWorld(e.getBodyMenuItems(), menuX, menuY)
+		go e.backendCtxMenu.OpenForDevice(e, e.getBodyMenuItems(), menuX, menuY)
 	})
 
 	// [SCENE] real-time conflict feedback — notify scene

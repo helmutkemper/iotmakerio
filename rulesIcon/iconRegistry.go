@@ -238,6 +238,7 @@ var iconDefs = map[string]FAIconDef{
 	"gear":        {KFAGear, "0 0 512 512"},
 	"desktop":     {KFADesktop, "0 0 576 512"},
 	"file-export": {KFAFileExport, "0 0 512 512"},
+	"copy":        {KFACopy, "0 0 448 512"},
 	"trash-can":   {KFATrashCan, "0 0 448 512"},
 	"repeat":      {KFARepeat, "0 0 512 512"},
 	"play":        {KFAPlay, "0 0 384 512"},

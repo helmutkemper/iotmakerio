@@ -1,4 +1,4 @@
-// /ide/devices/compConsts/statementConstFloat.go
+// devices/compConsts/statementConstFloat.go
 // SPDX-FileCopyrightText: 2026 Helmut Kemper
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -8,8 +8,8 @@ package compConsts
 //
 // Visual design:
 //
-//	┌─────────────────────┐  ← border color matches precision:
-//	│ F64             ◉   │    F32 = green (#44CC88), F64 = teal (#55DDAA)
+//	┌─────────────────────┐  ← border color is the float-family color
+//	│ FLOAT           ◉   │
 //	├─────────────────────┤
 //	│                     │
 //	│       3.14          │  ← value, 16px bold
@@ -17,8 +17,12 @@ package compConsts
 //	└─────────────────────┘
 //	constFloat1
 //
-// The precision (float32 / float64) is selected in the Inspect overlay.
-// Changing precision updates both the connector type and the border color.
+// Float is ABSTRACT here, like the "int" constant and the abstract-float
+// variables: the maker does not pick a bit-width. The output port is "float",
+// and the target PROFILE decides the width at codegen (float on AVR, double on
+// a 64-bit target). See docs/CLAUDE_NUMERIC_TYPES_AND_TARGETS.md. With no
+// per-device precision there is nothing to select, store, or restore on reload
+// — which removes the old float32-reload connector desync at the root.
 //
 // Body click:      Inspect · Delete
 // Connector click: Connect (output-only)
@@ -54,29 +58,17 @@ import (
 	"github.com/helmutkemper/iotmakerio/wire"
 )
 
-// FloatPrecision selects whether this device emits float32 or float64.
-type FloatPrecision string
-
-const (
-	// Float32 uses 32-bit precision. Useful for embedded targets (RP2040) that
-	// have hardware float32 support but slow software float64 emulation.
-	Float32 FloatPrecision = "float32"
-
-	// Float64 uses 64-bit double precision. Default for general-purpose use.
-	Float64 FloatPrecision = "float64"
-)
-
 // StatementConstFloat is a floating-point constant device.
-// No inputs — single output connector that emits float32 or float64.
+// No inputs — single output connector typed "float" (abstract). The element
+// width is the target profile's job at codegen, not a per-device choice.
 type StatementConstFloat struct {
 	stage sprite.Stage
 	elem  sprite.Element
 
-	id        string
-	name      string
-	value     float64 // always stored as float64; cast on codegen if float32
-	precision FloatPrecision
-	label     string
+	id    string
+	name  string
+	value float64 // stored as float64; the codegen/profile decides the emitted width
+	label string
 
 	width  rulesDensity.Density
 	height rulesDensity.Density
@@ -124,12 +116,15 @@ func (e *StatementConstFloat) SetValue(v float64) {
 	}
 }
 func (e *StatementConstFloat) GetValue() float64              { return e.value }
-func (e *StatementConstFloat) SetPrecision(p FloatPrecision)  { e.precision = p }
-func (e *StatementConstFloat) GetPrecision() FloatPrecision   { return e.precision }
 func (e *StatementConstFloat) SetOnRemove(fn func(id string)) { e.onRemove = fn }
 
-// goType returns the Go type string for the current precision setting.
-func (e *StatementConstFloat) goType() string { return string(e.precision) }
+// portType returns the wire type advertised on the output connector — the
+// abstract "float". The target profile decides the element width at codegen.
+func (e *StatementConstFloat) portType() string { return "float" }
+
+// previewGoType mirrors the Go backend for the Code Preview tab: goTypeName
+// widens the abstract "float" to Go's float64, exactly like emitConst/emitVar.
+func (e *StatementConstFloat) previewGoType() string { return "float64" }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
@@ -160,9 +155,6 @@ func (e *StatementConstFloat) Remove() {
 // Uses up to 6 significant digits and removes unnecessary trailing zeros.
 func (e *StatementConstFloat) formatValue() string {
 	v := e.value
-	if e.precision == Float32 {
-		v = float64(float32(v)) // clamp to float32 range for accurate display
-	}
 	if v == math.Trunc(v) && math.Abs(v) < 1e9 {
 		return strconv.FormatFloat(v, 'f', 1, 64) // e.g. "3.0" not "3"
 	}
@@ -176,7 +168,7 @@ func (e *StatementConstFloat) renderSVG() string {
 
 	bw := rulesDevice.KDeviceBorderWidth
 	rx := rulesDevice.KDeviceCornerRadius
-	ts := rulesDevice.TypeStyleFor(e.goType())
+	ts := rulesDevice.TypeStyleFor(e.portType())
 
 	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d">`,
 		int(w), int(totalH))
@@ -248,9 +240,6 @@ func (e *StatementConstFloat) Init() (err error) {
 	}
 	e.id = rulesSequentialId.GetIdFromBase("constFloat")
 	e.resizeLocked = true
-	if e.precision == "" {
-		e.precision = Float64 // default to full precision
-	}
 	if e.width == 0 {
 		e.width = rulesDevice.KConstDefaultWidth
 	}
@@ -332,7 +321,7 @@ func (e *StatementConstFloat) wireEvents() {
 			return
 		}
 
-		go e.ctxMenu.OpenAtWorld(e.bodyMenuItems(), menuX, menuY)
+		go e.ctxMenu.OpenForDevice(e, e.bodyMenuItems(), menuX, menuY)
 	})
 
 	// [SCENE] real-time conflict feedback — notify scene
@@ -387,8 +376,7 @@ func (e *StatementConstFloat) bodyMenuItems() []contextMenu.Item {
 func (e *StatementConstFloat) showInspectOverlay() { overlay.Show(e.inspectConfig()) }
 
 func (e *StatementConstFloat) inspectConfig() overlay.Config {
-	precValue := string(e.precision)
-	codeType := e.goType()
+	codeType := e.previewGoType()
 	codeVal := e.formatValue()
 
 	return overlay.Config{
@@ -405,16 +393,6 @@ func (e *StatementConstFloat) inspectConfig() overlay.Config {
 						Type:        overlay.FieldNumber,
 						Value:       strconv.FormatFloat(e.value, 'f', -1, 64),
 						Placeholder: "0.0",
-					},
-					{
-						Key:   "precision",
-						Label: translate.T("propPrecision", "Precision"),
-						Type:  overlay.FieldSelect,
-						Value: precValue,
-						Options: []overlay.Option{
-							{Value: "float32", Label: "float32 — 32-bit (RP2040 friendly)"},
-							{Value: "float64", Label: "float64 — 64-bit (full precision)"},
-						},
 					},
 					{Key: "label", Label: translate.T("propLabel", "Label"), Type: overlay.FieldText, Value: e.label},
 					{Key: "id", Label: "ID", Type: overlay.FieldText, Value: e.id, ReadOnly: true},
@@ -433,17 +411,6 @@ func (e *StatementConstFloat) inspectConfig() overlay.Config {
 			if v, ok := values["value"]; ok {
 				if f, err := strconv.ParseFloat(v, 64); err == nil {
 					e.value = f
-				}
-			}
-			if p, ok := values["precision"]; ok {
-				newPrec := FloatPrecision(p)
-				if newPrec != e.precision {
-					e.precision = newPrec
-					// Re-register connector with updated type.
-					if e.wireMgr != nil {
-						e.wireMgr.UnregisterElement(e.id)
-						e.RegisterConnectors()
-					}
 				}
 			}
 			if lbl, ok := values["label"]; ok {
@@ -467,33 +434,19 @@ func (e *StatementConstFloat) ApplyProperties(values map[string]string) {
 			e.value = f
 		}
 	}
-	// Remember the precision the output connector currently reflects (factory
-	// registered it at the default float64) so a real change can be detected.
-	prevPrecision := e.precision
-	if p, ok := values["precision"]; ok {
-		e.precision = FloatPrecision(p)
-	}
 	if lbl, ok := values["label"]; ok {
 		e.label = lbl
 	}
 
-	// Re-register the output connector when the reload changed the precision —
-	// same fix and reasoning as the StatementConstArrayFloat sibling. The
-	// connector's type follows the precision (goType); the factory registers it
-	// at the default float64 and the reload above only updated e.precision, so
-	// without this a float32 scalar kept advertising float64 and its saved wire
-	// was dropped on import. OnSave already does this on live precision change;
-	// this is its reload twin. Must be synchronous (not in the recacheSVG
-	// goroutine) because the importer wires devices right after applying
-	// properties; e.wireMgr and e.elem are already set here.
+	// No precision to restore, and no connector to re-register: the output type
+	// is the fixed abstract "float", so the reload can never leave the connector
+	// diverging from portType(). This removes the old float32-scalar reload
+	// connector desync at the root (same resolution as the ConstArrayFloat
+	// sibling).
 	//
-	// Português: Re-registra o connector quando o reload mudou a precisão —
-	// mesmo fix do irmão StatementConstArrayFloat. Síncrono, pois o importador
-	// liga os fios logo após aplicar as properties.
-	if e.precision != prevPrecision && e.wireMgr != nil {
-		e.wireMgr.UnregisterElement(e.id)
-		e.RegisterConnectors()
-	}
+	// Português: Sem precisão a restaurar nem connector a re-registrar: a saída
+	// é o "float" abstrato fixo, então o reload nunca desalinha o connector.
+	// Remove o desync de reload do float32 escalar na raiz.
 
 	go func() {
 		time.Sleep(200 * time.Millisecond)
@@ -513,7 +466,7 @@ func (e *StatementConstFloat) RegisterConnectors() {
 	e.wireMgr.RegisterConnector(wire.ConnectorInfo{
 		ID:                 wire.ConnectorID{ElementID: e.id, PortName: "output"},
 		IsOutput:           true,
-		AllowedTypes:       []string{e.goType()},
+		AllowedTypes:       []string{e.portType()},
 		AcceptNotConnected: true,
 		MaxConnections:     0,
 		Label:              "Output",
@@ -691,8 +644,12 @@ func (e *StatementConstFloat) getIcon(data rulesIcon.Data) js.Value {
 func (e *StatementConstFloat) GetDeviceType() string { return "StatementConstFloat" }
 func (e *StatementConstFloat) GetProperties() map[string]interface{} {
 	return map[string]interface{}{
-		"value":     e.value,
-		"precision": string(e.precision),
+		"value": e.value,
+		// precision is the abstract "float": emitConstFloat reads it and
+		// goTypeName/cTypeName widen it per backend (Go float64; C float/double
+		// per target profile). No concrete token is stored, so the reload path
+		// cannot desync the connector (removes KNOWN_ISSUES §2A.3's scalar twin).
+		"precision": "float",
 		"label":     e.label,
 	}
 }
@@ -721,36 +678,40 @@ func (e *StatementConstFloat) SetSceneNotify(fn func()) { e.sceneNotify = fn }
 func constFloatHelp() string {
 	return `# ConstFloat — Floating-Point Constant
 
-Outputs a fixed **float32** or **float64** value.
+Outputs a fixed **floating-point** value.
 
-## Precision
+## Precision is the target's job, not yours
 
-| Setting | Go type | Notes                                      |
-|---------|---------|--------------------------------------------|
-| float32 | float32 | 32-bit — efficient on RP2040 hardware FPU  |
-| float64 | float64 | 64-bit — default, full precision           |
+Float is **abstract**, just like ` + "`int`" + `. You do not pick 32- or 64-bit
+here; the **target profile** decides the width when the code is generated —
+` + "`float`" + ` on an 8/32-bit MCU (AVR, RP2040), ` + "`double`" + ` on a 64-bit target.
+The same constant is portable across targets, and there is no width setting to
+get wrong or to lose on reload.
 
-Changing precision **re-registers the connector type**, so existing wires
-will break if the connected device expects a different float type.
+## Generated code
+
+| Language | Output                        |
+|----------|-------------------------------|
+| Go       | ` + "`constFloat1 := float64(3.14)`" + `  |
+| C (MCU)  | ` + "`float constFloat1 = 3.14f;`" + `     |
+| C (64b)  | ` + "`double constFloat1 = 3.14;`" + `     |
 
 ## Properties
 
-| Property  | Type    | Description                  |
-|-----------|---------|------------------------------|
-| Value     | float64 | The number to emit           |
-| Precision | select  | float32 or float64           |
-| Label     | string  | Name shown below the device  |
+| Property | Type    | Description                 |
+|----------|---------|-----------------------------|
+| Value    | float64 | The number to emit          |
+| Label    | string  | Name shown below the device |
 
 ## Output
 
-| Port   | Type             |
-|--------|------------------|
-| output | float32 or float64 |
+| Port   | Type  |
+|--------|-------|
+| output | float |
 
 ## Tips
 
 - **Double-click** the device to open Properties.
-- Use **float32** when targeting RP2040 to avoid slow emulated float64.
 - Connect to **Mul**, **Add**, or any float input device.
 `
 }

@@ -69,12 +69,45 @@ package blackbox
 //	menu radial. Quando ausente, o layout automático é aplicado.
 
 // BlackBoxDef is the full definition of a black-box device.
+// AuthorInfo is the attribution for a black-box: the specialist who wrote it,
+// identified by their GitHub provenance. Both fields come from the device row
+// (github_owner / github_url) at def-load time, never from the parsed source —
+// the source cannot reliably carry its own canonical origin, but the repository
+// it was captured from can. Used to stamp attribution into generated code.
+//
+// Português: Atribuição de uma black-box — o especialista que a escreveu,
+// identificado pela proveniência do GitHub (github_owner / github_url),
+// preenchida no load (não pelo parser). Usada para carimbar a autoria no código
+// gerado.
+type AuthorInfo struct {
+	// Username is the GitHub account the code was captured from (github_owner).
+	Username string `json:"username,omitempty"`
+
+	// URL is the source repository URL (github_url) — the verifiable origin,
+	// which also carries the component's own license.
+	URL string `json:"url,omitempty"`
+}
+
 type BlackBoxDef struct {
 	// Name is the struct name (e.g. "APDS9960"). Used as device label.
 	Name string `json:"name"`
 
 	// Doc is the package-level documentation comment.
 	Doc string `json:"doc,omitempty"`
+
+	// Author is the attribution for this black-box (see AuthorInfo). It is NOT
+	// produced by the source parser — it is populated at def-load time
+	// (store.LoadBlackBoxDefsForScene) from the device row's GitHub provenance.
+	// Nil for the maker's OWN in-editor code (that code is the maker's, so it
+	// carries no third-party attribution) and for any def whose row has no
+	// provenance. The code generator reads this to stamp a contributor manifest
+	// in the file header and an inline note on each emitted block.
+	//
+	// Português: Atribuição desta black-box (ver AuthorInfo). NÃO vem do parser
+	// — é populada no load a partir da proveniência GitHub da linha do device.
+	// Nil para o código próprio do maker no editor. O gerador a lê para carimbar
+	// o manifesto de autores no header e a nota inline em cada bloco emitido.
+	Author *AuthorInfo `json:"author,omitempty"`
 
 	// StructIcon is the FontAwesome icon name (kebab-case) declared in the
 	// struct doc comment with "icon:name.". Used in the Hardware menu and as

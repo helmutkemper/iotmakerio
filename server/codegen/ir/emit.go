@@ -326,7 +326,7 @@ func (e *emitter) inferredCollectionElem(node *graph.Node) string {
 					continue
 				}
 				elem, isColl := strings.CutPrefix(in.DataType, "[]")
-				if isColl && elem != "" && elem != "int" {
+				if isColl && elem != "" && elem != "int" && elem != "float" {
 					return elem
 				}
 			}
@@ -335,20 +335,20 @@ func (e *emitter) inferredCollectionElem(node *graph.Node) string {
 	return ""
 }
 
-// validateConstArrayElemConflicts is run Step 1d: for every ConstArrayInt
-// whose element type will be inferred from its consumers (T6 decision B),
-// it rejects the scene when two consumers demand DIFFERENT concrete
+// validateConstArrayElemConflicts is run Step 1d: for every ConstArrayInt or
+// ConstArrayFloat whose element type will be inferred from its consumers (T6
+// decision B), it rejects the scene when two consumers demand DIFFERENT concrete
 // element types — e.g. one black-box taking []uint16 and another taking
-// []int32 wired to the same constant. There is no single declaration that
-// satisfies both (Go slices do not convert), so this is a maker error the
-// IDE must surface clearly instead of shipping uncompilable code.
-// Abstract "[]int" consumers (Gauge & friends) accept anything and never
-// conflict.
+// []int32 wired to the same constant, or one taking []float32 and another
+// []float64. There is no single declaration that satisfies both (Go slices do
+// not convert), so this is a maker error the IDE must surface clearly instead
+// of shipping uncompilable code. Abstract "[]int"/"[]float" consumers (Gauge &
+// friends) accept anything and never conflict.
 //
 // Português: Passo 1d — barra a cena quando dois consumidores exigem
-// elementos concretos DIFERENTES da mesma coleção (não existe declaração
-// que sirva aos dois; slice não converte). Consumidores abstratos
-// ("[]int") aceitam qualquer coisa e nunca conflitam.
+// elementos concretos DIFERENTES da mesma coleção (int ou float; não existe
+// declaração que sirva aos dois, slice não converte). Consumidores abstratos
+// ("[]int"/"[]float") aceitam qualquer coisa e nunca conflitam.
 func (e *emitter) validateConstArrayElemConflicts() []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
 
@@ -360,7 +360,7 @@ func (e *emitter) validateConstArrayElemConflicts() []diagnostics.Diagnostic {
 
 	for _, id := range nodeIDs {
 		node := e.graph.Nodes[id]
-		if node.Type != "StatementConstArrayInt" {
+		if node.Type != "StatementConstArrayInt" && node.Type != "StatementConstArrayFloat" {
 			continue
 		}
 
@@ -379,7 +379,7 @@ func (e *emitter) validateConstArrayElemConflicts() []diagnostics.Diagnostic {
 						continue
 					}
 					elem, isColl := strings.CutPrefix(in.DataType, "[]")
-					if !isColl || elem == "" || elem == "int" {
+					if !isColl || elem == "" || elem == "int" || elem == "float" {
 						continue
 					}
 					if _, seen := demand[elem]; !seen {
@@ -2069,24 +2069,27 @@ func (e *emitter) buildConstArrayInstruction(node *graph.Node) Instruction {
 		elemType = t
 	}
 
-	// T6 decision B — the element type FLOWS FROM THE CONSUMER. Only the
-	// abstract "int" of ConstArrayInt is inferable: when the collection
-	// feeds an authored black-box parameter with a CONCRETE element (e.g.
-	// a Go method taking []uint16, whose input port carries "[]uint16"
-	// in the scene), the declaration is rendered in that element type so
-	// the generated call compiles — Go slices have no implicit
-	// conversion, so declaring []int64 against a []uint16 parameter
-	// would never build. Float/String siblings are already concrete and
-	// honour the maker's choice verbatim. Conflicting concrete consumers
-	// are rejected earlier by validateConstArrayElemConflicts (run Step
-	// 1d), so at most one candidate survives to this point. Decision 5
+	// T6 decision B — the element type FLOWS FROM THE CONSUMER. The abstract
+	// "int" (ConstArrayInt) and "float" (ConstArrayFloat) are inferable: when
+	// the collection feeds an authored black-box parameter with a CONCRETE
+	// element (a Go method taking []uint16, a C sensor taking []float32, whose
+	// input port carries that type in the scene), the declaration is rendered
+	// in that element type so the generated call compiles — Go slices have no
+	// implicit conversion, so declaring []float64 against a []float32 parameter
+	// would never build. The String sibling is concrete and honours the maker's
+	// value verbatim. With no concrete consumer the abstract element survives
+	// and goTypeName/cTypeName widen it per backend (int→int64, float→float64 in
+	// Go; the target profile picks the width in C). Conflicting concrete
+	// consumers are rejected earlier by validateConstArrayElemConflicts (run
+	// Step 1d), so at most one candidate survives to this point. Decision 5
 	// (AcceptNotConnected: false) guarantees a consumer always exists.
 	//
 	// Português: Decisão B da T6 — o tipo do elemento FLUI DO CONSUMIDOR.
-	// Só o "int" abstrato é inferível; consumidor autoral concreto
-	// (ex: []uint16) define o tipo da declaração. Conflitos de fan-out
-	// são barrados antes, na validação.
-	if elemType == "int" {
+	// "int" e "float" abstratos são inferíveis; consumidor autoral concreto
+	// (ex: []uint16, []float32) define o tipo da declaração. Sem consumidor
+	// concreto, o elemento abstrato sobrevive e goTypeName/cTypeName decidem a
+	// largura por backend. Conflitos de fan-out são barrados antes, na validação.
+	if elemType == "int" || elemType == "float" {
 		if inferred := e.inferredCollectionElem(node); inferred != "" {
 			elemType = inferred
 		}

@@ -384,7 +384,7 @@ func (e *StatementConstDuration) wireEvents() {
 			return
 		}
 
-		go e.ctxMenu.OpenAtWorld(e.bodyMenuItems(), menuX, menuY)
+		go e.ctxMenu.OpenForDevice(e, e.bodyMenuItems(), menuX, menuY)
 	})
 
 	// [SCENE] real-time conflict feedback — notify scene

@@ -561,7 +561,7 @@ func (e *StatementPieChart) wireBackendEvents() {
 			}
 		}
 		if event.LocalY <= e.backendBodyHeight() {
-			go e.backendCtxMenu.OpenAtWorld(e.getBackendMenuItems(), mx, my)
+			go e.backendCtxMenu.OpenForDevice(e, e.getBackendMenuItems(), mx, my)
 		}
 	})
 	// [SCENE] real-time conflict feedback — notify scene
@@ -643,7 +643,7 @@ func (e *StatementPieChart) wireFrontendEvents() {
 		}
 		ex, ey := e.frontendElem.GetPosition()
 		clickWX, clickWY := ex+event.LocalX, ey+event.LocalY
-		go e.frontendCtxMenu.OpenAtWorld(e.frontendContextItems(), clickWX, clickWY)
+		go e.frontendCtxMenu.OpenForDevice(e, e.frontendContextItems(), clickWX, clickWY)
 	})
 }
 

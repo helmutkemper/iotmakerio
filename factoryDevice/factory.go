@@ -390,6 +390,23 @@ func (f *DeviceFactory) makeOnRemove() func(id string) {
 	return func(id string) {
 		f.SceneMgr.Unregister(id)
 		f.WireMgr.UnregisterContainer(id)
+
+		// A delete IS a scene change, so notify: NotifyChange → OnExport →
+		// ScheduleBackupSave persists the removal to the change-based backup.
+		// Without this call the delete left NO new backup, so the removed device
+		// reappeared on the next reload. This mirrors the NotifyChange every
+		// CreateXxx method fires on add; the OnExport handler's `if w.importing`
+		// guard keeps it from writing a backup during scene import (the only
+		// other context, and one where Unregister is not called anyway).
+		//
+		// Português: Um delete É uma mudança de cena, então notifica:
+		// NotifyChange → OnExport → ScheduleBackupSave persiste a remoção no
+		// backup baseado em mudança. Sem esta chamada o delete não gerava backup
+		// novo e o device removido voltava no reload. Espelha o NotifyChange que
+		// todo CreateXxx dispara no add; a guarda `if w.importing` no OnExport
+		// impede backup durante import.
+		f.SceneMgr.NotifyChange()
+
 		log.Printf("[Factory] Unregistered %s from scene", id)
 	}
 }
@@ -1847,6 +1864,33 @@ func (f *DeviceFactory) CreateByType(deviceType string, x, y float64) bool {
 		f.CreateConstArrayFloat()
 	case "StatementConstArrayString":
 		f.CreateConstArrayString()
+	// Variable devices (get/set × int/float/string). These were previously
+	// ABSENT from this switch, so on stage import (importScene → CreateByType)
+	// they fell through to the BlackBox default, failed to resolve, and were
+	// silently dropped — the "variables are not saved" bug. The scene JSON
+	// always carried them (buildDeviceJSON + the "variables" array), so the
+	// fault was purely on this reconstruction side; both the normal saved
+	// file and the steganographic image restore through here, so this single
+	// mapping fixes both. varName/label are restored right after by
+	// ApplyProperties, exactly like every other device.
+	//
+	// Português: Devices de variável (get/set × int/float/string). Faltavam
+	// neste switch, então no import caíam no default de BlackBox, não
+	// resolviam e eram descartados — o bug "não salva variáveis". O JSON
+	// sempre os carregou; o defeito era só aqui na reconstrução. Os dois
+	// caminhos de load (arquivo e imagem stego) passam por aqui.
+	case "StatementGetVarInt":
+		f.CreateGetVarInt()
+	case "StatementGetVarFloat":
+		f.CreateGetVarFloat()
+	case "StatementGetVarString":
+		f.CreateGetVarString()
+	case "StatementSetVarInt":
+		f.CreateSetVarInt()
+	case "StatementSetVarFloat":
+		f.CreateSetVarFloat()
+	case "StatementSetVarString":
+		f.CreateSetVarString()
 	case "StatementGauge":
 		f.CreateGauge()
 	case "StatementLED":
@@ -1889,6 +1933,52 @@ func (f *DeviceFactory) CreateByType(deviceType string, x, y float64) bool {
 		return f.createBlackBoxByType(deviceType)
 	}
 	return true
+}
+
+// CreateCopy duplicates a device from the context-menu "copy" action. It reuses
+// the SAME click-to-place flow as a sidebar item: SafeRun arms the placement,
+// the user clicks the stage, and the workspace calls ConfirmPlacement, which
+// runs the pending function at the click position. The ONLY difference from a
+// plain sidebar placement is that the newly-placed device is pre-configured
+// with the SOURCE device's data.
+//
+// On placement it creates a brand-new device of deviceType (fresh id, DEFAULT
+// size, no wires) and replays the captured properties onto it via the shared
+// scene.ReplayProperties — the same path the scene import uses — so a copy is
+// configured exactly like a reloaded device. props is the snapshot taken when
+// the menu opened (the source's GetProperties()); an unknown deviceType places
+// nothing and logs.
+//
+// Português: Duplica um device pela ação "copy" do menu de contexto, reusando o
+// mesmo fluxo de click-to-place de um item do menu lateral (SafeRun arma; o
+// usuário clica; ConfirmPlacement roda a função na posição do clique). No
+// clique, cria um device novo do tipo dado (id novo, tamanho padrão, sem fios)
+// e replica os dados da origem via scene.ReplayProperties — mesmo caminho do
+// import, então a cópia fica idêntica a um device recarregado.
+func (f *DeviceFactory) CreateCopy(deviceType string, props map[string]interface{}) {
+	f.SafeRun("CopyDevice:"+deviceType, func() {
+		// ConfirmPlacement already set the next position to the click point;
+		// pass it through CreateByType (which re-applies it via SetNextPosition)
+		// so the copy lands under the cursor. The new device then becomes the
+		// serializer's LastDevice.
+		if !f.CreateByType(deviceType, f.nextPosX, f.nextPosY) {
+			log.Printf("[Factory] CreateCopy: unknown device type %q — nothing placed", deviceType)
+			return
+		}
+
+		newDev := f.SceneMgr.LastDevice()
+		if newDev == nil {
+			log.Printf("[Factory] CreateCopy: no device created for %q", deviceType)
+			return
+		}
+
+		// Replay the source's data (value / varName / label / BlackBox props)
+		// onto the fresh copy. Wires are intentionally NOT copied — a copy is a
+		// standalone device the user wires up themselves.
+		if insp, ok := newDev.(scene.Inspectable); ok {
+			scene.ReplayProperties(insp, props)
+		}
+	})
 }
 
 // SetBlackBoxDefs stores the loaded BlackBox definitions indexed by component

@@ -560,21 +560,36 @@ func LoadBlackBoxDefsForScene(sceneJSON []byte) (map[string]*bbparser.BlackBoxDe
 		if defs[structName] != nil {
 			continue
 		}
-		var parsedJSON string
+		var parsedJSON, githubOwner, githubURL string
 		err := DB.QueryRow(`
-			SELECT parsed_json FROM blackboxes
+			SELECT parsed_json, github_owner, github_url FROM blackboxes
 			WHERE  display_name = ?
 			  AND  status       = 'ready'
 			  AND  blocked      = 0
 			ORDER  BY updated_at DESC
 			LIMIT  1`, structName,
-		).Scan(&parsedJSON)
+		).Scan(&parsedJSON, &githubOwner, &githubURL)
 		if errors.Is(err, sql.ErrNoRows) || err != nil {
 			continue
 		}
 		var def bbparser.BlackBoxDef
 		if err := json.Unmarshal([]byte(parsedJSON), &def); err != nil {
 			continue
+		}
+		// Attach the author from the row's GitHub provenance. The parsed_json
+		// itself does not carry it — the source parser never sees the repository
+		// — so it is stitched in here, at the one place the parsed def and the
+		// row's provenance meet. This is what the code generator stamps as
+		// attribution (header manifest + inline note). A row without provenance
+		// leaves Author nil, so no attribution is emitted for it.
+		//
+		// Português: Anexa o autor a partir da proveniência GitHub da linha. O
+		// parsed_json não a carrega (o parser não vê o repo), então é costurada
+		// aqui, o único ponto onde o def parseado e a proveniência se encontram.
+		// É o que o gerador carimba como atribuição. Linha sem proveniência
+		// deixa Author nil, sem atribuição emitida.
+		if githubOwner != "" || githubURL != "" {
+			def.Author = &bbparser.AuthorInfo{Username: githubOwner, URL: githubURL}
 		}
 		defs[structName] = &def
 	}

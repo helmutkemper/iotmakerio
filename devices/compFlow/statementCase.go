@@ -814,7 +814,7 @@ func (e *StatementCase) wireEvents() {
 		}
 		elemX, elemY := e.elem.GetPosition()
 		menuX, menuY := elemX+event.LocalX, elemY+event.LocalY
-		go e.ctxMenu.OpenAtWorld(e.getBodyMenuItems(), menuX, menuY)
+		go e.ctxMenu.OpenForDevice(e, e.getBodyMenuItems(), menuX, menuY)
 	})
 
 	// Drag — scenegraph lifecycle.

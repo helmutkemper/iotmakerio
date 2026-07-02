@@ -797,7 +797,7 @@ func (e *StatementSub) wireEvents() {
 
 		// No connection hit → body menu
 		log.Printf("[CTXMENU] body clicked on: %v", e.id)
-		go e.ctxMenu.OpenAtWorld(e.getBodyMenuItems(), clickWX, clickWY)
+		go e.ctxMenu.OpenForDevice(e, e.getBodyMenuItems(), clickWX, clickWY)
 	})
 
 	// Drag: grid snap on end.

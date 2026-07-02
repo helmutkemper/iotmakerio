@@ -1044,6 +1044,10 @@ func (e *goEmitter) wrapMain() string {
 	// antes de `package` — sem ela o Go trata o comentário como doc-comment do
 	// pacote, não como aviso independente.
 	sb.WriteString(generatedCodeHeader)
+	// After the exception notice, list the black-box authors whose code this
+	// file embeds (empty string when there are none, e.g. the scene uses only
+	// the maker's own code). See blackbox.AttributionManifest.
+	sb.WriteString(blackbox.AttributionManifest(e.prog.BlackBoxDefs))
 	sb.WriteString("\npackage main\n\n")
 
 	// Imports (merged: native + black-box)

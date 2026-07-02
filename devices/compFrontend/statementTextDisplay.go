@@ -466,7 +466,7 @@ func (e *StatementTextDisplay) wireBackendEvents() {
 			return
 		}
 
-		go e.backendCtxMenu.OpenAtWorld(e.getBackendMenuItems(), menuX, menuY)
+		go e.backendCtxMenu.OpenForDevice(e, e.getBackendMenuItems(), menuX, menuY)
 	})
 
 	// [SCENE] real-time conflict feedback — notify scene
@@ -574,7 +574,7 @@ func (e *StatementTextDisplay) wireFrontendEvents() {
 		}
 		ex, ey := e.frontendElem.GetPosition()
 		clickWX, clickWY := ex+event.LocalX, ey+event.LocalY
-		go e.frontendCtxMenu.OpenAtWorld(e.frontendContextItems(), clickWX, clickWY)
+		go e.frontendCtxMenu.OpenForDevice(e, e.frontendContextItems(), clickWX, clickWY)
 	})
 }
 
