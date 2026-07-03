@@ -10,6 +10,44 @@ import (
 	"strings"
 )
 
+// AuthorLine returns a single "//" comment line attributing one black-box's
+// inlined code to its author, terminated by a newline so it sits on its own
+// line, e.g.
+//
+//	// authored by amy (https://github.com/amy/sensor-lib)
+//
+// It returns "" when the def has no author (the maker's own code, or a
+// component with no provenance), so callers can prepend it unconditionally. It
+// is placed directly on the author's generated code — the struct/methods the Go
+// backend inlines, or the verbatim source the C99 backend inlines — so a reader
+// scanning the file sees, right there, whose code each block is. This is the
+// per-component counterpart to AttributionManifest's top-of-file summary. Valid
+// in both Go and C99.
+//
+// Português: Retorna uma linha de comentário "//" atribuindo o código inlinado
+// de uma black-box ao seu autor, com quebra de linha para ficar sozinha. Vazia
+// quando o def não tem autor, para o chamador prepender sem condicional. Fica
+// direto no código gerado do autor (struct/métodos inlinados pelo backend Go,
+// ou o source verbatim inlinado pelo backend C99), então quem lê o arquivo vê,
+// ali, de quem é cada bloco. É a contraparte por-componente do resumo de topo
+// do AttributionManifest.
+func AuthorLine(def *BlackBoxDef) string {
+	if def == nil || def.Author == nil {
+		return ""
+	}
+	a := def.Author
+	switch {
+	case a.Username != "" && a.URL != "":
+		return "// authored by " + a.Username + " (" + a.URL + ")\n"
+	case a.Username != "":
+		return "// authored by " + a.Username + "\n"
+	case a.URL != "":
+		return "// authored by " + a.URL + "\n"
+	default:
+		return ""
+	}
+}
+
 // AttributionManifest builds the contributor block appended to a generated
 // file's header: a deduplicated, deterministically-ordered list of the authors
 // whose black-boxes contributed code to the file, each with their GitHub

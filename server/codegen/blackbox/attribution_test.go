@@ -88,3 +88,27 @@ func TestAttributionManifest_PartialFields(t *testing.T) {
 		t.Fatalf("url-only entry wrong:\n%s", got)
 	}
 }
+
+func TestAuthorLine(t *testing.T) {
+	// No author → empty, so callers can prepend unconditionally.
+	if got := AuthorLine(nil); got != "" {
+		t.Fatalf("nil def: want empty, got %q", got)
+	}
+	if got := AuthorLine(&BlackBoxDef{}); got != "" {
+		t.Fatalf("authorless def: want empty, got %q", got)
+	}
+
+	// Full author → a single "//" line ending in a newline.
+	got := AuthorLine(authored("amy", "https://github.com/amy/sensor-lib"))
+	if want := "// authored by amy (https://github.com/amy/sensor-lib)\n"; got != want {
+		t.Fatalf("full author: want %q, got %q", want, got)
+	}
+
+	// Username-only and URL-only still render sensibly.
+	if got := AuthorLine(authored("onlyname", "")); got != "// authored by onlyname\n" {
+		t.Fatalf("username-only: got %q", got)
+	}
+	if got := AuthorLine(authored("", "https://x/y")); got != "// authored by https://x/y\n" {
+		t.Fatalf("url-only: got %q", got)
+	}
+}

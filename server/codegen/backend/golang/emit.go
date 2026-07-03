@@ -588,8 +588,12 @@ func (e *goEmitter) emitBBDecl(inst ir.Instruction) {
 				e.addImport(imp)
 			}
 
-			// Add struct definition
-			e.topLevel.WriteString("// ── Black-box: " + structName + " ──\n\n")
+			// Add struct definition, with the author attribution stamped
+			// directly beneath the section header so a reader sees whose code
+			// this inlined block is (empty line when there is no author).
+			e.topLevel.WriteString("// ── Black-box: " + structName + " ──\n")
+			e.topLevel.WriteString(blackbox.AuthorLine(def))
+			e.topLevel.WriteString("\n")
 			e.topLevel.WriteString(def.StructCode)
 			e.topLevel.WriteString("\n\n")
 

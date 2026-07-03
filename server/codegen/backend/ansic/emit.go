@@ -1621,7 +1621,9 @@ func (e *cEmitter) deviceSources() string {
 			continue
 		}
 		seen[def.RawSource] = true
-		sources = append(sources, def.RawSource)
+		// Prepend the author attribution directly above the inlined source so a
+		// reader sees whose code this block is (empty when there is no author).
+		sources = append(sources, blackbox.AuthorLine(def)+def.RawSource)
 	}
 	if len(sources) == 0 {
 		return ""
