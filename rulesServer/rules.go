@@ -71,6 +71,14 @@ const (
 	// backend. The IDE only needs port names, types, and property labels.
 	EndpointBlackBox = "/api/v1/blackbox"
 
+	// EndpointTargets is the hardware-target list endpoint for the WASM IDE's
+	// board-selector dropdown. Public (no token), like EndpointBlackBox. Returns
+	// the standard { metadata, data:{ targets:[…] } } envelope, where each entry
+	// carries only display fields (id, displayName, description, ramBytes, icon).
+	//
+	// Usage: GET ServerURL + EndpointTargets
+	EndpointTargets = "/api/v1/targets"
+
 	// EndpointTemplates is the template package list endpoint.
 	// Returns templates visible to the authenticated caller:
 	//   - All of the caller's own templates (any status).

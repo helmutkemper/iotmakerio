@@ -68,6 +68,7 @@ import (
 	projectexportapi "server/handler/projectexport"
 	"server/handler/spaauth"
 	"server/handler/stagefileapi"
+	"server/handler/targetapi"
 	"server/handler/templateapi"
 	"server/permission"
 )
@@ -255,8 +256,10 @@ func main() {
 	projectexportapi.Register(v1)                                             // /api/v1/projects/:id/export/* (Github package)
 	templateapi.Register(v1, asynqClient, rdb)                                // /api/v1/templates/*
 	stagefileapi.Register(v1)                                                 // /api/v1/stage-files/*
-	menuapi.Register(v1.Group("/menu"))                                       // /api/v1/menu/sections (WASM IDE dynamic menu)
-	liveapi.Register(e, liveHub)                                              // /ws/live/* + /api/v1/webhook/* + /api/v1/live/keys/*
+	menuapi.Register(v1.Group("/menu"))
+	menuapi.Register(v1.Group("/menu")) // /api/v1/menu/sections (WASM IDE dynamic menu)
+	targetapi.Register(v1)              // /api/v1/targets (WASM IDE board dropdown)// /api/v1/menu/sections (WASM IDE dynamic menu)
+	liveapi.Register(e, liveHub)        // /ws/live/* + /api/v1/webhook/* + /api/v1/live/keys/*
 
 	// Control panel API — separate group, requires control token
 	vControl := e.Group("/api/control/v1")

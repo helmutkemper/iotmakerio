@@ -299,32 +299,39 @@ func Generate(ctx context.Context, req Request) Response {
 		resp.Code = golang.Emit(program)
 	case "c":
 		// Pick the C type profile and the string-buffer size for this
-		// generation. Two paths, in priority order:
+		// generation. Two paths:
 		//
-		//   1. The maker selected a hardware TARGET preset (Metadata.Target, an
-		//      id in the target registry). The target bundles a type-family
-		//      profile AND a RAM-sized string buffer — the normal, board-first
-		//      path (Arduino-style: pick a board, not an architecture).
-		//   2. No target, but a profile is named directly
-		//      (Metadata.TargetProfile) — the advanced / custom path, for picking
-		//      type widths without a preset. The buffer stays unset and the C
-		//      backend uses its conservative default.
+		//   1. PRESET path (the normal, board-first one, Arduino-style — pick a
+		//      board, not an architecture). Taken when a TARGET is selected
+		//      (Metadata.Target) AND, crucially, as the DEFAULT when nothing is
+		//      selected: ResolveTarget maps an empty or unknown id to the
+		//      conservative Arduino UNO target, so an unconfigured scene
+		//      generates EXACTLY the Arduino UNO preset — its type profile AND
+		//      its RAM-sized buffer (64 bytes) — not a looser fallback. This is
+		//      what makes "open with Arduino UNO" consistent: the implicit
+		//      default equals what an explicit "Arduino UNO" pick produces.
+		//   2. ADVANCED / custom path. Taken only when NO target is selected but
+		//      a profile is named directly (Metadata.TargetProfile) — picking
+		//      type widths without a preset. The RAM-sized buffer is a preset
+		//      feature, so this path leaves StringBufferSize unset and the C
+		//      backend uses its own conservative default.
 		//
-		// Both empty resolves to the conservative Arduino UNO profile.
-		//
-		// Português: Escolhe o profile de tipos C e o tamanho do buffer para esta
-		// geração, em ordem de prioridade: (1) o maker escolheu um TARGET (preset
-		// de placa) — agrupa profile + buffer dimensionado pela RAM, o caminho
-		// normal board-first; (2) sem target, mas um profile nomeado direto
-		// (TargetProfile) — o caminho avançado/custom, sem preset, buffer no
-		// default. Ambos vazios cai no profile conservador Arduino UNO.
+		// Português: Escolhe o profile de tipos C e o tamanho do buffer. Dois
+		// caminhos: (1) PRESET (board-first, estilo Arduino) — quando um TARGET é
+		// escolhido E, importante, como DEFAULT quando nada é escolhido:
+		// ResolveTarget mapeia id vazio/desconhecido para o target conservador
+		// Arduino UNO, então uma cena não configurada gera EXATAMENTE o preset
+		// Arduino UNO (profile + buffer de 64), não um fallback mais frouxo — é o
+		// que torna "abrir com Arduino UNO" consistente; (2) AVANÇADO/custom — só
+		// quando não há target mas há um profile nomeado direto (TargetProfile),
+		// sem preset, buffer no default do backend C.
 		var profile ansic.TargetProfile
-		if scene.Metadata.Target != "" {
+		if scene.Metadata.Target == "" && scene.Metadata.TargetProfile != "" {
+			profile = ansic.ResolveProfile(scene.Metadata.TargetProfile)
+		} else {
 			t := target.ResolveTarget(scene.Metadata.Target)
 			profile = ansic.ResolveProfile(t.ProfileName)
 			program.StringBufferSize = t.StringBufferSize
-		} else {
-			profile = ansic.ResolveProfile(scene.Metadata.TargetProfile)
 		}
 		resp.Files = ansic.Emit(program, profile)
 	default:
