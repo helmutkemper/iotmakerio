@@ -36,6 +36,7 @@ import (
 	"server/codegen/diagnostics"
 	"server/codegen/graph"
 	"server/codegen/ir"
+	"server/codegen/target"
 )
 
 // Diagnostic is re-exported from the diagnostics subpackage so external
@@ -238,20 +239,6 @@ func Generate(ctx context.Context, req Request) Response {
 
 	// Step 3: Validate (basic checks + black-box checks)
 	valDiags := validate(g, req.BlackBoxDefs)
-	// The C backend has no string-concatenation lowering yet: a string-mode
-	// Add would emit `const char* x = a + b;`, which is invalid C (you cannot
-	// add two pointers). Reject it up front when targeting C, rather than
-	// emitting broken output. Go is unaffected — its `+` concatenates strings
-	// natively. See validateC99NoStringConcat.
-	//
-	// Português: O backend C ainda não faz lowering de concatenação de string:
-	// um Add em modo string emitiria `const char* x = a + b;`, que é C inválido
-	// (não se somam dois ponteiros). Rejeitamos de cara ao mirar C, em vez de
-	// emitir saída quebrada. Go não é afetado — o `+` dele concatena strings
-	// nativamente. Veja validateC99NoStringConcat.
-	if req.Language == "c" {
-		valDiags = append(valDiags, validateC99NoStringConcat(g)...)
-	}
 	if len(valDiags) > 0 {
 		resp.addDiagnostics(valDiags)
 		return resp
@@ -311,17 +298,34 @@ func Generate(ctx context.Context, req Request) Response {
 	case "go", "":
 		resp.Code = golang.Emit(program)
 	case "c":
-		// Resolve the target profile carried in SceneJSON metadata. An
-		// empty or unknown name falls back to ProfileArduinoUno —
-		// see ansic.ResolveProfile for the rationale. The scene variable
-		// is still in scope here from Step 1's json.Unmarshal, so we
-		// read Metadata.TargetProfile directly without reparsing.
+		// Pick the C type profile and the string-buffer size for this
+		// generation. Two paths, in priority order:
 		//
-		// Português: Resolve o perfil-alvo carregado no metadata da cena.
-		// Nome vazio ou desconhecido cai em ProfileArduinoUno. A cena
-		// continua no escopo desde a Etapa 1, então lemos direto sem
-		// reparse.
-		profile := ansic.ResolveProfile(scene.Metadata.TargetProfile)
+		//   1. The maker selected a hardware TARGET preset (Metadata.Target, an
+		//      id in the target registry). The target bundles a type-family
+		//      profile AND a RAM-sized string buffer — the normal, board-first
+		//      path (Arduino-style: pick a board, not an architecture).
+		//   2. No target, but a profile is named directly
+		//      (Metadata.TargetProfile) — the advanced / custom path, for picking
+		//      type widths without a preset. The buffer stays unset and the C
+		//      backend uses its conservative default.
+		//
+		// Both empty resolves to the conservative Arduino UNO profile.
+		//
+		// Português: Escolhe o profile de tipos C e o tamanho do buffer para esta
+		// geração, em ordem de prioridade: (1) o maker escolheu um TARGET (preset
+		// de placa) — agrupa profile + buffer dimensionado pela RAM, o caminho
+		// normal board-first; (2) sem target, mas um profile nomeado direto
+		// (TargetProfile) — o caminho avançado/custom, sem preset, buffer no
+		// default. Ambos vazios cai no profile conservador Arduino UNO.
+		var profile ansic.TargetProfile
+		if scene.Metadata.Target != "" {
+			t := target.ResolveTarget(scene.Metadata.Target)
+			profile = ansic.ResolveProfile(t.ProfileName)
+			program.StringBufferSize = t.StringBufferSize
+		} else {
+			profile = ansic.ResolveProfile(scene.Metadata.TargetProfile)
+		}
 		resp.Files = ansic.Emit(program, profile)
 	default:
 		resp.addDiagnostic(Diagnostic{
@@ -629,75 +633,5 @@ func validate(g *graph.Graph, bbDefs map[string]*blackbox.BlackBoxDef) []Diagnos
 		}
 	}
 
-	return diags
-}
-
-// validateC99NoStringConcat returns a blocking error diagnostic for every
-// string-mode StatementAdd in the graph. It is meant to be called only when
-// the target language is C.
-//
-// Why: the C backend has no string-concatenation lowering. emitBinOp would
-// emit `const char* x = a + b;`, and adding two `const char*` is not
-// concatenation — it is invalid C (you cannot add two pointers). Real C
-// concatenation needs a destination buffer plus snprintf/strcat, which is a
-// deliberate embedded design choice (buffer sizing, truncation policy, no
-// malloc on most MCUs) deferred to its own slice. Until then a string Add is
-// rejected before codegen rather than emitting broken output. Go is
-// unaffected: golang.goBinOp(OpAdd) is "+", which concatenates Go strings
-// natively, so this gate is never applied to the Go path.
-//
-// Detection uses the device's own "dataType" property — the explicit mode the
-// maker selected — and, defensively, the resolved type on any output port, so
-// the check holds whether the scene carries the mode as a property, a
-// connector type, or both.
-//
-// Português: Retorna um diagnóstico de erro bloqueante para todo StatementAdd
-// em modo string no grafo. Deve ser chamado só quando a linguagem-alvo é C.
-//
-// Porquê: o backend C não tem lowering de concatenação de string. O emitBinOp
-// geraria `const char* x = a + b;`, e somar dois `const char*` não é
-// concatenação — é C inválido (não se somam dois ponteiros). Concatenação C
-// de verdade exige um buffer de destino mais snprintf/strcat, uma decisão de
-// design embarcado deliberada (tamanho do buffer, política de truncamento, sem
-// malloc na maioria dos MCUs) adiada pra fatia própria. Até lá, um Add string
-// é rejeitado antes do codegen em vez de emitir saída quebrada. Go não é
-// afetado: golang.goBinOp(OpAdd) é "+", que concatena strings de Go
-// nativamente, então este gate nunca se aplica ao caminho Go.
-//
-// A detecção usa a propriedade "dataType" do device — o modo explícito que o
-// maker escolheu — e, defensivamente, o tipo resolvido em qualquer porta de
-// saída, então a checagem vale se a cena carregar o modo como propriedade,
-// como tipo de conector, ou ambos.
-func validateC99NoStringConcat(g *graph.Graph) []Diagnostic {
-	var diags []Diagnostic
-	for _, node := range g.Nodes {
-		if node.Type != "StatementAdd" {
-			continue
-		}
-		isString := false
-		if dt, ok := node.Properties["dataType"].(string); ok && dt == "string" {
-			isString = true
-		}
-		if !isString {
-			for _, p := range node.Outputs {
-				if p.DataType == "string" {
-					isString = true
-					break
-				}
-			}
-		}
-		if !isString {
-			continue
-		}
-		diags = append(diags, Diagnostic{
-			Kind:     diagnostics.KindUnsupportedLanguage,
-			Severity: diagnostics.SeverityError,
-			Devices:  []string{node.ID},
-			Message: fmt.Sprintf(
-				"%s: string concatenation is not supported on the C target yet; "+
-					"use the Go target, or change this Add to int or float",
-				node.ID),
-		})
-	}
 	return diags
 }

@@ -297,6 +297,17 @@ type cEmitter struct {
 	// mesma filosofia do usesRuntime: include só quando o símbolo
 	// realmente aparece no arquivo.
 	usesStddef bool
+
+	// usesStdio records whether the emitted body referenced a stdio function —
+	// currently only snprintf, emitted for string concatenation (see
+	// emitStringConcat). Read by wrapMain to gate `#include <stdio.h>`; neither
+	// <stdint.h> nor <stdbool.h> provides snprintf. Same honest-artefact gating
+	// as usesStddef: the include appears only when the symbol is actually used.
+	//
+	// Português: Registra se o corpo emitido usou uma função de stdio — hoje só
+	// snprintf, da concatenação de string. Lido pelo wrapMain para emitir
+	// `#include <stdio.h>` só quando necessário, mesma filosofia do usesStddef.
+	usesStdio bool
 }
 
 // =====================================================================
@@ -689,6 +700,16 @@ func (e *cEmitter) emitBinOp(inst ir.Instruction) {
 	name := cIdent(inst.Dest)
 	a := cOperand(inst.Args[0])
 	b := cOperand(inst.Args[1])
+
+	// String concatenation has no C operator: `const char* x = a + b;` would add
+	// two pointers, which is invalid C. Lower a string-mode OpAdd to a bounded
+	// snprintf copy instead of the arithmetic form below. inst.Type is "string"
+	// only for string results (cTypeName maps "string" to const char*).
+	if inst.Op == ir.OpAdd && inst.Type == "string" {
+		e.emitStringConcat(name, a, b, inst)
+		return
+	}
+
 	op := cBinOp(inst.Op)
 
 	if e.declared[inst.Dest] {
@@ -698,6 +719,59 @@ func (e *cEmitter) emitBinOp(inst ir.Instruction) {
 		e.writef("%s %s = %s %s %s;\n", cType, name, a, op, b)
 		e.declared[inst.Dest] = true
 	}
+}
+
+// stringConcatBufSize is the size, in bytes, of the stack buffer each string
+// concatenation writes into. C has no native string `+`, so `dst = a + b` is
+// lowered to `char dst[N]; snprintf(dst, sizeof(dst), "%s%s", a, b);` — a
+// bounded copy with no malloc, safe on every MCU. snprintf truncates rather
+// than overflowing and always NUL-terminates, so an undersized buffer yields a
+// shortened string, never a crash.
+//
+// TODO(iotmaker): this is a fixed default for now. It is meant to become an IDE
+// setting (with explanatory text) carried into codegen via scene metadata, so
+// the maker can size it for the target's RAM — wiring is pending the settings-UI
+// placement decision. Until then every concatenation uses this size.
+//
+// Português: Tamanho (bytes) do buffer de stack que cada concatenação preenche.
+// C não tem `+` de string, então `dst = a + b` vira `char dst[N]; snprintf(dst,
+// sizeof(dst), "%s%s", a, b);` — cópia limitada, sem malloc, segura em qualquer
+// MCU. snprintf trunca em vez de estourar. TODO: virar setting da IDE via
+// metadata da cena, para o maker dimensionar pela RAM do alvo.
+const stringConcatBufSize = 128
+
+// emitStringConcat lowers a string-mode OpAdd (`dst = a + b`) into a bounded C
+// copy, since C has no string `+`:
+//
+//	char dst[N];
+//	snprintf(dst, sizeof(dst), "%s%s", a, b);
+//
+// dst decays to `char*` on use — compatible with both the `%s` here and the
+// `const char*` that string ports carry — so downstream code (comparisons,
+// further concatenations, device calls) references dst unchanged. Chained
+// concatenation (a+b+c) arrives pre-split by the IR as t1=a+b; dst=t1+c, so each
+// OpAdd gets its own buffer. Sets usesStdio so wrapMain emits <stdio.h>.
+//
+// Português: Faz o lowering de um OpAdd em modo string (`dst = a + b`) para uma
+// cópia C limitada, já que C não tem `+` de string. dst decai para `char*` no
+// uso — compatível com `%s` e com o `const char*` das portas de string — então
+// o código a jusante o referencia sem mudança. Concatenação encadeada chega
+// pré-quebrada pelo IR, então cada OpAdd ganha seu próprio buffer. Seta usesStdio.
+func (e *cEmitter) emitStringConcat(name, a, b string, inst ir.Instruction) {
+	// Size the buffer from the selected target's RAM budget
+	// (ir.Program.StringBufferSize, set in codeGen.go from the resolved target).
+	// Zero means nothing sized it — a bare emit test, or a scene with no target
+	// — so fall back to the conservative default constant.
+	size := e.prog.StringBufferSize
+	if size <= 0 {
+		size = stringConcatBufSize
+	}
+	if !e.declared[inst.Dest] {
+		e.writef("char %s[%d];\n", name, size)
+		e.declared[inst.Dest] = true
+	}
+	e.writef("snprintf(%s, sizeof(%s), \"%%s%%s\", %s, %s);\n", name, name, a, b)
+	e.usesStdio = true
 }
 
 // emitConvert translates OpConvert into a C cast expression bound to
@@ -1678,6 +1752,11 @@ func (e *cEmitter) wrapMain() string {
 		// <stddef.h> — neither stdint nor stdbool guarantees it. Gated on
 		// actual use, same stance as the runtime header below.
 		sb.WriteString("#include <stddef.h>\n")
+	}
+	if e.usesStdio {
+		// snprintf (string concatenation) lives in <stdio.h>. Gated on actual
+		// use, same stance as <stddef.h> above.
+		sb.WriteString("#include <stdio.h>\n")
 	}
 	if e.usesRuntime {
 		sb.WriteString("#include \"iotmaker_runtime.h\"\n")

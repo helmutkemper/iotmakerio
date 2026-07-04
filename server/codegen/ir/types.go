@@ -251,6 +251,20 @@ type Program struct {
 	// instruções BB_. A chave é o nome do struct. O backend Go usa para emitir
 	// definições de struct, imports e código de métodos.
 	BlackBoxDefs map[string]*blackbox.BlackBoxDef
+
+	// StringBufferSize is the size, in bytes, of the stack buffer the C backend
+	// gives each string concatenation (see ansic.emitStringConcat). It is set
+	// per generation from the selected target's RAM budget (target.Target). Zero
+	// means "unset" — the C backend falls back to its own conservative default —
+	// so the field is safe to leave blank in tests and on the Go path (which
+	// ignores it entirely, concatenating strings natively).
+	//
+	// Português: Tamanho (bytes) do buffer de stack que o backend C dá a cada
+	// concatenação de string (ver ansic.emitStringConcat). Definido por geração
+	// a partir do orçamento de RAM do target escolhido. Zero significa "não
+	// definido" — o backend C cai no seu próprio default conservador — então é
+	// seguro deixar em branco em testes e no caminho Go (que o ignora).
+	StringBufferSize int
 }
 
 // String returns the full IR as text (for debug or API response).

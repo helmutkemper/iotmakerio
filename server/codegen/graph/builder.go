@@ -63,12 +63,36 @@ type SceneInput struct {
 // stage_files.language). Hoje serve para diagnóstico; o
 // Request.Language do HTTP é quem decide qual backend roda.
 type MetadataInput struct {
-	Density       int         `json:"density"`
-	CanvasWidth   int         `json:"canvasWidth"`
-	CanvasHeight  int         `json:"canvasHeight"`
-	Camera        CameraInput `json:"camera"`
-	Language      string      `json:"language,omitempty"`
-	TargetProfile string      `json:"targetProfile,omitempty"`
+	Density      int         `json:"density"`
+	CanvasWidth  int         `json:"canvasWidth"`
+	CanvasHeight int         `json:"canvasHeight"`
+	Camera       CameraInput `json:"camera"`
+	Language     string      `json:"language,omitempty"`
+
+	// Target is the id of the hardware preset the maker selected (see the
+	// target package). The codegen resolves it to a type-family profile and a
+	// string-buffer size. This supersedes TargetProfile: a target already names
+	// a profile, plus the RAM-derived buffer. Empty falls back to the default
+	// (conservative Arduino UNO) target.
+	//
+	// Português: Id do preset de hardware escolhido pelo maker (ver o pacote
+	// target). O codegen resolve para um profile de família de tipos + o tamanho
+	// do buffer. Substitui o TargetProfile. Vazio cai no target default.
+	Target string `json:"target,omitempty"`
+
+	// TargetProfile names a type-family profile directly, WITHOUT a target
+	// preset. It is the advanced / custom path: the codegen reads it only when
+	// Target is empty (see codeGen.go), letting a power user pick int/float
+	// widths for an unusual board the preset list does not cover. The RAM-sized
+	// string buffer is a preset feature, so this path uses the C backend's
+	// default buffer.
+	//
+	// Português: Nomeia um profile de família de tipos direto, SEM preset de
+	// target. É o caminho avançado/custom: o codegen o lê só quando Target está
+	// vazio, deixando um usuário avançado escolher larguras para uma placa
+	// incomum fora da lista de presets. O buffer dimensionado é recurso de
+	// preset, então este caminho usa o buffer default do backend C.
+	TargetProfile string `json:"targetProfile,omitempty"`
 }
 
 type CameraInput struct {

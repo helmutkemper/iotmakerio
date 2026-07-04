@@ -173,31 +173,31 @@ const sceneStringAdd = `{
   "wires": []
 }`
 
-// TestValidate_C99_StringAddBlocked proves the C target rejects a string-mode
-// Add with a clear, blocking diagnostic (the C backend has no string-concat
-// lowering), while the same scene on the Go target raises no such block —
-// Go's "+" concatenates strings natively.
+// TestValidate_C99_StringConcatAllowed proves the C target no longer blocks a
+// string-mode Add: the C backend now lowers string concatenation to a bounded
+// snprintf copy (see ansic.emitStringConcat), so the old blocking diagnostic
+// must be gone on both targets.
 //
-// Português: Prova que o alvo C rejeita um Add em modo string com um
-// diagnóstico claro e bloqueante (o backend C não tem lowering de concat),
-// enquanto a mesma cena no alvo Go não levanta esse bloqueio — o "+" do Go
-// concatena strings nativamente.
-func TestValidate_C99_StringAddBlocked(t *testing.T) {
-	const wantMsg = "string concatenation is not supported"
+// Português: Prova que o alvo C não bloqueia mais um Add em modo string: o
+// backend C agora faz o lowering da concatenação para uma cópia limitada com
+// snprintf (ver ansic.emitStringConcat), então o antigo diagnóstico bloqueante
+// deve ter sumido nos dois alvos.
+func TestValidate_C99_StringConcatAllowed(t *testing.T) {
+	const blockMsg = "string concatenation is not supported"
 
 	respC := Generate(context.Background(), Request{
 		Scene:    json.RawMessage(sceneStringAdd),
 		Language: "c",
 	})
-	if !hasDiagContaining(respC.Diagnostics, wantMsg) {
-		t.Fatalf("C target must block string-mode Add; got: %+v", respC.Diagnostics)
+	if hasDiagContaining(respC.Diagnostics, blockMsg) {
+		t.Fatalf("C target must no longer block string concatenation; got: %+v", respC.Diagnostics)
 	}
 
 	respGo := Generate(context.Background(), Request{
 		Scene:    json.RawMessage(sceneStringAdd),
 		Language: "go",
 	})
-	if hasDiagContaining(respGo.Diagnostics, wantMsg) {
+	if hasDiagContaining(respGo.Diagnostics, blockMsg) {
 		t.Fatalf("Go target must not block string concatenation; got: %+v", respGo.Diagnostics)
 	}
 }

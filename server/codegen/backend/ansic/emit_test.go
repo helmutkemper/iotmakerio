@@ -1293,3 +1293,39 @@ func assertNotContains(t *testing.T, haystack, needle string) {
 		t.Errorf("expected NOT to contain %q\n  got: %s", needle, haystack)
 	}
 }
+
+func TestEmit_StringConcat(t *testing.T) {
+	// A string-mode OpAdd (dst = a + b) has no C operator; it must lower to a
+	// bounded snprintf copy into a fixed-size stack buffer — never the invalid
+	// `const char* dst = a + b;` — and pull in <stdio.h> for snprintf.
+	//
+	// Português: Um OpAdd em modo string (dst = a + b) não tem operador em C;
+	// deve virar uma cópia limitada com snprintf num buffer de stack de tamanho
+	// fixo — nunca o inválido `const char* dst = a + b;` — e puxar <stdio.h>.
+	prog := &ir.Program{}
+	prog.Append(ir.Instruction{
+		Op:   ir.OpAdd,
+		Dest: "greeting",
+		Type: "string",
+		Args: []string{"hello", "world"},
+	})
+	main := Emit(prog, ProfileArduinoUno)["main.c"]
+
+	assertContains(t, main, "char greeting[128];")
+	assertContains(t, main, `snprintf(greeting, sizeof(greeting), "%s%s",`)
+	assertContains(t, main, "#include <stdio.h>")
+}
+
+func TestEmit_StringConcat_TargetBufferSize(t *testing.T) {
+	// When the program carries a target-derived buffer size, the emitted buffer
+	// uses it instead of the fallback default (128).
+	prog := &ir.Program{StringBufferSize: 256}
+	prog.Append(ir.Instruction{
+		Op:   ir.OpAdd,
+		Dest: "greeting",
+		Type: "string",
+		Args: []string{"hello", "world"},
+	})
+	main := Emit(prog, ProfileArduinoUno)["main.c"]
+	assertContains(t, main, "char greeting[256];")
+}
