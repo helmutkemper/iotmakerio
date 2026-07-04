@@ -1,4 +1,4 @@
-// /ide/scene/types.go
+// scene/types.go
 // SPDX-FileCopyrightText: 2026 Helmut Kemper
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -292,13 +292,39 @@ type SceneJSON struct {
 // precise consultar o DB. TargetProfile escolhe o perfil de tipos
 // para o backend C; vazio cai em arduino_uno.
 type MetadataJSON struct {
-	Density       int                   `json:"density"`
-	CanvasWidth   int                   `json:"canvasWidth"`
-	CanvasHeight  int                   `json:"canvasHeight"`
-	Camera        CameraJSON            `json:"camera"`
-	Cameras       map[string]CameraJSON `json:"cameras,omitempty"`
-	Language      string                `json:"language,omitempty"`
-	TargetProfile string                `json:"targetProfile,omitempty"`
+	Density      int                   `json:"density"`
+	CanvasWidth  int                   `json:"canvasWidth"`
+	CanvasHeight int                   `json:"canvasHeight"`
+	Camera       CameraJSON            `json:"camera"`
+	Cameras      map[string]CameraJSON `json:"cameras,omitempty"`
+	Language     string                `json:"language,omitempty"`
+
+	// Target is the id of the hardware preset the maker chose (e.g.
+	// "arduino_uno") — see the target registry on the server. The C code
+	// generator resolves it to a type-family profile and a RAM-sized string
+	// buffer. Empty means no board was picked yet, which the generator treats as
+	// the default (Arduino UNO). Written by the serializer from the workspace's
+	// selected target (SetTargetFunc); supersedes TargetProfile, which is the
+	// direct-profile advanced path.
+	//
+	// Português: Id do preset de hardware que o maker escolheu (ex.
+	// "arduino_uno") — ver o registro de targets no servidor. O gerador C
+	// resolve para um profile de tipos + buffer dimensionado pela RAM. Vazio =
+	// nenhuma placa escolhida, tratado como default (Arduino UNO). Escrito pelo
+	// serializer a partir do target selecionado no workspace; substitui o
+	// TargetProfile (o caminho avançado de profile direto).
+	Target        string `json:"target,omitempty"`
+	TargetProfile string `json:"targetProfile,omitempty"`
+
+	// StringBufferSize overrides, in bytes, the string-concatenation buffer the
+	// chosen board would otherwise use. Set from the board's advanced panel in
+	// the picker (the UI converts from KB/MB); 0 means "use the board's default".
+	// Written by the serializer from the workspace's selected override.
+	//
+	// Português: Sobrescreve, em bytes, o buffer de concatenação que a placa
+	// escolhida usaria. Setado no painel avançado do picker (a UI converte de
+	// KB/MB); 0 = usa o default da placa. Escrito pelo serializer.
+	StringBufferSize int `json:"stringBufferSize,omitempty"`
 }
 
 // CameraJSON represents camera state in JSON.

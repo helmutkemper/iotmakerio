@@ -333,6 +333,19 @@ func Generate(ctx context.Context, req Request) Response {
 			profile = ansic.ResolveProfile(t.ProfileName)
 			program.StringBufferSize = t.StringBufferSize
 		}
+		// Buffer override: a positive Metadata.StringBufferSize (set from a
+		// board's advanced panel, already in bytes) replaces whatever the paths
+		// above resolved — the board's default, or the C backend's own fallback
+		// on the direct-profile path. Zero leaves the resolved size untouched, so
+		// the common case (no override) is unaffected.
+		//
+		// Português: Override do buffer: um Metadata.StringBufferSize positivo
+		// (do painel avançado de uma placa, já em bytes) substitui o que os
+		// caminhos acima resolveram — o default da placa, ou o fallback do
+		// backend C no caminho de profile direto. Zero não mexe.
+		if scene.Metadata.StringBufferSize > 0 {
+			program.StringBufferSize = scene.Metadata.StringBufferSize
+		}
 		resp.Files = ansic.Emit(program, profile)
 	default:
 		resp.addDiagnostic(Diagnostic{

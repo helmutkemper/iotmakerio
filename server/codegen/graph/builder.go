@@ -93,6 +93,19 @@ type MetadataInput struct {
 	// incomum fora da lista de presets. O buffer dimensionado é recurso de
 	// preset, então este caminho usa o buffer default do backend C.
 	TargetProfile string `json:"targetProfile,omitempty"`
+
+	// StringBufferSize overrides, in BYTES, the string-concatenation buffer size
+	// the target would otherwise pick from the board's RAM. It is set from a
+	// board's advanced panel in the picker (the UI converts from KB/MB; the wire
+	// value is always bytes). Zero means "use the board's default", so only a
+	// positive value replaces it, and it applies on top of either resolution
+	// path.
+	//
+	// Português: Sobrescreve, em BYTES, o tamanho do buffer de concatenação que o
+	// target escolheria pela RAM da placa. Setado no painel avançado de uma placa
+	// no picker (a UI converte de KB/MB; o valor no fio é sempre bytes). Zero =
+	// usa o default da placa; só um valor positivo o substitui.
+	StringBufferSize int `json:"stringBufferSize,omitempty"`
 }
 
 type CameraInput struct {

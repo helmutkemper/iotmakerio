@@ -1,4 +1,4 @@
-// /ide/scene/serializer.go
+// scene/serializer.go
 // SPDX-FileCopyrightText: 2026 Helmut Kemper
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -74,6 +74,31 @@ type Serializer struct {
 
 	// canvasSizeFunc returns (width, height) at call time.
 	canvasSizeFunc func() (int, int)
+
+	// targetFunc returns the selected hardware-target id at export time — the
+	// board the maker picked in the dropdown, held by the workspace. Injected by
+	// the workspace, mirroring cameraFunc/canvasSizeFunc, so the Serializer stays
+	// below the workspace in the import graph and never reaches up for the value.
+	// Nil, or an empty return, writes no target, which the codegen treats as the
+	// default (Arduino UNO).
+	//
+	// Português: Retorna o id do target de hardware selecionado no export — a
+	// placa que o maker escolheu no dropdown, guardada no workspace. Injetada
+	// pelo workspace, espelhando cameraFunc/canvasSizeFunc, então o Serializer
+	// fica abaixo do workspace no grafo de import e nunca busca o valor pra cima.
+	// Nil, ou retorno vazio, não escreve target — o codegen trata como default
+	// (Arduino UNO).
+	targetFunc func() string
+
+	// bufferSizeFunc returns the string-buffer override, in bytes, at export
+	// time — the value from the selected board's advanced panel, held by the
+	// workspace. Injected like targetFunc, so the Serializer never reaches up.
+	// Zero writes no override (the codegen keeps the board's default).
+	//
+	// Português: Retorna o override do buffer, em bytes, no export — o valor do
+	// painel avançado da placa selecionada, guardado no workspace. Injetada como
+	// a targetFunc. Zero não escreve override (o codegen mantém o default).
+	bufferSizeFunc func() int
 
 	// observer is installed on the graph and bridges graph events to
 	// the Serializer's OnExport callback and to external consumers.
@@ -169,6 +194,27 @@ func (s *Serializer) SetCameraFunc(fn func() (float64, float64, float64)) {
 // SetCanvasSizeFunc sets the function used to read canvas dimensions.
 func (s *Serializer) SetCanvasSizeFunc(fn func() (int, int)) {
 	s.canvasSizeFunc = fn
+}
+
+// SetTargetFunc installs the callback that returns the selected hardware-target
+// id at export time (see targetFunc). The workspace wires this to its held
+// selectedTarget, so buildSceneJSON stamps Metadata.Target on every export.
+//
+// Português: Instala o callback que retorna o id do target selecionado no
+// export (ver targetFunc). O workspace liga isto ao seu selectedTarget, então o
+// buildSceneJSON carimba Metadata.Target em todo export.
+func (s *Serializer) SetTargetFunc(fn func() string) {
+	s.targetFunc = fn
+}
+
+// SetBufferSizeFunc installs the callback returning the string-buffer override
+// (bytes) at export time (see bufferSizeFunc). The workspace wires it to its
+// held override, so buildSceneJSON stamps Metadata.StringBufferSize.
+//
+// Português: Instala o callback que retorna o override do buffer (bytes) no
+// export (ver bufferSizeFunc). O workspace o liga ao override guardado.
+func (s *Serializer) SetBufferSizeFunc(fn func() int) {
+	s.bufferSizeFunc = fn
 }
 
 // SetOnConflictsChanged installs a callback that fires whenever a
@@ -652,6 +698,17 @@ func (s *Serializer) buildSceneJSON() SceneJSON {
 
 	// Metadata
 	sc.Metadata.Density = 1
+	if s.targetFunc != nil {
+		// The hardware target the maker picked (empty when none). The C codegen
+		// resolves it to a type profile + string-buffer size; empty is the
+		// Arduino UNO default.
+		sc.Metadata.Target = s.targetFunc()
+	}
+	if s.bufferSizeFunc != nil {
+		// The maker's string-buffer override, in bytes; 0 means none, and the
+		// codegen keeps the board's default.
+		sc.Metadata.StringBufferSize = s.bufferSizeFunc()
+	}
 	if s.canvasSizeFunc != nil {
 		sc.Metadata.CanvasWidth, sc.Metadata.CanvasHeight = s.canvasSizeFunc()
 	}

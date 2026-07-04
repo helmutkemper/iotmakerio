@@ -231,6 +231,31 @@ type Workspace struct {
 	// pelo file manager (arquivos novos herdam), e pelo menu builder
 	// (filtra devices incompatíveis). Token "c" ou "go".
 	Language string
+
+	// selectedTarget is the id of the hardware target the maker picked in the
+	// board dropdown (e.g. "arduino_uno"), or "" when none has been picked. It
+	// is stamped into the exported scene metadata by the SetTargetFunc callback,
+	// and the C codegen resolves it to a type profile + string-buffer size.
+	// Unlike Language (a fixed, irreversible project property), the target is a
+	// changeable choice — the board picker updates it via SetSelectedTarget.
+	//
+	// Português: Id do target de hardware que o maker escolheu no dropdown (ex.
+	// "arduino_uno"), ou "" quando nenhum. É carimbado no metadata exportado
+	// pelo callback do SetTargetFunc, e o codegen C o resolve para profile +
+	// buffer. Ao contrário do Language (propriedade fixa e irreversível), o
+	// target é uma escolha mutável — o picker o atualiza via SetSelectedTarget.
+	selectedTarget string
+
+	// selectedBufferSize is the maker's string-buffer override, in bytes, from
+	// the selected board's advanced panel, or 0 when the maker did not override
+	// (the common case — the codegen keeps the board's default). Stamped into
+	// the exported metadata by the SetBufferSizeFunc callback; the board picker
+	// sets it via SetSelectedBufferSize.
+	//
+	// Português: Override do buffer do maker, em bytes, do painel avançado da
+	// placa selecionada, ou 0 quando não sobrescreveu. Carimbado no export pelo
+	// callback do SetBufferSizeFunc; o picker o seta via SetSelectedBufferSize.
+	selectedBufferSize int
 }
 
 // Config configures a workspace before Init().
@@ -445,6 +470,23 @@ func (w *Workspace) Init(cfg Config) error {
 	})
 	w.SceneMgr.SetCanvasSizeFunc(func() (int, int) {
 		return w.Stage.GetCanvasSize()
+	})
+	// Stamp the maker's selected hardware target onto every export. The picker
+	// sets w.selectedTarget (SetSelectedTarget); empty means none, which the
+	// codegen treats as the Arduino UNO default. Mirrors the camera/canvas
+	// callbacks above so the serializer never reaches up into the workspace.
+	//
+	// Português: Carimba o target de hardware escolhido pelo maker em todo
+	// export. O picker seta w.selectedTarget (SetSelectedTarget); vazio = nenhum,
+	// que o codegen trata como default Arduino UNO. Espelha os callbacks de
+	// câmera/canvas acima.
+	w.SceneMgr.SetTargetFunc(func() string {
+		return w.selectedTarget
+	})
+	// Stamp the maker's string-buffer override onto every export (0 when none;
+	// the codegen then keeps the board's default). Mirrors SetTargetFunc above.
+	w.SceneMgr.SetBufferSizeFunc(func() int {
+		return w.selectedBufferSize
 	})
 
 	// Invalidate codegen diagnostic highlights the moment the scene
@@ -1559,8 +1601,52 @@ func (w *Workspace) export() {
 		return
 	}
 
-	// No template devices — run the regular codegen pipeline.
-	// Language is read from w.Language inside generateCode.
+	// For a C project, let the maker confirm (or change) the target board before
+	// generating. The picker pre-selects their last choice, so the common case
+	// is a single "Generate" click. On choosing, we stamp the board onto the
+	// workspace and RE-EXPORT the scene — the fresh JSON now carries
+	// Metadata.Target, which the C backend resolves to a type profile plus a
+	// RAM-sized string buffer. A Go project skips the picker entirely (Go uses
+	// native types and ignores the target); and if the picker cannot open it
+	// generates anyway with the existing choice, so it never blocks generation.
+	//
+	// Português: Num projeto C, deixa o maker confirmar (ou trocar) a placa antes
+	// de gerar. O picker pré-seleciona a última escolha — no caso comum é um
+	// clique em "Generate". Ao escolher, carimba a placa no workspace e
+	// RE-EXPORTA a cena — o JSON novo carrega Metadata.Target, que o backend C
+	// resolve para profile + buffer. Projeto Go pula o picker (usa tipos nativos,
+	// ignora o target); e se o picker não abrir, gera com a escolha atual, então
+	// nunca bloqueia a geração.
+	if w.Language == "c" {
+		mainMenu.ShowTargetPicker(w.SelectedTarget(), func(id string, bufferBytes int) {
+			w.SetSelectedTarget(id)
+			// The maker's string-buffer override, in bytes (0 = keep the board's
+			// default). Set before the re-export below so it lands in the scene
+			// metadata next to the target, and the codegen applies it.
+			w.SetSelectedBufferSize(bufferBytes)
+			// generateCode blocks waiting on the codegen SSE stream. This
+			// callback fires from the picker's "Generate" button — i.e. on the
+			// browser's event loop, NOT the goroutine export() was called from.
+			// Blocking the event loop here stalls the very fetch generateCode
+			// issues, surfacing as a network error. Build the scene here (a cheap
+			// synchronous read) and run generateCode on its own goroutine so the
+			// event loop stays free to drive the fetch.
+			//
+			// Português: generateCode bloqueia esperando o stream SSE do codegen.
+			// Este callback vem do botão "Generate" do picker — ou seja, no event
+			// loop do browser, NÃO na goroutine de onde export() foi chamado.
+			// Bloquear o event loop aqui trava o próprio fetch do generateCode e
+			// vira erro de rede. Constrói a cena aqui (leitura síncrona barata) e
+			// roda o generateCode em goroutine própria para o event loop ficar
+			// livre pro fetch.
+			sceneJSON := w.SceneMgr.Export()
+			go w.generateCode(sceneJSON)
+		})
+		return
+	}
+
+	// Go project — generate directly. Language is read from w.Language inside
+	// generateCode.
 	w.generateCode(sceneJSON)
 }
 
@@ -2885,6 +2971,50 @@ func triggerJSONDownload(jsonStr, filename string) {
 // workspace salvar o documento combinado. Chamada uma vez pelo ViewManager.
 func (w *Workspace) SetSiblingSceneFn(fn func() string) {
 	w.siblingSceneFn = fn
+}
+
+// SetSelectedTarget records the hardware target the maker picked in the board
+// dropdown. The next export stamps it into the scene metadata (Metadata.Target)
+// via the SetTargetFunc callback, and the C codegen resolves it to a type
+// profile + string-buffer size. Passing "" clears the choice back to the
+// default (Arduino UNO). Idempotent — the board picker calls this on each pick.
+//
+// Português: Registra o target de hardware que o maker escolheu no dropdown. O
+// próximo export o carimba no metadata (Metadata.Target) via o callback do
+// SetTargetFunc, e o codegen C o resolve para profile + buffer. "" limpa a
+// escolha de volta ao default (Arduino UNO). Idempotente.
+func (w *Workspace) SetSelectedTarget(id string) {
+	w.selectedTarget = id
+}
+
+// SelectedTarget returns the currently-selected hardware-target id, or "" when
+// none has been picked. The board picker reads it to show the current choice as
+// selected when it opens.
+//
+// Português: Retorna o id do target de hardware selecionado, ou "" quando
+// nenhum. O picker o lê para marcar a escolha atual ao abrir.
+func (w *Workspace) SelectedTarget() string {
+	return w.selectedTarget
+}
+
+// SetSelectedBufferSize records the maker's string-buffer override, in bytes,
+// from the selected board's advanced panel. Zero clears it (the codegen keeps
+// the board's default). The next export stamps it into
+// Metadata.StringBufferSize via the SetBufferSizeFunc callback.
+//
+// Português: Registra o override do buffer do maker, em bytes, do painel
+// avançado da placa. Zero limpa (o codegen mantém o default). O próximo export
+// o carimba em Metadata.StringBufferSize via o callback do SetBufferSizeFunc.
+func (w *Workspace) SetSelectedBufferSize(bytes int) {
+	w.selectedBufferSize = bytes
+}
+
+// SelectedBufferSize returns the maker's current string-buffer override in
+// bytes, or 0 when none.
+//
+// Português: Retorna o override atual do buffer em bytes, ou 0 quando nenhum.
+func (w *Workspace) SelectedBufferSize() int {
+	return w.selectedBufferSize
 }
 
 // SetImportBroadcastFn injects the function that fans an extracted scene out
