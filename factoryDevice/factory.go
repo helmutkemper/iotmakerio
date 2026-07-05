@@ -1784,6 +1784,68 @@ func (f *DeviceFactory) CreateIndexInt() {
 	log.Printf("[Factory] Created StatementIndexInt at (%v, %v)", cx, cy)
 }
 
+// CreateIndexFloat places the array index reader device (float element) on the
+// stage. Identical wiring to CreateIndexInt; only the element type differs. The
+// safe, bounds-checked read lives in ir.OpIndex, shared by all three readers.
+//
+// Português: Coloca o leitor de índice (float) na stage. Fiação idêntica ao
+// CreateIndexInt; só muda o tipo do elemento.
+func (f *DeviceFactory) CreateIndexFloat() {
+	stm := new(compArray.StatementIndexFloat)
+	stm.SetStage(f.Stage)
+	stm.SetWireManager(f.WireMgr)
+	stm.SetResizerButton(f.ResizeButton)
+	stm.SetGridAdjust(f.GridAdjust)
+	stm.SetContextMenu(f.ContextMenu)
+
+	if err := stm.Init(); err != nil {
+		log.Printf("[Factory] StatementIndexFloat.Init: %v", err)
+		return
+	}
+
+	stm.RegisterConnectors()
+	f.SceneMgr.Register(stm)
+	stm.SetSceneNotify(f.SceneNotifyFn)
+	stm.SetOnRemove(f.makeOnRemove())
+
+	cx, cy := f.devicePosition()
+	stm.SetPosition(cx, cy)
+	stm.SetDragEnable(true)
+	stm.Append()
+	log.Printf("[Factory] Created StatementIndexFloat at (%v, %v)", cx, cy)
+}
+
+// CreateIndexString places the array index reader device (string element) on
+// the stage. Identical wiring to CreateIndexInt; in C99 the out-of-range result
+// is the empty string "" (never NULL), handled in ir.OpIndex.
+//
+// Português: Coloca o leitor de índice (string) na stage. Fiação idêntica ao
+// CreateIndexInt; no C99, fora do range devolve a string vazia "" (nunca NULL).
+func (f *DeviceFactory) CreateIndexString() {
+	stm := new(compArray.StatementIndexString)
+	stm.SetStage(f.Stage)
+	stm.SetWireManager(f.WireMgr)
+	stm.SetResizerButton(f.ResizeButton)
+	stm.SetGridAdjust(f.GridAdjust)
+	stm.SetContextMenu(f.ContextMenu)
+
+	if err := stm.Init(); err != nil {
+		log.Printf("[Factory] StatementIndexString.Init: %v", err)
+		return
+	}
+
+	stm.RegisterConnectors()
+	f.SceneMgr.Register(stm)
+	stm.SetSceneNotify(f.SceneNotifyFn)
+	stm.SetOnRemove(f.makeOnRemove())
+
+	cx, cy := f.devicePosition()
+	stm.SetPosition(cx, cy)
+	stm.SetDragEnable(true)
+	stm.Append()
+	log.Printf("[Factory] Created StatementIndexString at (%v, %v)", cx, cy)
+}
+
 // CreateConstArrayFloat places a constant fixed-size FLOAT collection device on the
 // stage (e.g. []float32{0.5, 1.5} — Go slice literal / C fixed array + `_len`
 // companion). One of the three sibling collection devices (Int / Float /
@@ -1903,6 +1965,10 @@ func (f *DeviceFactory) CreateByType(deviceType string, x, y float64) bool {
 		f.CreateConstArrayString()
 	case "StatementIndexInt":
 		f.CreateIndexInt()
+	case "StatementIndexFloat":
+		f.CreateIndexFloat()
+	case "StatementIndexString":
+		f.CreateIndexString()
 	// Variable devices (get/set × int/float/string). These were previously
 	// ABSENT from this switch, so on stage import (importScene → CreateByType)
 	// they fell through to the BlackBox default, failed to resolve, and were

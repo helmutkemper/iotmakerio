@@ -1,4 +1,4 @@
-// /ide/server/store/menu_tree_seed.go
+// server/store/menu_tree_seed.go
 // SPDX-FileCopyrightText: 2026 Helmut Kemper
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -562,6 +562,140 @@ func MigrateMenuTreeConstArrays() error {
 		{"menuMainConstArrayInt", "Int Array", "Vetor Int"},
 		{"menuMainConstArrayFloat", "Float Array", "Vetor Float"},
 		{"menuMainConstArrayString", "String Array", "Vetor String"},
+	}
+	for _, loc := range []struct{ locale string }{{"en-US"}, {"pt-BR"}} {
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO i18n_bundles (locale, bundle_id, updated_at)
+			VALUES (?, ?, ?)`,
+			loc.locale, loc.locale+"-custom", now,
+		); err != nil {
+			return err
+		}
+		for _, k := range keys {
+			msg := k.en
+			if loc.locale == "pt-BR" {
+				msg = k.pt
+			}
+			if _, err := DB.Exec(`
+				INSERT OR IGNORE INTO i18n_messages
+					(locale, message_id, other, one, description)
+				VALUES (?, ?, ?, '', '')`,
+				loc.locale, k.id, msg,
+			); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// MigrateMenuTreeIndex inserts the array index reader menu item(s) into
+// databases first seeded before the reader existed. SeedMenuTree skips
+// everything once the catalog is populated, so new system items must arrive
+// through an explicit, idempotent migration.
+//
+// Mirrors MigrateMenuTreeConstArrays: INSERT OR IGNORE everywhere, safe to run
+// on every boot. It guarantees, for the reader, the catalog row (menu_items), a
+// layout row per EXISTING profile under SysConst (visible=1 in the default
+// profile, 0 elsewhere, positioned after the last existing child of SysConst),
+// and the i18n keys for both locales (never overwriting an admin-edited message).
+//
+// All three element-type readers (int, float, string) ship here; they share the
+// same OpIndex codegen and differ only in the element type.
+//
+// Called from migrate() in db.go after MigrateMenuTreeVariables().
+//
+// Português: Insere o item do leitor de índice em bancos existentes, populados
+// antes do device existir. Tudo idempotente (INSERT OR IGNORE): a linha de
+// catálogo, o layout por profile sob SysConst e as chaves i18n. Os três leitores
+// (int, float, string) entram aqui; diferem só no tipo do elemento.
+func MigrateMenuTreeIndex() error {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// ── Catalog entries ───────────────────────────────────────────────────
+	type catItem struct {
+		slotID, labelKey, fallback string
+	}
+	newItems := []catItem{
+		{"SysIndexInt", "menuMainIndexInt", "Index (int)"},
+		{"SysIndexFloat", "menuMainIndexFloat", "Index (float)"},
+		{"SysIndexString", "menuMainIndexString", "Index (string)"},
+	}
+	for _, item := range newItems {
+		// icon_fa reuses the collection glyph for now (same as the const
+		// arrays) — swap it once a distinctive reader icon is chosen.
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO menu_items
+				(slot_id, slot_type, item_type, locked, label_key, label_fallback,
+				 icon_fa, icon_viewbox, created_at)
+			VALUES (?, 'system', 'action', 1, ?, ?, 'layer-group', '0 0 512 512', ?)`,
+			item.slotID, item.labelKey, item.fallback, now,
+		); err != nil {
+			return err
+		}
+	}
+
+	// ── Layout entries (all existing profiles) ────────────────────────────
+	rows, err := DB.Query(`SELECT profile_id, is_default FROM menu_profiles`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type prof struct {
+		id        string
+		isDefault bool
+	}
+	var profiles []prof
+	for rows.Next() {
+		var p prof
+		var isDef int
+		if err := rows.Scan(&p.id, &isDef); err != nil {
+			return err
+		}
+		p.isDefault = isDef == 1
+		profiles = append(profiles, p)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, p := range profiles {
+		for _, item := range newItems {
+			// Position after the last existing child of SysConst.
+			var maxPos int
+			if err := DB.QueryRow(`
+				SELECT COALESCE(MAX(position), 0) FROM menu_layout
+				WHERE profile_id = ? AND parent_id = 'SysConst'`, p.id,
+			).Scan(&maxPos); err != nil {
+				return err
+			}
+
+			visible := 0
+			if p.isDefault {
+				visible = 1
+			}
+
+			if _, err := DB.Exec(`
+				INSERT OR IGNORE INTO menu_layout
+					(profile_id, slot_id, parent_id, position, visible)
+				VALUES (?, ?, 'SysConst', ?, ?)`,
+				p.id, item.slotID, maxPos+1, visible,
+			); err != nil {
+				return err
+			}
+		}
+	}
+
+	// ── i18n keys (fill-if-absent — never overwrites admin edits) ─────────
+	type i18nKey struct {
+		id, en, pt string
+	}
+	keys := []i18nKey{
+		{"menuMainIndexInt", "Index (int)", "Índice (int)"},
+		{"menuMainIndexFloat", "Index (float)", "Índice (float)"},
+		{"menuMainIndexString", "Index (string)", "Índice (string)"},
 	}
 	for _, loc := range []struct{ locale string }{{"en-US"}, {"pt-BR"}} {
 		if _, err := DB.Exec(`

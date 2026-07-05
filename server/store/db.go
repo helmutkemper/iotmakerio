@@ -498,6 +498,9 @@ func migrate() error {
 	if err := MigrateMenuTreeVariables(); err != nil {
 		return err
 	}
+	if err := MigrateMenuTreeIndex(); err != nil {
+		return err
+	}
 
 	// ── Feed feature: ratings, follows, feed_events ───────────────────────────
 	for _, stmt := range feedMigrationStmts() {

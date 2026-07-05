@@ -80,6 +80,8 @@ type DeviceCreator interface {
 	CreateConstArrayFloat()
 	CreateConstArrayString()
 	CreateIndexInt()
+	CreateIndexFloat()
+	CreateIndexString()
 	CreateGetVarInt()
 	CreateGetVarFloat()
 	CreateSetVarInt()
@@ -2569,6 +2571,26 @@ func (b *MenuBuilder) registerFactories() {
 			ViewBox:         "0 0 512 512",
 			Type:            hexMenu.ItemAction,
 			OnClick:         func() { b.factory.SafeRun("CreateIndexInt", b.factory.CreateIndexInt) },
+			Styles:          styles,
+		}
+	}
+	b.factories["SysIndexFloat"] = func(label string) hexMenu.MenuItem {
+		return hexMenu.MenuItem{
+			ID: "SysIndexFloat", Label: label,
+			FontAwesomePath: rulesIcon.KFALayerGroup,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemAction,
+			OnClick:         func() { b.factory.SafeRun("CreateIndexFloat", b.factory.CreateIndexFloat) },
+			Styles:          styles,
+		}
+	}
+	b.factories["SysIndexString"] = func(label string) hexMenu.MenuItem {
+		return hexMenu.MenuItem{
+			ID: "SysIndexString", Label: label,
+			FontAwesomePath: rulesIcon.KFALayerGroup,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemAction,
+			OnClick:         func() { b.factory.SafeRun("CreateIndexString", b.factory.CreateIndexString) },
 			Styles:          styles,
 		}
 	}
