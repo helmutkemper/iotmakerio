@@ -1326,6 +1326,12 @@ func (e *emitter) emitNode(nodeID string) {
 		e.emitBinOp(node, OpMul)
 	case node.Type == "StatementDiv":
 		e.emitBinOp(node, OpDiv)
+	case node.Type == "StatementIndexInt":
+		e.emitIndex(node, "int")
+	case node.Type == "StatementIndexFloat":
+		e.emitIndex(node, "float")
+	case node.Type == "StatementIndexString":
+		e.emitIndex(node, "string")
 	case node.Type == "StatementEqualTo":
 		e.emitCmp(node, OpCmpEQ)
 	case node.Type == "StatementNotEqualTo":
@@ -2317,6 +2323,71 @@ func (e *emitter) emitBinOp(node *graph.Node, op Op) {
 	e.program.Append(Instruction{Op: op, Dest: node.ID, Type: dataType, Args: []string{argA, argB}})
 }
 
+// emitIndex translates a StatementIndex{Int,Float,String} node into an OpIndex
+// instruction — the safe, bounds-checked array reader. It has two inputs (the
+// "array" and "index" ports) and two outputs: the primary "value" (which uses
+// the single-register scheme, Dest = node.ID, like any other device) and an
+// OPTIONAL "ok" bool. The ok output becomes a synthesized companion register
+// "{id}_ok" — matching what resolveInput2 hands a consumer of that port — but
+// ONLY when a wire actually consumes it; unwired, no ok register is produced and
+// the backends inline the bounds check with no dead variable.
+//
+// When either input is unconnected there is nothing to read, so emitIndex warns
+// and still DEFINES the outputs at their zero (value = the type's zero, ok =
+// false) so downstream consumers compile — a missing wire is an authoring
+// warning, never broken output.
+//
+// Português: Traduz um nó StatementIndex{Int,Float,String} em uma instrução
+// OpIndex — o leitor de array seguro e checado. Duas entradas (portas "array" e
+// "index") e duas saídas: o "value" primário (esquema single-register, Dest =
+// node.ID) e um "ok" bool OPCIONAL. O "ok" vira o companheiro sintetizado
+// "{id}_ok" — o mesmo que resolveInput2 entrega a um consumidor dessa porta —
+// mas SÓ quando uma aresta o consome; sem consumo, nenhum registrador ok é
+// produzido e os backends inlinam a checagem sem variável morta. Entrada
+// desconectada: avisa e ainda DEFINE as saídas no zero para o código a jusante
+// compilar — fio faltando é aviso de autoria, nunca saída quebrada.
+func (e *emitter) emitIndex(node *graph.Node, elemType string) {
+	array := e.resolveInput(node.ID, "array")
+	index := e.resolveInput(node.ID, "index")
+
+	// The ok output is emitted only when a wire consumes it.
+	okConnected := false
+	for _, edge := range e.graph.Edges {
+		if edge.From.DeviceID == node.ID && edge.From.PortName == "ok" {
+			okConnected = true
+			break
+		}
+	}
+
+	// Nothing to index if an input is missing: warn, and define the outputs at
+	// their zero so consumers still compile.
+	if array == "" || index == "" {
+		if array == "" {
+			e.program.Warn("%s.array: not connected", node.ID)
+		}
+		if index == "" {
+			e.program.Warn("%s.index: not connected", node.ID)
+		}
+		e.program.Append(Instruction{Op: OpConst, Dest: node.ID, Type: elemType, Args: []string{zeroValue(elemType)}})
+		if okConnected {
+			e.program.Append(Instruction{Op: OpConst, Dest: node.ID + "_ok", Type: "bool", Args: []string{"false"}})
+		}
+		return
+	}
+
+	var meta map[string]string
+	if okConnected {
+		meta = map[string]string{"okDest": node.ID + "_ok"}
+	}
+	e.program.Append(Instruction{
+		Op:   OpIndex,
+		Dest: node.ID,
+		Type: elemType,
+		Args: []string{array, index},
+		Meta: meta,
+	})
+}
+
 func (e *emitter) emitGauge(node *graph.Node) {
 	src := e.resolveInput(node.ID, "current")
 	if src == "" {
@@ -2703,6 +2774,18 @@ func (e *emitter) resolveInput2(deviceID, portName string) string {
 		}
 		instanceId := e.bbInstanceId(srcNode)
 		return "%" + instanceId + ":" + portName
+	}
+
+	// The array-index reader (StatementIndex*) has two outputs. Its "value"
+	// output falls through to the single-register default below (%deviceID); its
+	// "ok" output is a synthesized companion register, matching the {id}_ok
+	// register emitIndex declares for it.
+	//
+	// Português: O leitor de índice (StatementIndex*) tem duas saídas. O "value"
+	// cai no default single-register abaixo (%deviceID); o "ok" é o companheiro
+	// sintetizado, casando com o registrador {id}_ok que o emitIndex declara.
+	if strings.HasPrefix(srcNode.Type, "StatementIndex") && portName == "ok" {
+		return "%" + deviceID + "_ok"
 	}
 
 	return "%" + deviceID

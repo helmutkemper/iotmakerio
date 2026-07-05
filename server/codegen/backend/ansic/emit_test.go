@@ -1329,3 +1329,39 @@ func TestEmit_StringConcat_TargetBufferSize(t *testing.T) {
 	main := Emit(prog, ProfileArduinoUno)["main.c"]
 	assertContains(t, main, "char greeting[256];")
 }
+
+func TestEmit_Index_IntWithOk(t *testing.T) {
+	// A bounds-checked read WITH the ok output wired: a zeroed value, the
+	// negative-safe guard, the ok bool, and the length reused from the array.
+	prog := &ir.Program{}
+	prog.Append(ir.Instruction{Op: ir.OpConstArray, Dest: "arr", Type: "int", Args: []string{"10", "20", "30"}})
+	prog.Append(ir.Instruction{Op: ir.OpConst, Dest: "idx", Type: "int", Args: []string{"1"}})
+	prog.Append(ir.Instruction{
+		Op: ir.OpIndex, Dest: "val", Type: "int",
+		Args: []string{"%arr", "%idx"}, Meta: map[string]string{"okDest": "ok"},
+	})
+	main := Emit(prog, ProfileArduinoUno)["main.c"]
+
+	assertContains(t, main, "int32_t val = 0;") // safe zero result
+	assertContains(t, main, ">= 0 &&")          // negative index is out of range
+	assertContains(t, main, "(size_t)")         // signed/unsigned-safe comparison
+	assertContains(t, main, "_len")             // reuses the array's length companion
+	assertContains(t, main, "bool ")            // the ok output, wired
+}
+
+func TestEmit_Index_NoOk_InlinesCheck(t *testing.T) {
+	// Without the ok output the check is inlined into the if — no dead ok
+	// variable is emitted, but the access is still bounds-checked.
+	prog := &ir.Program{}
+	prog.Append(ir.Instruction{Op: ir.OpConstArray, Dest: "arr", Type: "int", Args: []string{"10", "20"}})
+	prog.Append(ir.Instruction{Op: ir.OpConst, Dest: "idx", Type: "int", Args: []string{"0"}})
+	prog.Append(ir.Instruction{
+		Op: ir.OpIndex, Dest: "val", Type: "int",
+		Args: []string{"%arr", "%idx"}, // no okDest
+	})
+	main := Emit(prog, ProfileArduinoUno)["main.c"]
+
+	assertContains(t, main, "int32_t val = 0;")
+	assertContains(t, main, "if (") // the inlined bounds check
+	assertContains(t, main, "_len")
+}

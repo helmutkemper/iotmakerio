@@ -1,4 +1,4 @@
-// /ide/server/codegen/ir/types.go
+// /server/codegen/ir/types.go
 // SPDX-FileCopyrightText: 2026 Helmut Kemper
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -59,6 +59,36 @@ const (
 	// sobrevive ao decaimento do array para ponteiro na chamada de função.
 	// Literal de tempo de compilação: sem malloc, seguro para embarcados.
 	OpConstArray Op = "CONST_ARRAY" // CONST_ARRAY %dest elemType v1 v2 v3 …
+
+	// OpIndex reads ONE element from a constant collection by integer index,
+	// with a safe, bounds-checked result. It is the StatementIndex{Int,Float,
+	// String} device: two inputs (the array and the index) and two outputs — the
+	// value at that position and an OPTIONAL bool telling whether the index was
+	// in range.
+	//
+	//	IN  Args[0] = %array   a collection register (e.g. from OpConstArray)
+	//	    Args[1] = %index    an int register or literal
+	//	OUT Dest             = %value, the element — or the type's ZERO value when
+	//	                       the index is out of range, so there is no panic in
+	//	                       Go and no undefined read in C
+	//	    Meta["okDest"]   = %ok, a bool register — or ABSENT when the ok output
+	//	                       is not wired, in which case the backends inline the
+	//	                       bounds check and emit no dead ok variable
+	//
+	// A NEGATIVE index counts as out of range. The bounds check reuses the
+	// collection's length that OpConstArray already provides: len(arr) in Go, the
+	// `<arr>_len` companion symbol in C99. The element is only read inside the
+	// passing branch, so the raw subscript never runs out of bounds.
+	//
+	// Português: Lê UM elemento de uma coleção constante por índice inteiro, com
+	// resultado seguro e checado. É o device StatementIndex{Int,Float,String}:
+	// duas entradas (array e índice) e duas saídas — o valor na posição e um bool
+	// OPCIONAL indicando se o índice estava no range. Índice NEGATIVO é fora do
+	// range. Fora do range devolve o ZERO do tipo (sem panic no Go, sem leitura
+	// indefinida no C). A checagem reusa o comprimento que o OpConstArray já dá:
+	// len(arr) no Go, o companheiro `<arr>_len` no C99. O elemento só é lido
+	// dentro do ramo que passou, então o subscrito nunca acessa fora do range.
+	OpIndex Op = "INDEX" // INDEX %value type %array %index   (Meta["okDest"] optional)
 
 	// Arithmetic
 	OpAdd Op = "ADD" // ADD %dest type %a %b

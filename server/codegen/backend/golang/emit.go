@@ -104,6 +104,8 @@ func (e *goEmitter) emit(prog *ir.Program) string {
 			e.emitAssign(inst)
 		case ir.OpConstArray:
 			e.emitConstArray(inst)
+		case ir.OpIndex:
+			e.emitIndex(inst)
 		case ir.OpAdd, ir.OpSub, ir.OpMul, ir.OpDiv:
 			e.emitBinOp(inst)
 		case ir.OpCmpEQ, ir.OpCmpNE, ir.OpCmpLT, ir.OpCmpGT, ir.OpCmpLE, ir.OpCmpGE:
@@ -292,6 +294,45 @@ func (e *goEmitter) emitCompare(inst ir.Instruction) {
 	} else {
 		e.writef("%s := %s %s %s\n", name, a, op, b)
 		e.declared[inst.Dest] = true
+	}
+}
+
+// emitIndex translates OpIndex — a safe, bounds-checked read of one element from
+// a constant collection (the StatementIndex{Int,Float,String} device). It
+// declares the value with its ZERO value, then reads the element only inside the
+// bounds check, so an out-of-range or negative index yields the zero value and
+// never panics. The optional ok output (Meta["okDest"]) becomes a bool ONLY when
+// it is wired; unwired, the check is inlined so no dead variable is left. The
+// length comes from Go's native len().
+//
+// Português: Traduz OpIndex — leitura segura e checada de um elemento de uma
+// coleção constante. Declara o valor com o ZERO do tipo e só lê o elemento
+// dentro da checagem, então índice fora do range ou negativo devolve o zero e
+// nunca dá panic. A saída ok opcional (Meta["okDest"]) só vira um bool quando
+// ligada; sem ligar, a checagem vai inline e nenhuma variável morta sobra.
+func (e *goEmitter) emitIndex(inst ir.Instruction) {
+	value := goIdent(inst.Dest)
+	arr := goOperand(inst.Args[0])
+	idx := goOperand(inst.Args[1])
+	goType := goTypeName(inst.Type)
+
+	// A negative index is out of range (the idx >= 0 guard), and len() is the
+	// authoritative length of the slice the collection emitted. int(idx) matches
+	// the untyped/int32 index to len()'s int.
+	cond := idx + " >= 0 && int(" + idx + ") < len(" + arr + ")"
+
+	// Declare value with its zero value — the safe result when out of range.
+	e.writef("var %s %s\n", value, goType)
+	e.declared[inst.Dest] = true
+
+	if okDest := inst.Meta["okDest"]; okDest != "" {
+		ok := goIdent(okDest)
+		e.writef("%s := %s\n", ok, cond)
+		e.declared[okDest] = true
+		e.writef("if %s { %s = %s[%s] }\n", ok, value, arr, idx)
+	} else {
+		// ok output unconnected — inline the check, emit no dead ok variable.
+		e.writef("if %s { %s = %s[%s] }\n", cond, value, arr, idx)
 	}
 }
 

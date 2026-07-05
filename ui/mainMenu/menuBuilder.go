@@ -79,6 +79,7 @@ type DeviceCreator interface {
 	CreateConstArrayInt()
 	CreateConstArrayFloat()
 	CreateConstArrayString()
+	CreateIndexInt()
 	CreateGetVarInt()
 	CreateGetVarFloat()
 	CreateSetVarInt()
@@ -2552,6 +2553,22 @@ func (b *MenuBuilder) registerFactories() {
 			ViewBox:         "0 0 512 512",
 			Type:            hexMenu.ItemAction,
 			OnClick:         func() { b.factory.SafeRun("CreateConstArrayString", b.factory.CreateConstArrayString) },
+			Styles:          styles,
+		}
+	}
+
+	// ── Array readers ─────────────────────────────────────────────────────
+	// The index reader (SysIndexInt) is a system slot the DB seeds under
+	// SysConst (MigrateMenuTreeIndex). Without this factory the DB-driven
+	// builder would skip the slot (the "no factory for system slot_id" path).
+	// Reuses the collection glyph for now, matching the seed's icon_fa.
+	b.factories["SysIndexInt"] = func(label string) hexMenu.MenuItem {
+		return hexMenu.MenuItem{
+			ID: "SysIndexInt", Label: label,
+			FontAwesomePath: rulesIcon.KFALayerGroup,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemAction,
+			OnClick:         func() { b.factory.SafeRun("CreateIndexInt", b.factory.CreateIndexInt) },
 			Styles:          styles,
 		}
 	}

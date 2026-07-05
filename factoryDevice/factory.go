@@ -26,6 +26,7 @@ import (
 
 	"github.com/helmutkemper/iotmakerio/blackbox"
 	"github.com/helmutkemper/iotmakerio/devices/block"
+	"github.com/helmutkemper/iotmakerio/devices/compArray"
 	"github.com/helmutkemper/iotmakerio/devices/compConsts"
 	"github.com/helmutkemper/iotmakerio/devices/compFlow"
 	"github.com/helmutkemper/iotmakerio/devices/compFrontend"
@@ -1747,6 +1748,42 @@ func (f *DeviceFactory) CreateConstArrayInt() {
 	log.Printf("[Factory] Created StatementConstArrayInt at (%v, %v)", cx, cy)
 }
 
+// CreateIndexInt places the array index reader device (int element) on the
+// stage: two inputs (array, index) and two outputs (value, ok). The array,
+// index and value ports require connection; ok is OPTIONAL (the graphical
+// comma-ok). The safe, bounds-checked read lives entirely in the offline-tested
+// codegen (ir.OpIndex) — an out-of-range or negative index yields the type's
+// zero, never a panic (Go) or undefined read (C).
+//
+// Português: Coloca o leitor de índice (int) na stage: 2 entradas (array, index)
+// e 2 saídas (value, ok). array/index/value exigem conexão; ok é OPCIONAL (o
+// comma-ok gráfico). A leitura segura e checada vive no codegen testado offline
+// (ir.OpIndex) — fora do range devolve o zero do tipo, nunca panic/UB.
+func (f *DeviceFactory) CreateIndexInt() {
+	stm := new(compArray.StatementIndexInt)
+	stm.SetStage(f.Stage)
+	stm.SetWireManager(f.WireMgr)
+	stm.SetResizerButton(f.ResizeButton)
+	stm.SetGridAdjust(f.GridAdjust)
+	stm.SetContextMenu(f.ContextMenu)
+
+	if err := stm.Init(); err != nil {
+		log.Printf("[Factory] StatementIndexInt.Init: %v", err)
+		return
+	}
+
+	stm.RegisterConnectors()
+	f.SceneMgr.Register(stm)
+	stm.SetSceneNotify(f.SceneNotifyFn)
+	stm.SetOnRemove(f.makeOnRemove())
+
+	cx, cy := f.devicePosition()
+	stm.SetPosition(cx, cy)
+	stm.SetDragEnable(true)
+	stm.Append()
+	log.Printf("[Factory] Created StatementIndexInt at (%v, %v)", cx, cy)
+}
+
 // CreateConstArrayFloat places a constant fixed-size FLOAT collection device on the
 // stage (e.g. []float32{0.5, 1.5} — Go slice literal / C fixed array + `_len`
 // companion). One of the three sibling collection devices (Int / Float /
@@ -1864,6 +1901,8 @@ func (f *DeviceFactory) CreateByType(deviceType string, x, y float64) bool {
 		f.CreateConstArrayFloat()
 	case "StatementConstArrayString":
 		f.CreateConstArrayString()
+	case "StatementIndexInt":
+		f.CreateIndexInt()
 	// Variable devices (get/set × int/float/string). These were previously
 	// ABSENT from this switch, so on stage import (importScene → CreateByType)
 	// they fell through to the BlackBox default, failed to resolve, and were

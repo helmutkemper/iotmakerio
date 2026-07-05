@@ -360,6 +360,8 @@ func (e *cEmitter) emit() {
 			e.emitAssign(inst)
 		case ir.OpConstArray:
 			e.emitConstArray(inst)
+		case ir.OpIndex:
+			e.emitIndex(inst)
 		case ir.OpAdd, ir.OpSub, ir.OpMul, ir.OpDiv:
 			e.emitBinOp(inst)
 		case ir.OpConvert:
@@ -772,6 +774,55 @@ func (e *cEmitter) emitStringConcat(name, a, b string, inst ir.Instruction) {
 	}
 	e.writef("snprintf(%s, sizeof(%s), \"%%s%%s\", %s, %s);\n", name, name, a, b)
 	e.usesStdio = true
+}
+
+// emitIndex translates OpIndex — a safe, bounds-checked read of one element from
+// a constant collection (the StatementIndex{Int,Float,String} device). It
+// declares the value ZEROED, then reads the element only inside the bounds
+// check, so an out-of-range or negative index yields the zero value with no
+// undefined read. The check reuses the `<arr>_len` companion emitConstArray
+// emits. The idx >= 0 guard runs BEFORE the (size_t) comparison, so a negative
+// index short-circuits and never promotes to a huge unsigned. The optional ok
+// output (Meta["okDest"]) becomes a bool ONLY when wired; unwired, the check is
+// inlined so no dead variable is left. size_t pulls in <stddef.h>.
+//
+// Português: Traduz OpIndex — leitura segura e checada de um elemento de coleção
+// constante. Declara o valor ZERADO e só lê dentro da checagem, então índice
+// fora do range ou negativo devolve o zero sem leitura indefinida. Reusa o
+// companheiro `<arr>_len`. O guard idx >= 0 roda ANTES da comparação (size_t),
+// então índice negativo curto-circuita e não vira unsigned enorme. A saída ok
+// opcional só vira bool quando ligada. size_t puxa <stddef.h>.
+func (e *cEmitter) emitIndex(inst ir.Instruction) {
+	value := cIdent(inst.Dest)
+	arr := cOperand(inst.Args[0])
+	idx := cOperand(inst.Args[1])
+	cType := cTypeName(inst.Type, e.profile)
+
+	// The zero result: "" for a string — a valid empty string, never a NULL a
+	// consumer could dereference — and 0 for numbers.
+	zero := "0"
+	if inst.Type == "string" {
+		zero = `""`
+	}
+
+	// idx >= 0 guards the (size_t) cast, so a negative index short-circuits and
+	// never wraps to a huge unsigned. `<arr>_len` is emitConstArray's length.
+	cond := idx + " >= 0 && (size_t)" + idx + " < " + arr + "_len"
+
+	e.writef("%s %s = %s;\n", cType, value, zero)
+	e.declared[inst.Dest] = true
+
+	if okDest := inst.Meta["okDest"]; okDest != "" {
+		ok := cIdent(okDest)
+		e.writef("bool %s = (%s);\n", ok, cond)
+		e.declared[okDest] = true
+		e.writef("if (%s) { %s = %s[%s]; }\n", ok, value, arr, idx)
+	} else {
+		// ok output unconnected — inline the check, emit no dead ok variable.
+		e.writef("if (%s) { %s = %s[%s]; }\n", cond, value, arr, idx)
+	}
+
+	e.usesStddef = true // size_t appears in the bounds check
 }
 
 // emitConvert translates OpConvert into a C cast expression bound to

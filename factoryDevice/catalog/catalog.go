@@ -185,6 +185,12 @@ var catalog = []DeviceMetadata{
 	{TypeName: "StatementConstArrayFloat", SupportedLanguages: universalLanguages},
 	{TypeName: "StatementConstArrayString", SupportedLanguages: universalLanguages},
 
+	// IndexInt — array index reader (int element). Two inputs (array, index),
+	// two outputs (value, ok optional). Emits OpIndex: a bounds-checked read
+	// with a safe zero on out-of-range, in both Go (comma-ok) and C99. Sibling
+	// Float/String devices follow once this one is validated live.
+	{TypeName: "StatementIndexInt", SupportedLanguages: universalLanguages},
+
 	// ── Display / output devices ────────────────────────────────────────
 	// These are frontend-only widgets (gauge, LED, charts...). They
 	// occupy a place on the canvas and may be wired to backend nodes,

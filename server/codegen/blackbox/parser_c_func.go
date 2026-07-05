@@ -282,6 +282,29 @@ func findAllCFunctions(src, stripped string, blockComments map[int]string) []raw
 				declStart += eol + 1
 				continue
 			}
+			// Preprocessor directive (#include, #define, ...): skip to
+			// end-of-line. A return type never contains `#`, but a system
+			// header sits between the file's leading comment and the first
+			// function; without skipping it the entire `#include ...` line
+			// (plus any comment after it) is swept into the return-type span,
+			// which is then not exactly "void" and spawns a phantom "return"
+			// output port. Mirrors the line-comment skip above.
+			//
+			// Português: Diretiva de preprocessador (#include, #define...) —
+			// pula até o fim da linha. Um tipo de retorno nunca contém `#`, mas
+			// um header do sistema fica entre o comentário do topo e a primeira
+			// função; sem pular, a linha `#include ...` inteira é engolida no
+			// tipo de retorno, que deixa de ser exatamente "void" e cria uma
+			// saída "return" fantasma.
+			if stripped[declStart] == '#' {
+				eol := strings.Index(stripped[declStart:], "\n")
+				if eol < 0 {
+					declStart = nameStart
+					break
+				}
+				declStart += eol + 1
+				continue
+			}
 			break
 		}
 		// If the return-type span is empty, this is not a
@@ -721,6 +744,23 @@ func normaliseCType(t string) string {
 func extractReturnLabelDirective(doc string) (cleaned, label string) {
 	var prose []string
 	for _, line := range strings.Split(doc, "\n") {
+		// A line with no `return:` directive is kept VERBATIM, so prose that
+		// wraps across several lines survives intact. Splitting such a line on
+		// "." and rejoining with a per-line "." would insert a spurious period
+		// mid-sentence — e.g. "...followed by a" + "newline." becomes
+		// "...followed by a." + "newline." — which then shows up in the
+		// generated main.c (the authored source is inlined for the reader).
+		// This mirrors the verbatim stance extractDocDirectives already takes.
+		//
+		// Português: Linha sem diretivo `return:` é mantida VERBATIM, para
+		// prosa que quebra entre linhas sobreviver intacta. Dividir por "." e
+		// rejuntar com "." por linha inseriria um ponto espúrio no meio da
+		// frase, que acabaria aparecendo no main.c gerado (a fonte autoral é
+		// embutida para o leitor). Espelha a postura da extractDocDirectives.
+		if !strings.Contains(strings.ToLower(line), "return:") {
+			prose = append(prose, line)
+			continue
+		}
 		var keptSegs []string
 		for _, segment := range strings.Split(line, ".") {
 			seg := strings.TrimSpace(segment)
@@ -753,6 +793,13 @@ func extractReturnLabelDirective(doc string) (cleaned, label string) {
 func extractConsumesHandleDirective(doc string) (cleaned string, consume bool) {
 	var prose []string
 	for _, line := range strings.Split(doc, "\n") {
+		// Lines without a `handle:` directive are kept verbatim, so wrapped
+		// prose is not corrupted by a per-line "." (see
+		// extractReturnLabelDirective for the full rationale).
+		if !strings.Contains(strings.ToLower(line), "handle:") {
+			prose = append(prose, line)
+			continue
+		}
 		var keptSegs []string
 		for _, segment := range strings.Split(line, ".") {
 			seg := strings.TrimSpace(segment)
@@ -794,6 +841,13 @@ func extractConsumesHandleDirective(doc string) (cleaned string, consume bool) {
 func extractCallbackDirective(doc string) (cleaned string, callbackType string, callbackMode string) {
 	var prose []string
 	for _, line := range strings.Split(doc, "\n") {
+		// Lines without a `callback:` directive are kept verbatim, so wrapped
+		// prose is not corrupted by a per-line "." (see
+		// extractReturnLabelDirective for the full rationale).
+		if !strings.Contains(strings.ToLower(line), "callback:") {
+			prose = append(prose, line)
+			continue
+		}
 		var keptSegs []string
 		for _, segment := range strings.Split(line, ".") {
 			seg := strings.TrimSpace(segment)
