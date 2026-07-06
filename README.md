@@ -40,6 +40,17 @@ single source of truth — on export, the scene is compiled through an
 intermediate representation into the target language, so adding a new target is
 writing a new backend rather than a rewrite.
 
+## Start server
+
+```bash
+  cd server
+  make docker-up-full
+```
+
+## Documentation
+
+The documentation is preliminary and is located in the [00_howto](00_howto/01_device) folder.
+
 ## License
 
 IoTMaker uses a **two-level** licensing model — please read this before building
