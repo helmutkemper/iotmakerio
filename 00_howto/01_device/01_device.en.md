@@ -32,7 +32,7 @@ the same device.
 
 ## 1.2 Creating the device in the panel
 
-![Create with wizard](/howto/01_device/img/c99-01-new-device.png)
+![Create with wizard](/00_howto/01_device/img/c99-01-new-device.png)
 
 1. Log in to the control panel and open the **Devices & Templates**
    section.
@@ -40,11 +40,11 @@ the same device.
 3. Give the device a name. In this chapter we will use `stdOut`.
 4. Choose **C99** as the programming language.
 
-![Create with wizard](/howto/01_device/img/c99-02-new-device.png)
+![Create with wizard](/00_howto/01_device/img/c99-02-new-device.png)
 
 Once you confirm, the IDE opens the device's code editor, still empty:
 
-![Empty code editor](/howto/01_device/img/c99-03-new-device.png)
+![Empty code editor](/00_howto/01_device/img/c99-03-new-device.png)
 
 Take a look at the top bar. It will stay with us throughout the chapter:
 
@@ -98,7 +98,7 @@ void print_string(const char *value) {
 }
 ```
 
-![Editor with C code](/howto/01_device/img/c99-04-new-device.png)
+![Editor with C code](/00_howto/01_device/img/c99-04-new-device.png)
 
 Four important things happen in this code, and it is worth understanding
 each of them before moving on:
@@ -155,7 +155,7 @@ repeat the same process for `print_float` and `print_string`.
 
 The first window is the function's:
 
-![Wizard](/howto/01_device/img/c99-05-new-device.png)
+![Wizard](/00_howto/01_device/img/c99-05-new-device.png)
 
 | Field                | What to fill in                                                                                                                         |
 |----------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
@@ -170,7 +170,7 @@ works well. You can use the same icon for all three blocks or vary them
 (for example, `hashtag` for the integer, `percent` for the float,
 `quote-right` for the string). Then click **Save** in the window.
 
-![print_int function wizard](/howto/01_device/img/c99-06-new-device.png)
+![print_int function wizard](/00_howto/01_device/img/c99-06-new-device.png)
 
 > The **Add help** button, between Cancel and Save, creates the device's
 > manual. We will use it in section 1.8 — for now, keep going.
@@ -207,7 +207,7 @@ the port *carries*, for example:
 | `print_float · value`  | `Floating-point value to print` |
 | `print_string · value` | `Text to print`                 |
 
-![Port configured with a comment](/howto/01_device/img/c99-07-new-device.png)
+![Port configured with a comment](/00_howto/01_device/img/c99-07-new-device.png)
 
 Click **Save** in each port's window. By the end, you will have
 configured three functions and three ports.
@@ -219,7 +219,7 @@ configured three functions and three ports.
 Open the **Preview** tab. It shows the blocks exactly as they will appear
 on the stage:
 
-![Parser](/howto/01_device/img/c99-08-new-device.png)
+![Parser](/00_howto/01_device/img/c99-08-new-device.png)
 
 Check, on each block:
 
@@ -270,11 +270,11 @@ This is the standard we are aiming for. To create the manual:
 4. Write the content in Markdown and save.
 5. Repeat for each block and each language you want to cover.
 
-![Documentation - step 1](/howto/01_device/img/c99-09-new-device.png)
+![Documentation - step 1](/00_howto/01_device/img/c99-09-new-device.png)
 
-![Documentation - step 2](/howto/01_device/img/c99-10-new-device.png)
+![Documentation - step 2](/00_howto/01_device/img/c99-10-new-device.png)
 
-![Documentation - step 3](/howto/01_device/img/c99-11-new-device.png)
+![Documentation - step 3](/00_howto/01_device/img/c99-11-new-device.png)
 
 The files follow the `<name>.<language>.md` convention. For the complete
 `stdOut`, in English and Portuguese, the set looks like this:
@@ -320,9 +320,9 @@ Open the **Menu** (the hexagon in the corner of the stage) and navigate
 to **My Items** in the sidebar. That is where the devices *you* created
 live. Inside `stdOut` you will find the three blocks:
 
-![Menu - step 1](/howto/01_device/img/c99-12-new-device.png)
+![Menu - step 1](/00_howto/01_device/img/c99-12-new-device.png)
 
-![Menu - step 2](/howto/01_device/img/c99-13-new-device.png)
+![Menu - step 2](/00_howto/01_device/img/c99-13-new-device.png)
 
 Click `print_int` and then **+ Place on stage**. The block appears on the
 stage, ready to receive wires.
@@ -342,7 +342,7 @@ Connect the wires like this:
 2. Output of `constInt_0` → second input of `indexInt_0` (the index).
 3. Output of `indexInt_0` → **value** port of your `print_int_1`.
 
-![ide](/howto/01_device/img/c99-14-new-device.png)
+![ide](/00_howto/01_device/img/c99-14-new-device.png)
 
 Notice that a wire only "accepts" connecting ports of compatible types —
 the list (`[]INT`, thicker wire) only fits the list port, and a plain
@@ -359,11 +359,11 @@ you even generate code.
 
 ## 1.10 Generating the source code
 
-![code export - 1](/howto/01_device/img/c99-15-new-device.png)
+![code export - 1](/00_howto/01_device/img/c99-15-new-device.png)
 
-![code export - 2](/howto/01_device/img/c99-16-new-device.png)
+![code export - 2](/00_howto/01_device/img/c99-16-new-device.png)
 
-![code export - 3](/howto/01_device/img/c99-17-new-device.png)
+![code export - 3](/00_howto/01_device/img/c99-17-new-device.png)
 
 With the program assembled, open **Menu → Export** and choose the C code
 export. The IDE asks which board you want to generate code for — for this

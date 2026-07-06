@@ -32,18 +32,18 @@ device.
 
 ## 1.2 Criando o device no painel
 
-![Create with wizard](/howto/01_device/img/c99-01-new-device.png)
+![Create with wizard](/00_howto/01_device/img/c99-01-new-device.png)
 
 1. Entre no painel de controle e abra a seção **Devices & Templates**.
 2. Clique em **New Project** e escolha **Create with wizard**.
 3. Dê um nome ao device. Neste capítulo usaremos `stdOut`.
 4. Escolha **C99** como linguagem de programação.
 
-![Create with wizard](/howto/01_device/img/c99-02-new-device.png)
+![Create with wizard](/00_howto/01_device/img/c99-02-new-device.png)
 
 Ao confirmar, a IDE abre o editor de código do device, ainda vazio:
 
-![Editor de código vazio](/howto/01_device/img/c99-03-new-device.png)
+![Editor de código vazio](/00_howto/01_device/img/c99-03-new-device.png)
 
 Repare na barra superior. Ela vai nos acompanhar durante todo o capítulo:
 
@@ -97,7 +97,7 @@ void print_string(const char *value) {
 }
 ```
 
-![Editor com código C](/howto/01_device/img/c99-04-new-device.png)
+![Editor com código C](/00_howto/01_device/img/c99-04-new-device.png)
 
 Quatro coisas importantes acontecem nesse código, e vale a pena entender
 cada uma antes de seguir:
@@ -151,7 +151,7 @@ repetir o mesmo processo para `print_float` e `print_string`.
 
 A primeira janela é a da função:
 
-![Wizerd](/howto/01_device/img/c99-05-new-device.png)
+![Wizerd](/00_howto/01_device/img/c99-05-new-device.png)
 
 | Campo                | O que preencher                                                                                                                            |
 |----------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
@@ -166,7 +166,7 @@ funciona bem. Você pode usar o mesmo ícone para os três blocos ou variar
 (por exemplo, `hashtag` para o inteiro, `percent` para o float,
 `quote-right` para a string). Depois clique em **Save** na janela.
 
-![Wizard da função print_int](/howto/01_device/img/c99-06-new-device.png)
+![Wizard da função print_int](/00_howto/01_device/img/c99-06-new-device.png)
 
 > O botão **Add help**, entre Cancel e Save, cria o manual do device.
 > Vamos usá-lo na seção 1.8 — por enquanto, siga adiante.
@@ -202,7 +202,7 @@ porta *carrega*, por exemplo:
 | `print_float · value`  | `Floating-point value to print` |
 | `print_string · value` | `Text to print`                 |
 
-![Porta configurada com comentário](/howto/01_device/img/c99-07-new-device.png)
+![Porta configurada com comentário](/00_howto/01_device/img/c99-07-new-device.png)
 
 Clique em **Save** na janela de cada porta. Ao final, você terá
 configurado três funções e três portas.
@@ -214,7 +214,7 @@ configurado três funções e três portas.
 Abra a aba **Preview**. Ela mostra os blocos exatamente como eles vão
 aparecer no stage:
 
-![Parser](/howto/01_device/img/c99-08-new-device.png)
+![Parser](/00_howto/01_device/img/c99-08-new-device.png)
 
 Confira, em cada bloco:
 
@@ -265,11 +265,11 @@ detalhes técnicos que o usuário final não precisa ver:
 4. Escreva o conteúdo em Markdown e salve.
 5. Repita para cada bloco e cada idioma que quiser cobrir.
 
-![Documentação - passo 1](/howto/01_device/img/c99-09-new-device.png)
+![Documentação - passo 1](/00_howto/01_device/img/c99-09-new-device.png)
 
-![Documentação - passo 2](/howto/01_device/img/c99-10-new-device.png)
+![Documentação - passo 2](/00_howto/01_device/img/c99-10-new-device.png)
 
-![Documentação - passo 3](/howto/01_device/img/c99-11-new-device.png)
+![Documentação - passo 3](/00_howto/01_device/img/c99-11-new-device.png)
 
 Os arquivos seguem a convenção `<nome>.<idioma>.md`. Para o `stdOut`
 completo, em inglês e português, o conjunto fica assim:
@@ -315,9 +315,9 @@ Abra o **Menu** (o hexágono no canto do stage) e navegue até
 **My Items** na barra lateral. É ali que ficam os devices que *você*
 criou. Dentro do `stdOut` você encontra os três blocos:
 
-![Menu - passo 1](/howto/01_device/img/c99-12-new-device.png)
+![Menu - passo 1](/00_howto/01_device/img/c99-12-new-device.png)
 
-![Menu - passo 2](/howto/01_device/img/c99-13-new-device.png)
+![Menu - passo 2](/00_howto/01_device/img/c99-13-new-device.png)
 
 Clique em `print_int` e depois em **+ Place on stage**. O bloco aparece
 no stage, pronto para receber fios.
@@ -336,7 +336,7 @@ Ligue os fios assim:
 2. Saída do `constInt_0` → segunda entrada do `indexInt_0` (o índice).
 3. Saída do `indexInt_0` → porta **value** do seu `print_int_1`.
 
-![ide](/howto/01_device/img/c99-14-new-device.png)
+![ide](/00_howto/01_device/img/c99-14-new-device.png)
 
 Repare que o fio só "aceita" conectar portas de tipos compatíveis — a
 lista (`[]INT`, fio mais grosso) só entra na porta de lista, e o `INT`
@@ -352,11 +352,11 @@ mesmo de você gerar o código.
 
 ## 1.10 Gerando o código-fonte
 
-![code export - 1](/howto/01_device/img/c99-15-new-device.png)
+![code export - 1](/00_howto/01_device/img/c99-15-new-device.png)
 
-![code export - 2](/howto/01_device/img/c99-16-new-device.png)
+![code export - 2](/00_howto/01_device/img/c99-16-new-device.png)
 
-![code export - 3](/howto/01_device/img/c99-17-new-device.png)
+![code export - 3](/00_howto/01_device/img/c99-17-new-device.png)
 
 Com o programa montado, abra o **Menu → Export** e escolha a exportação
 de código C. A IDE pergunta para qual placa você quer gerar o código —
