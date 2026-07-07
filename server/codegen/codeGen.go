@@ -346,7 +346,15 @@ func Generate(ctx context.Context, req Request) Response {
 		if scene.Metadata.StringBufferSize > 0 {
 			program.StringBufferSize = scene.Metadata.StringBufferSize
 		}
-		resp.Files = ansic.Emit(program, profile)
+		// Generated-name family: the maker's per-scene radical override
+		// (Metadata.ExportPrefix, UI pending — docs/C99_EXPORT_NAMING.md)
+		// or the default "iotm_" when unset/invalid. One knob names every
+		// folder, file, symbol prefix and guard of this export.
+		//
+		// Português: Família de nomes gerados — radical da cena (UI é
+		// pendência futura) ou o default "iotm_". Um botão nomeia tudo.
+		naming := blackbox.NewNaming(scene.Metadata.ExportPrefix)
+		resp.Files = ansic.Emit(program, profile, naming)
 	default:
 		resp.addDiagnostic(Diagnostic{
 			Kind:     diagnostics.KindUnsupportedLanguage,

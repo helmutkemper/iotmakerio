@@ -1658,19 +1658,28 @@ func (e *emitter) buildBBCallArgs(node *graph.Node, fnName string) []string {
 		switch {
 		case in.CallbackType != "":
 			// Callback parameter: the wire carries a REFERENCE to a handler
-			// device, not a value. Resolve it to the handler's bare C function
-			// name (its address) and emit it verbatim through the "=" literal
-			// path — no register, no cast. This is the LabVIEW static-VI-
-			// reference idiom; the generated call is `consumer(handlerName)`.
-			// A callback typedef has no '*' in its GoType, so this case MUST
-			// precede the scalar-cast case below (which would otherwise wrap it
-			// in an `(display_write_fn)` cast). An unwired callback parameter
-			// falls back to its default (NULL), so the call stays well-formed.
+			// device, not a value. Resolve it to the handler's C function
+			// name and ship it under the dedicated "@" marker — a callback
+			// reference BY FUNCTION NAME, distinct from the "=" verbatim
+			// literal it used to ride on. The distinction matters for the
+			// multi-file C output: the handler's definition lives in some
+			// black-box unit under a PREFIXED symbol, and only the backend
+			// (which owns C naming) can look the function up in the defs and
+			// prefix it; a plain "=" literal would be emitted verbatim and
+			// dangle. The IR stays language-neutral — "@" names the function,
+			// the backend decides how that name is spelled in the target.
+			// This is the LabVIEW static-VI-reference idiom; the generated
+			// call is `consumer(P<id>_handlerName)` (or the bare name in the
+			// single-file fallback). An unwired callback parameter falls back
+			// to its default (NULL) through the ordinary "=" path, so the
+			// call stays well-formed.
 			// Português: Parâmetro de callback carrega uma REFERÊNCIA a um
-			// handler, não um valor — resolve para o nome da função (endereço),
-			// emitido verbatim pelo caminho "=". Sem fio → default (NULL).
+			// handler — viaja como "@nome" (marcador próprio, não "="): no
+			// modelo multiarquivo o handler existe sob símbolo PREFIXADO, e
+			// só o backend (dono do naming C) resolve o prefixo. O IR segue
+			// neutro. Sem fio → default (NULL) pelo caminho "=" normal.
 			if name := e.callbackHandlerName(node, in.Name); name != "" {
-				val = "=" + name
+				val = "@" + name
 			} else {
 				val = "=" + bbInputDefault(in)
 			}

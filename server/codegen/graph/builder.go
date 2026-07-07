@@ -106,6 +106,33 @@ type MetadataInput struct {
 	// no picker (a UI converte de KB/MB; o valor no fio é sempre bytes). Zero =
 	// usa o default da placa; só um valor positivo o substitui.
 	StringBufferSize int `json:"stringBufferSize,omitempty"`
+
+	// ExportPrefix overrides the RADICAL of the multi-file C export's naming
+	// family (default "iotm_"): folders, files, symbol prefixes and include
+	// guards all derive from it (iotm_47/, iotm_47.c, iotm_47_print_float,
+	// IOTM_47_H — see blackbox.Naming). A maker sets it when the default
+	// radical collides with other work of theirs — the canonical case being
+	// two IoTMaker exports linked into one firmware, where a shared box
+	// would otherwise define the same iotm_<n>_* symbols twice.
+	//
+	// Value rules: must be a valid C-identifier prefix ([A-Za-z_] then
+	// [A-Za-z0-9_], at most 16 chars); empty or invalid values silently fall
+	// back to the default (blackbox.NewNaming's tolerant stance). The
+	// anti-hijack property is radical-independent (unconditional stamping),
+	// so ANY valid value is safe.
+	//
+	// FUTURE PENDING (agreed 2026-07): the scene/export UI control that
+	// writes this field does not exist yet — the backend path is complete
+	// (this field → codeGen.go → ansic.Emit) and covered by tests, so the
+	// future work is UI-only. Tracked in docs/C99_EXPORT_NAMING.md.
+	//
+	// Português: Sobrescreve o RADICAL da família de nomes do export C
+	// multiarquivo (default "iotm_"). O maker configura quando o radical
+	// colide com outro trabalho dele (caso canônico: dois exports IoTMaker
+	// linkados num firmware só). Vazio/inválido cai no default. PENDÊNCIA
+	// FUTURA: falta só a UI que escreve este campo — o caminho de backend
+	// está completo e testado. Rastreado em docs/C99_EXPORT_NAMING.md.
+	ExportPrefix string `json:"exportPrefix,omitempty"`
 }
 
 type CameraInput struct {

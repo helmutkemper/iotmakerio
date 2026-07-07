@@ -501,6 +501,17 @@ func migrate() error {
 	if err := MigrateMenuTreeIndex(); err != nil {
 		return err
 	}
+	// Sequential code numbers for generated-code names (iotm_47_…): creates
+	// the registry and backfills every pre-existing project and black-box by
+	// creation order. Idempotent. See store/code_numbers.go for the
+	// engine-independent contract.
+	//
+	// Português: Números de código sequenciais dos nomes gerados: cria o
+	// registro e numera as linhas pré-existentes por ordem de criação.
+	// Idempotente. Contrato agnóstico em store/code_numbers.go.
+	if err := MigrateCodeNumbers(); err != nil {
+		return err
+	}
 
 	// ── Feed feature: ratings, follows, feed_events ───────────────────────────
 	for _, stmt := range feedMigrationStmts() {

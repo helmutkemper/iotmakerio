@@ -513,6 +513,24 @@ func containsIdent(s string) bool {
 func funcDefFromRaw(fn *rawCFunc, limits ParserLimits) *FuncDef {
 	fd := &FuncDef{}
 
+	// Preserve the authored C signature verbatim. The multi-file C output
+	// needs it to compose the black-box's generated header prototype
+	// (`<CReturnType> P<id>_<name>(<CParams>);` — see csurface.go): the port
+	// lists alone cannot rebuild it, because they deliberately transform the
+	// signature (slice pairs collapse into one "[]T" port, out-params split
+	// into Outputs, pass-throughs are synthesized). The prototype must match
+	// the SOURCE — the definition shipped in bb_<id>.c is the authored one —
+	// so verbatim text is the only faithful carrier. Same stance as
+	// CallbackTypeDef, which already carries ReturnType/Params verbatim.
+	//
+	// Português: Preserva a assinatura C autoral verbatim. O header gerado da
+	// saída multiarquivo precisa dela para compor o protótipo — as portas não
+	// reconstroem a assinatura (slice colapsa, out-params viram Outputs). O
+	// protótipo tem que casar com o FONTE embarcado em bb_<id>.c, então texto
+	// verbatim é o único portador fiel. Mesma postura do CallbackTypeDef.
+	fd.CReturnType = strings.TrimSpace(fn.ReturnType)
+	fd.CParams = strings.TrimSpace(fn.ParamsRaw)
+
 	// Extract IDS directives from the leading doc.
 	returnLabel := ""
 	handlerType := ""

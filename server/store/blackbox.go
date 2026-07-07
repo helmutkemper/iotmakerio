@@ -143,6 +143,19 @@ func UpsertDevice(d *Device) error {
 		nullableString(d.ProgrammingLanguageID),
 		d.CreatedAt.Format(time.RFC3339), d.UpdatedAt.Format(time.RFC3339),
 	)
+	if err != nil {
+		return err
+	}
+	// Allocate the device's sequential code number (see code_numbers.go for
+	// the contract). UpsertDevice runs once per IDS struct and again on
+	// every worker retry of the same release — allocation being idempotent
+	// per id is what makes that safe: the first call mints the number, every
+	// later call returns it.
+	//
+	// Português: Aloca o número de código sequencial do device (contrato em
+	// code_numbers.go). O worker re-executa em retry — a idempotência por id
+	// torna isso seguro: a primeira chamada cria, as demais devolvem.
+	_, err = AllocateCodeNumber(d.ID, CodeKindBlackBox)
 	return err
 }
 
@@ -528,6 +541,31 @@ func LoadBlackBoxDefsForScene(sceneJSON []byte) (map[string]*bbparser.BlackBoxDe
 			if parseErr != nil || def == nil {
 				continue
 			}
+			// Stitch the black-box identity in: for wizard-born devices the
+			// project id IS the black-box id (minted at project creation,
+			// unique, never reused — cryptoauth.NewID, 32 hex chars). The
+			// multi-file C emitter derives the symbol prefix and the folder
+			// name from it (blackbox.Naming — iotm_47/, iotm_47_…). Set before the
+			// Go/C99 branch below so both device shapes carry it. Multiple
+			// function-devices from one source share the same *def pointer,
+			// which is exactly right — one device project, one folder, one
+			// prefix, many functions (the Arduino-library shape).
+			//
+			// Português: Costura a identidade: para devices nascidos no wizard,
+			// o id do projeto É o id da black-box. O emitter multiarquivo C
+			// deriva prefixo de símbolo e nome de pasta dele. Um projeto de
+			// device = uma pasta = um prefixo = várias funções.
+			def.ID = pv.ProjectID
+			// Spelling of that identity in generated names: the sequential
+			// code number when the registry has one (iotm_47_…), else the
+			// empty string — CodeIdent then falls back to the full id
+			// (long-but-correct names). See BlackBoxDef.CodeID and
+			// code_numbers.go.
+			//
+			// Português: Grafia da identidade nos nomes gerados: o número
+			// sequencial quando o registro tem (iotm_47_…), senão "" —
+			// CodeIdent cai no id completo (nomes longos, porém corretos).
+			def.CodeID = codeNumberString(def.ID)
 			if def.Name != "" {
 				// Go struct device (def.Name is the struct name).
 				if needed[def.Name] {
@@ -560,15 +598,15 @@ func LoadBlackBoxDefsForScene(sceneJSON []byte) (map[string]*bbparser.BlackBoxDe
 		if defs[structName] != nil {
 			continue
 		}
-		var parsedJSON, githubOwner, githubURL string
+		var rowID, parsedJSON, githubOwner, githubURL string
 		err := DB.QueryRow(`
-			SELECT parsed_json, github_owner, github_url FROM blackboxes
+			SELECT id, parsed_json, github_owner, github_url FROM blackboxes
 			WHERE  display_name = ?
 			  AND  status       = 'ready'
 			  AND  blocked      = 0
 			ORDER  BY updated_at DESC
 			LIMIT  1`, structName,
-		).Scan(&parsedJSON, &githubOwner, &githubURL)
+		).Scan(&rowID, &parsedJSON, &githubOwner, &githubURL)
 		if errors.Is(err, sql.ErrNoRows) || err != nil {
 			continue
 		}
@@ -576,6 +614,26 @@ func LoadBlackBoxDefsForScene(sceneJSON []byte) (map[string]*bbparser.BlackBoxDe
 		if err := json.Unmarshal([]byte(parsedJSON), &def); err != nil {
 			continue
 		}
+		// Stitch the black-box identity in — ALWAYS from the row, deliberately
+		// AFTER the unmarshal so it overwrites anything the cached blob may
+		// carry. parsed_json is data, not identity: a crafted or stale blob
+		// claiming another black-box's id must never win over the row it was
+		// loaded from, or it would inherit that black-box's folder and symbol
+		// prefix in the generated C. Same stance as the unconditional symbol
+		// prefix in bbparser's naming.go: identity comes from the database.
+		//
+		// Português: Costura a identidade — SEMPRE da linha do banco, de
+		// propósito DEPOIS do unmarshal, sobrescrevendo qualquer id que o blob
+		// em cache traga. parsed_json é dado, não identidade: um blob forjado
+		// reivindicando o id de outra black-box não pode herdar a pasta e o
+		// prefixo dela no C gerado. Mesma postura do prefixo incondicional.
+		def.ID = rowID
+		// And its spelling in generated names — same rule as the wizard
+		// source above: stitched code number or the full-id fallback.
+		//
+		// Português: E sua grafia nos nomes gerados — mesma regra da fonte
+		// do wizard acima: número costurado ou fallback do id completo.
+		def.CodeID = codeNumberString(def.ID)
 		// Attach the author from the row's GitHub provenance. The parsed_json
 		// itself does not carry it — the source parser never sees the repository
 		// — so it is stitched in here, at the one place the parsed def and the

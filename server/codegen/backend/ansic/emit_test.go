@@ -17,7 +17,7 @@ package ansic
 //
 //   prog := &ir.Program{}
 //   prog.Append(ir.Instruction{Op: ir.OpConst, Dest: "x", Type: "int", Args: []string{"42"}})
-//   files := Emit(prog, ProfileArduinoUno)
+//   files := Emit(prog, ProfileArduinoUno, blackbox.Naming{})
 //   assertContains(t, files["main.c"], "int32_t x = 42L;")
 //
 // This pattern is the closest the C backend has to a unit test —
@@ -36,6 +36,7 @@ import (
 	"strings"
 	"testing"
 
+	"server/codegen/blackbox"
 	"server/codegen/ir"
 )
 
@@ -1004,7 +1005,7 @@ func TestEmit_Sleep_InsideLoop(t *testing.T) {
 // the wrong files" line.
 func TestEmit_RuntimeFiles_ConditionalOnSleep(t *testing.T) {
 	t.Run("empty IR — main.c alone, no runtime files", func(t *testing.T) {
-		files := Emit(&ir.Program{}, ProfileArduinoUno)
+		files := Emit(&ir.Program{}, ProfileArduinoUno, blackbox.Naming{})
 
 		if _, ok := files["main.c"]; !ok {
 			t.Error("expected main.c in Files")
@@ -1026,7 +1027,7 @@ func TestEmit_RuntimeFiles_ConditionalOnSleep(t *testing.T) {
 			Op:   ir.OpSleep,
 			Args: []string{"%constDuration_1"},
 		})
-		files := Emit(prog, ProfileArduinoUno)
+		files := Emit(prog, ProfileArduinoUno, blackbox.Naming{})
 
 		if _, ok := files["main.c"]; !ok {
 			t.Error("expected main.c in Files")
@@ -1055,7 +1056,7 @@ func TestEmit_RuntimeHeader_Contents(t *testing.T) {
 		Op:   ir.OpSleep,
 		Args: []string{"%constDuration_1"},
 	})
-	files := Emit(prog, ProfileArduinoUno)
+	files := Emit(prog, ProfileArduinoUno, blackbox.Naming{})
 	header := files["iotmaker_runtime.h"]
 	if header == "" {
 		t.Fatal("expected iotmaker_runtime.h to be present when Sleep is used")
@@ -1086,7 +1087,7 @@ func TestEmit_RuntimeStub_Contents(t *testing.T) {
 		Op:   ir.OpSleep,
 		Args: []string{"%constDuration_1"},
 	})
-	files := Emit(prog, ProfileArduinoUno)
+	files := Emit(prog, ProfileArduinoUno, blackbox.Naming{})
 	stub := files["iotmaker_runtime_stub.c"]
 	if stub == "" {
 		t.Fatal("expected iotmaker_runtime_stub.c to be present when Sleep is used")
@@ -1271,7 +1272,7 @@ func TestEmit_Wrapping_EmptyProgramStillValid(t *testing.T) {
 // test in this file uses it. Keeping the boilerplate centralised
 // makes adding new tests trivial.
 func emitMain(prog *ir.Program, profile TargetProfile) string {
-	files := Emit(prog, profile)
+	files := Emit(prog, profile, blackbox.Naming{})
 	return files["main.c"]
 }
 
@@ -1309,7 +1310,7 @@ func TestEmit_StringConcat(t *testing.T) {
 		Type: "string",
 		Args: []string{"hello", "world"},
 	})
-	main := Emit(prog, ProfileArduinoUno)["main.c"]
+	main := Emit(prog, ProfileArduinoUno, blackbox.Naming{})["main.c"]
 
 	assertContains(t, main, "char greeting[128];")
 	assertContains(t, main, `snprintf(greeting, sizeof(greeting), "%s%s",`)
@@ -1326,7 +1327,7 @@ func TestEmit_StringConcat_TargetBufferSize(t *testing.T) {
 		Type: "string",
 		Args: []string{"hello", "world"},
 	})
-	main := Emit(prog, ProfileArduinoUno)["main.c"]
+	main := Emit(prog, ProfileArduinoUno, blackbox.Naming{})["main.c"]
 	assertContains(t, main, "char greeting[256];")
 }
 
@@ -1340,7 +1341,7 @@ func TestEmit_Index_IntWithOk(t *testing.T) {
 		Op: ir.OpIndex, Dest: "val", Type: "int",
 		Args: []string{"%arr", "%idx"}, Meta: map[string]string{"okDest": "ok"},
 	})
-	main := Emit(prog, ProfileArduinoUno)["main.c"]
+	main := Emit(prog, ProfileArduinoUno, blackbox.Naming{})["main.c"]
 
 	assertContains(t, main, "int32_t val = 0;") // safe zero result
 	assertContains(t, main, ">= 0 &&")          // negative index is out of range
@@ -1359,7 +1360,7 @@ func TestEmit_Index_NoOk_InlinesCheck(t *testing.T) {
 		Op: ir.OpIndex, Dest: "val", Type: "int",
 		Args: []string{"%arr", "%idx"}, // no okDest
 	})
-	main := Emit(prog, ProfileArduinoUno)["main.c"]
+	main := Emit(prog, ProfileArduinoUno, blackbox.Naming{})["main.c"]
 
 	assertContains(t, main, "int32_t val = 0;")
 	assertContains(t, main, "if (") // the inlined bounds check

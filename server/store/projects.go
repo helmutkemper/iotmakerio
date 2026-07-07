@@ -75,6 +75,18 @@ func CreateProject(p *Project) error {
 		}
 		return err
 	}
+	// Allocate the project's sequential code number (see code_numbers.go for
+	// the contract). Creation is one logical operation: a project left
+	// without its number would export under the long full-id fallback names,
+	// so a registry failure fails the create instead of degrading silently.
+	// Idempotent per id, so a retried create of the same id is safe.
+	//
+	// Português: Aloca o número de código sequencial do projeto (contrato em
+	// code_numbers.go). Criação é uma operação lógica só: falha do registro
+	// falha o create em vez de degradar em silêncio. Idempotente por id.
+	if _, err := AllocateCodeNumber(p.ID, CodeKindProject); err != nil {
+		return err
+	}
 	return nil
 }
 

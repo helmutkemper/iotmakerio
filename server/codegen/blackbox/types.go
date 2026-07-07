@@ -95,6 +95,63 @@ type BlackBoxDef struct {
 	// Doc is the package-level documentation comment.
 	Doc string `json:"doc,omitempty"`
 
+	// ID is the black-box's database id — the token minted when the black-box
+	// is created (blackboxes.id for GitHub-sourced devices, projects.id for
+	// devices born in the in-IDE wizard). Unique by construction, never reused
+	// after deletion. It is NOT produced by the source parser — like Author it
+	// is stitched in at def-load time (store.LoadBlackBoxDefsForScene), the one
+	// place the parsed def and its database row meet.
+	//
+	// This id is the SINGLE source of uniqueness for the multi-file C output:
+	// SymbolPrefix(ID) prefixes every exported C symbol and SourceDir(ID) names
+	// the black-box's folder (see naming.go for why the id, and why the prefix
+	// is applied unconditionally). Empty for a def that never touched the
+	// database — the emitter must treat that as "no isolated identity" and fall
+	// back to the single-file inline path, never invent an id of its own.
+	//
+	// SECURITY: the loader ALWAYS overwrites this field from the row, even when
+	// the cached parsed_json already carries one. A stored blob is data, not
+	// identity — trusting an id embedded in it would let a crafted blob claim
+	// another black-box's folder and prefix. Same stance as the unconditional
+	// symbol prefix: identity comes from the database, full stop.
+	//
+	// Português: ID da black-box no banco (blackboxes.id para devices do GitHub,
+	// projects.id para devices criados no wizard da IDE). Único, nunca reusado.
+	// NÃO vem do parser — como o Author, é costurado no load. É a ÚNICA fonte de
+	// unicidade da saída C multiarquivo: SymbolPrefix(ID) prefixa os símbolos e
+	// SourceDir(ID) nomeia a pasta (ver naming.go). Vazio = def que nunca passou
+	// pelo banco; o emitter cai no caminho inline de arquivo único, nunca
+	// inventa id. SEGURANÇA: o loader SEMPRE sobrescreve a partir da linha do
+	// banco, mesmo que o parsed_json em cache traga um id — blob é dado, não
+	// identidade.
+	ID string `json:"id,omitempty"`
+
+	// CodeID is the black-box's CODE NUMBER as a decimal string ("47") — the
+	// short identity used in every generated-code name (folder iotm_47/,
+	// files iotm_47.{c,h}, symbol prefix iotm_47_, guard IOTM_47_H; see
+	// naming.go). Like ID it is stitched at def-load time by the store
+	// loader, NEVER by the parser, and NEVER invented by the emitter: the
+	// number comes from the central sequential allocator (the store's
+	// CodeNumberAllocator contract — positive, strictly increasing, never
+	// reused even after its owner is deleted).
+	//
+	// It is a STRING on purpose: the def is a JSON contract and the naming
+	// layer is pure string composition; number-ness is an allocator concern.
+	// The loader is the single writer and formats canonically (base-10, no
+	// padding). Empty means "no number stitched" (legacy blob, test fixture,
+	// registry miss) — CodeIdent then falls back to the full ID, producing
+	// long-but-correct names in the same family. Serialized (omitempty) so
+	// the handler→worker CodegenPayload round-trip preserves it.
+	//
+	// Português: NÚMERO DE CÓDIGO da black-box como string decimal ("47") —
+	// a identidade curta de todos os nomes do código gerado. Costurado pelo
+	// loader (nunca pelo parser, nunca inventado pelo emitter) a partir do
+	// alocador sequencial central (contrato: positivo, crescente, nunca
+	// reusado nem após deleção). É string de propósito: o def é contrato
+	// JSON e o naming é composição de string. Vazio → CodeIdent cai no ID
+	// completo (nomes longos, porém corretos).
+	CodeID string `json:"codeId,omitempty"`
+
 	// Author is the attribution for this black-box (see AuthorInfo). It is NOT
 	// produced by the source parser — it is populated at def-load time
 	// (store.LoadBlackBoxDefsForScene) from the device row's GitHub provenance.
@@ -438,6 +495,25 @@ type EnumValueDef struct {
 // HasInit returns true if this device has an Init() method.
 func (d *BlackBoxDef) HasInit() bool { return d.Init != nil }
 
+// CodeIdent returns the identity token the naming family composes names from:
+// the short CodeID when the loader stitched one, else the full database ID.
+// This is the ONE place the short-vs-fallback choice is made — every consumer
+// (CSurface, the C emitter's file assembly) goes through it, so the two can
+// never disagree about which identity a box exports under. An empty result
+// means the def has no identity at all (never touched the database) and the
+// emitter must route it through the single-file inline fallback instead.
+//
+// Português: Token de identidade de onde a família de nomes compõe: o CodeID
+// curto quando costurado, senão o ID completo. Único lugar da escolha —
+// todos os consumidores passam por aqui, então nunca divergem. Vazio = def
+// sem identidade nenhuma → caminho inline.
+func (d *BlackBoxDef) CodeIdent() string {
+	if d.CodeID != "" {
+		return d.CodeID
+	}
+	return d.ID
+}
+
 // HasMethods returns true if this device has at least one non-Init method.
 func (d *BlackBoxDef) HasMethods() bool { return len(d.Methods) > 0 }
 
@@ -581,6 +657,29 @@ type FuncDef struct {
 	// when it is empty, so a signature-incompatible pick is impossible.
 	// Empty for functions with no matching typedef. The Go path never sets it.
 	CompatibleCallbacks []string `json:"compatibleCallbacks,omitempty"`
+
+	// CReturnType / CParams preserve the authored C signature VERBATIM:
+	// CReturnType is the raw return-type text ("int", "sht3x_t *", …) and
+	// CParams the raw comma-separated parameter list exactly as written
+	// between the parentheses (empty for `()` and `(void)`… the latter keeps
+	// its literal "void"). Filled by ParseC only (funcDefFromRaw); the Go
+	// path leaves both empty.
+	//
+	// They exist for the multi-file C output: the generated bb_<id>.h must
+	// declare `<CReturnType> P<id>_<name>(<CParams>);`, and the port lists
+	// cannot rebuild that faithfully — they transform the signature on
+	// purpose (slice pairs collapse into one "[]T" port, out-params move to
+	// Outputs, pass-throughs are synthesized). The definition shipped in
+	// bb_<id>.c is the authored source, so the prototype must be authored
+	// text too, or the compiler's declaration check would fight the ports'
+	// visual model. See csurface.go for the composition.
+	//
+	// Português: Assinatura C autoral VERBATIM (retorno + lista de
+	// parâmetros como escrita). Só o ParseC preenche. Existe para o header
+	// gerado da saída multiarquivo — as portas transformam a assinatura de
+	// propósito, então não servem de fonte para o protótipo.
+	CReturnType string `json:"cReturnType,omitempty"`
+	CParams     string `json:"cParams,omitempty"`
 }
 
 // CallbackMode values for FuncDef.CallbackMode — the `<mode>` of the
