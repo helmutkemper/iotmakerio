@@ -25,7 +25,7 @@
 //	programming_languages     — languages available for project creation
 //	project_ui_languages      — user interface languages for project documentation
 //	projects                  — user projects grouping code, images and docs
-//	project_code_versions     — versioned Go source code saved from the Monaco editor
+//	project_code_versions     — snapshot headers of the editor saves (content: project_code_files)
 //	project_settings          — server-side configurable limits and feature flags
 //	project_categories        — top-level component categories
 //	project_subcategories     — subcategories scoped to a parent category
@@ -350,18 +350,23 @@ func migrate() error {
 			project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
 			user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			version    INTEGER NOT NULL DEFAULT 1,
-			filename   TEXT NOT NULL DEFAULT 'main.go',
-			source     TEXT NOT NULL DEFAULT '',
 			-- last_parse_ok records whether the wizard's /parse endpoint
-			-- returned a successful BlackBoxDef for this exact source at
+			-- returned a successful BlackBoxDef for this exact snapshot at
 			-- save time. The IDE uses this on project open to decide
 			-- whether to silently re-parse and populate the Preview tab
 			-- without user intervention. When false, the Preview tab
 			-- stays at its placeholder until the user clicks Parse.
 			-- We do not persist the parsed JSON itself: the parser is
-			-- deterministic and re-running it on a known-good source is
-			-- cheaper than maintaining a snapshot column whose schema
-			-- would have to evolve in lockstep with BlackBoxDef.
+			-- deterministic and re-running it on a known-good snapshot is
+			-- cheaper than maintaining a column whose schema would have
+			-- to evolve in lockstep with BlackBoxDef.
+			--
+			-- The snapshot's CONTENT lives in project_code_files (one row
+			-- per file; see store/project_code_files.go) — this row is the
+			-- snapshot HEADER only. Dev databases created before the
+			-- multi-file model may carry orphan filename/source columns;
+			-- they are harmless and unused. Delete ./data to reset
+			-- (pre-release, no legacy data exists by decision — 2026-07).
 			last_parse_ok INTEGER NOT NULL DEFAULT 0,
 			created_at TEXT NOT NULL,
 			UNIQUE(project_id, version)
@@ -510,6 +515,14 @@ func migrate() error {
 	// registro e numera as linhas pré-existentes por ordem de criação.
 	// Idempotente. Contrato agnóstico em store/code_numbers.go.
 	if err := MigrateCodeNumbers(); err != nil {
+		return err
+	}
+	// Multi-file device sources: the snapshot-content table (one row per
+	// file per version). See store/project_code_files.go for the model.
+	//
+	// Português: Fontes multiarquivo: a tabela de conteúdo dos snapshots
+	// (uma linha por arquivo por versão). Modelo em project_code_files.go.
+	if err := MigrateProjectCodeFiles(); err != nil {
 		return err
 	}
 

@@ -46,7 +46,7 @@
 
 import { api } from '../api.js';
 import { S }   from '../state.js';
-import { showPrompt, showUnsavedConfirm, t } from '../utils.js';
+import { showPrompt, showConfirm, showUnsavedConfirm, t } from '../utils.js';
 
 // The wizard module owns the fourth Projects tab. Importing it for
 // side effects registers the window.projWizard* bindings used by the
@@ -83,17 +83,29 @@ let _monacoInst       = null;
 let _monacoHostDiv    = null;
 let _monacoReady      = false;
 let _parsedData       = null;
-// _parsedSnapshotCode holds the exact source string that produced
-// the current _parsedData. When the editor's content matches it,
-// the Preview tab can be re-rendered without a server round-trip;
-// when they diverge, we know the cached data is stale and clear it.
+// _parsedSnapshotFP holds the FINGERPRINT of the working copy (every
+// tab, path+content, strip order — see _snapshotFingerprint) at the
+// moment of the last successful parse. Save compares it against the
+// copy being committed to decide lastParseOk: with tabs, "the source
+// that parsed" is a SET question — comparing one file would let an
+// edit parked on an inactive tab ride a stale parse-ok flag.
 //
-// Set by projParse on success, by openCodeEditor on a transparent
-// re-parse, and cleared by the editor's onChange handler.
-let _parsedSnapshotCode = null;
+// Português: FINGERPRINT da cópia de trabalho (toda aba, na ordem da
+// faixa) no último parse bem-sucedido. O Save compara com a cópia sendo
+// cometida: "o fonte que parseou" é pergunta de CONJUNTO — comparar um
+// arquivo deixaria edição estacionada em aba inativa carregar um
+// parse-ok velho.
+let _parsedSnapshotFP = null;
+
+// _snapshotFingerprint: canonical string identity of the working copy.
+// JSON of [{path,content}] in strip order — order matters (it IS
+// snapshot order), so no sorting.
+function _snapshotFingerprint() {
+    return JSON.stringify(_tabsCollectFiles());
+}
 let _currentVersion   = 0;
 let _nextVersion      = 1;
-let _codeVersions     = [];     // [{id, version, filename, source, createdAt}]
+let _codeVersions     = [];     // [{id, version, files:[{path,content}], createdAt}]
 let _needsExplicitParse = false;
 let _parseStatusType  = '';
 let _analyzeTimer     = null;
@@ -143,7 +155,15 @@ let _backupSaving     = false;
 // Tab switch consults this flag and skips the backup write when false.
 let _backupDirty      = false;
 
-// Current filename for the Monaco editor.
+// Current filename for the Monaco editor. The single-file era's state,
+// kept as the ACTIVE-TAB identity in the multi-file model: the editor
+// still edits one file today (the tab strip is the next slice), so the
+// snapshot it saves is a one-entry set named by this variable.
+//
+// Português: Estado da era de arquivo único, mantido como identidade da
+// ABA ATIVA no modelo multiarquivo — o editor ainda edita um arquivo (a
+// faixa de abas é a próxima fatia); o snapshot salvo é um conjunto de
+// uma entrada com este nome.
 // Set when the editor opens; updated on rename or after save.
 let _defaultFilename = 'main.go';
 
@@ -234,6 +254,7 @@ export function renderProjects(root) {
     // Clean up Monaco instances — DOM element is gone after navigation.
     try { if (_monacoInst) { _monacoInst.dispose(); } } catch(e) {}
     _monacoInst  = null;
+    _tabsDisposeAll();
     _monacoReady = false;
     _slashPos    = null;
     if (_imageCompletionDisposable) {
@@ -1181,13 +1202,31 @@ ${renderSection(p, 'docs', 'fa-solid fa-file-text', 'Docs',   files.docs, false)
 // renderSection builds the HTML for one file section (code / img / docs).
 //
 // Both the code section and the docs section show a "Create" button that opens
-// a Monaco editor for a new file. The "Upload" button is shown for all sections
-// when canAdd is true. For code and docs, canAdd is determined by whether there
-// is already a single file present (these sections allow only one code file;
-// docs allows many but the Create button triggers a modal to name the file).
+// a Monaco editor for a new file. The "Upload" button is shown when canAdd is
+// true. The CODE section is a multi-file SNAPSHOT since Slice 6: every upload
+// adds/replaces one file in a new version (the server's snapshot-aware upload
+// endpoint), so Upload stays visible up to the server's per-snapshot cap and
+// the accept filter follows the PROJECT's language (.go vs .c/.h). Create
+// still appears only while the section is empty — it opens the Monaco editor
+// for the first file; further files arrive via Upload until the tabbed editor
+// ships (Slice 6c). Docs/img keep their original single/multi rules.
+//
+// Português: A seção de CÓDIGO é um SNAPSHOT multiarquivo desde a Fatia 6:
+// cada upload adiciona/substitui UM arquivo numa versão nova, então o Upload
+// fica visível até o teto do servidor e o accept segue a linguagem do
+// projeto. Create só aparece vazia (abre o Monaco do primeiro arquivo);
+// os demais entram por Upload até as abas (6c).
 function renderSection(p, section, icon, label, fileList, singleFile) {
-    const canAdd = !singleFile || fileList.length === 0;
-    const accept = section==='code' ? '.go' : section==='img' ? 'image/*' : '.md';
+    // Mirrors the server's maxCodeFiles (handler/projectapi, the snapshot
+    // contract). Kept in sync by hand — a drift here only hides a button;
+    // the server remains the gate.
+    const CODE_MAX_FILES = 16;
+    const canAdd = section === 'code'
+        ? fileList.length < CODE_MAX_FILES
+        : (!singleFile || fileList.length === 0);
+    const accept = section==='code'
+        ? (_projectLangById(p.id) === 'c' ? '.c,.h' : '.go')
+        : section==='img' ? 'image/*' : '.md';
     const inputId = `finput-${p.id}-${section}`;
 
     let filesHtml = fileList?.length
@@ -1197,7 +1236,7 @@ function renderSection(p, section, icon, label, fileList, singleFile) {
     // The code section and the docs section both get a "Create" button that
     // opens Monaco. Code opens the Go editor; docs opens the Markdown editor.
     let createBtn = '';
-    if (canAdd && section === 'code') {
+    if (section === 'code' && fileList.length === 0) {
         createBtn = `
 <button title="Create new file" onclick="projCreateFile('${p.id}')"
   style="padding:3px 8px;background:none;border:1px solid var(--border);
@@ -1260,7 +1299,9 @@ function renderFileRow(p, section, f) {
     // Determine the primary action triggered by clicking the row.
     let rowAction;
     if (section === 'code') {
-        rowAction = `openCodeEditor('${p.id}')`;
+        // The row opens the editor AT this file's tab — the path rides
+        // as openCodeEditor's activePath.
+        rowAction = `openCodeEditor('${p.id}','${esc(f.name)}')`;
     } else if (section === 'img') {
         // Images open in a new tab — use a data attribute and handle in JS
         // to avoid navigating away from the SPA.
@@ -1278,6 +1319,21 @@ function renderFileRow(p, section, f) {
           onclick="event.stopPropagation();copyImageMarkdown('${esc(f.url)}','${esc(f.name)}')"
           style="${rowBtnStyle('primary')}">
           <i class="fa-solid fa-copy" style="font-size:11px"></i></button>`);
+    }
+
+    // Code rows get a rename pencil: rename addresses ONE path in the
+    // snapshot (the server takes {oldPath, newName} and writes a new
+    // version), so the affordance belongs on the row, not on the section
+    // toolbar — with several files, "rename the code file" is ambiguous.
+    //
+    // Português: Linha de código ganha o lápis: rename endereça UM
+    // caminho do snapshot, então o botão pertence à linha — com vários
+    // arquivos, "renomear o arquivo" seria ambíguo.
+    if (section === 'code') {
+        actions.push(`<button title="Rename"
+          onclick="event.stopPropagation();promptRenameCode('${p.id}','${esc(f.name)}')"
+          style="${rowBtnStyle('primary')}">
+          <i class="fa-solid fa-pen-line" style="font-size:11px"></i></button>`);
     }
 
     // Protected files get a lock icon instead of a delete button.
@@ -1335,14 +1391,14 @@ export async function toggleProjectNode(projectId) {
 
 // openCodeEditor loads the project's latest code from the server and switches
 // the page to full-width Monaco editor mode.
-export async function openCodeEditor(projectId) {
+export async function openCodeEditor(projectId, activePath) {
     const p = _projects.find(x => x.id === projectId);
     if (!p) return;
 
     _editProject = p;
     _editMode    = true;
     _parsedData  = null;
-    _parsedSnapshotCode = null;
+    _parsedSnapshotFP = null;
     _needsExplicitParse = false;
     _parseStatusType    = '';
     _codeVersions       = [];
@@ -1367,18 +1423,18 @@ export async function openCodeEditor(projectId) {
         projSetParseStatus('Failed to load code from server.', 'error');
         return;
     }
-    const { source, version, filename, lastParseOk, versions } = r.data;
+    // The snapshot shape: files[] in tab order — one Monaco model per
+    // entry (see _tabsInit). An empty project opens with one default
+    // tab named from the project's name and LANGUAGE.
+    const { files, version, lastParseOk, versions } = r.data;
     _currentVersion = version || 0;
     _nextVersion    = _currentVersion + 1;
     _codeVersions   = versions || [];
 
-    // When there are no saved versions yet, derive the default filename
-    // from the project name: "My Sensor Board" → "my_sensor_board.go".
-    if (!_codeVersions.length && !filename) {
-        _defaultFilename = slugifyFilename(_editProject.name) + '.go';
-    } else {
-        _defaultFilename = filename || (slugifyFilename(_editProject.name) + '.go');
-    }
+    const fileSet = (files && files.length)
+        ? files.map(f => ({ path: f.path, content: f.content || '' }))
+        : [{ path: slugifyFilename(_editProject.name) + _codeExt(), content: '' }];
+    _defaultFilename = fileSet[0].path;
 
     // ── Recovery from auto-save backup ─────────────────────────────────────
     //
@@ -1391,7 +1447,6 @@ export async function openCodeEditor(projectId) {
     // through and use the latest version. Any other failure also falls
     // through to the version path on the principle that being unable
     // to read the backup shouldn't block opening the project.
-    let initCode = source || '';
     _backupPending    = false;
     _backupGreenUntil = 0;
     // Fresh open → session is clean. The user hasn't typed anything
@@ -1408,7 +1463,23 @@ export async function openCodeEditor(projectId) {
             // RFC3339 with the same Z timezone — lexicographic order
             // matches chronological order.
             if (!latestSavedAt || bk.data.updatedAt > latestSavedAt) {
-                initCode       = bk.data.source || initCode;
+                // The backup carries the WHOLE working copy (6c-3): the
+                // recovered set replaces the saved one wholesale, and
+                // the recorded activePath wins the focus — unless the
+                // user arrived by clicking a specific file in the tree
+                // (explicit intent beats remembered state).
+                //
+                // Português: O backup carrega a CÓPIA INTEIRA: o conjunto
+                // recuperado substitui o salvo, e o activePath gravado
+                // leva o foco — salvo clique explícito na árvore
+                // (intenção explícita vence estado lembrado).
+                if (Array.isArray(bk.data.files) && bk.data.files.length) {
+                    fileSet.length = 0;
+                    for (const f of bk.data.files) {
+                        fileSet.push({ path: f.path, content: f.content || '' });
+                    }
+                    if (!activePath) activePath = bk.data.activePath || '';
+                }
                 _backupPending = true;
             }
         }
@@ -1424,7 +1495,7 @@ export async function openCodeEditor(projectId) {
         await loadProjectFiles(projectId);
     }
 
-    projMountMonaco(initCode);
+    projMountMonaco(fileSet, activePath);
     projRegisterSlashMenu(projectId);
     updateVersionBar();
     // Apply the (possibly red) initial Save button state. Must run
@@ -1439,7 +1510,7 @@ export async function openCodeEditor(projectId) {
     projUpdateParseBtnState('pending');
 
     // Trigger initial analysis if there's code.
-    if (initCode.trim()) {
+    if (fileSet.some(f => f.content.trim())) {
         projScheduleAnalyze();
 
         // Transparent wizard verification on open: always run the
@@ -1465,9 +1536,11 @@ export async function openCodeEditor(projectId) {
         // a snapshot column whose schema would have to evolve in
         // lockstep with BlackBoxDef. The cost is one extra round
         // trip on open; the win is determinism.
-        const editorMatchesSaved = (initCode === (source || ''));
-        const populatePreview = !!lastParseOk && editorMatchesSaved;
-        projSilentReparse(initCode, populatePreview);
+        // "Editor matches saved" in set terms: no recovery applied and
+        // no tab pending — recovery marks its tab dirty (content ≠
+        // savedContent), so _tabsAnyPending covers both readings.
+        const populatePreview = !!lastParseOk && !_backupPending && !_tabsAnyPending();
+        projSilentReparse(populatePreview);
     }
 }
 
@@ -1537,6 +1610,7 @@ function _doCloseEditor() {
     _editMode    = false;
     _editProject = null;
     if (_monacoInst) { _monacoInst.dispose(); _monacoInst = null; }
+    _tabsDisposeAll();
     // Dispose the image completion provider so it does not leak across
     // projects when the user navigates back to the tree and opens another.
     if (_imageCompletionDisposable) {
@@ -1565,7 +1639,10 @@ function _doCloseEditor() {
 // to keep". The _editMode gate prevents the guard from firing on the
 // tree view (where the editor isn't even open).
 function _isProjectDirty() {
-    return _editMode && (_backupDirty || _backupPending);
+    // Keystrokes set _backupDirty; recovery sets _backupPending; tab
+    // closes/renames leave no keystroke and live only in the ledger —
+    // _tabsAnyPending covers them (and re-covers the other two).
+    return _editMode && (_backupDirty || _backupPending || _tabsAnyPending());
 }
 
 // Navigation guards for the code editor — install on open, uninstall
@@ -1807,8 +1884,8 @@ function renderEditorView(root) {
                style="cursor:pointer;accent-color:var(--primary)">
         Live analysis
       </label>
-      <button class="btn btn-ghost btn-sm" onclick="promptRenameCode('${p.id}')"
-              title="Rename source file">
+      <button class="btn btn-ghost btn-sm" onclick="projRenameActiveTab()"
+              title="Rename the active file (committed on Save)">
         <i class="fa-solid fa-pen-line"></i> Rename
       </button>
       <span id="proj-preview-hint" style="font-size:12px;color:var(--text-muted)">
@@ -2008,12 +2085,309 @@ function _injectEditorStyles() {
 // ─── Monaco (Go editor) ───────────────────────────────────────────────────────
 
 // projMountMonaco is the single entry point for loading and mounting Monaco.
+// ─── File tabs: the editor is a WORKING COPY of the snapshot ──────────────────
+//
+// One Monaco INSTANCE, one MODEL per file. Switching tabs is setModel(),
+// which preserves undo history, cursor and scroll per file — setValue()
+// would nuke the user's undo stack on every click. Tab operations (add,
+// rename, close) are LOCAL to the working copy; Save commits the whole
+// set atomically — exactly the snapshot contract the server speaks. The
+// tree keeps its snapshot-per-operation semantics: there is no editing
+// session there, so immediate commits are honest THERE and wrong HERE
+// (three files of scaffolding would burn six noise versions before the
+// first line of code).
+//
+// Deletions and renames need a LEDGER (_tabDeletedPaths): Save merges
+// against the server's latest set to preserve files added via the tree
+// while the editor was open, and without the ledger that merge would
+// resurrect every locally-closed tab.
+//
+// Português: Um Monaco, um MODEL por arquivo — trocar de aba é setModel()
+// (preserva undo/cursor/scroll; setValue() nucaria o histórico a cada
+// clique). Operações de aba são LOCAIS à cópia de trabalho; o Save comete
+// o conjunto atômico — o contrato que o servidor já fala. A árvore segue
+// snapshot-por-operação (lá não há sessão de edição). Deleções/renames
+// precisam do LIVRO-RAZÃO: o Save funde com o conjunto mais recente do
+// servidor para preservar arquivos subidos pela árvore com o editor
+// aberto, e sem o razão essa fusão ressuscitaria toda aba fechada.
+
+let _editorTabs      = [];     // [{path, model, savedContent}] — strip order = snapshot order
+let _activeTabIdx    = -1;
+let _tabDeletedPaths = new Set(); // paths locally closed/renamed-away; applied at Save
+
+// Mirrors the server's maxCodeFiles. A drift only hides the "+" button;
+// the server remains the gate.
+const _TAB_MAX_FILES = 16;
+
+function _tabLang(path) {
+    return path.toLowerCase().endsWith('.go') ? 'go' : 'c';
+}
+
+function _tabsDisposeAll() {
+    for (const t of _editorTabs) { try { t.model?.dispose(); } catch (e) {} }
+    _editorTabs = [];
+    _activeTabIdx = -1;
+    _tabDeletedPaths.clear();
+}
+
+// _tabsInit rebuilds the working copy from a file set (server load,
+// version restore). activePath picks the focused tab — the tree row
+// click and the wizard's "focus the touched file" both land here.
+function _tabsInit(files, activePath) {
+    _tabsDisposeAll();
+    const list = (files && files.length) ? files : [];
+    for (const f of list) {
+        const uri = monaco.Uri.parse(
+            `inmemory://iotm/${_editProject?.id || 'p'}/${f.path}`);
+        // A stale model under the same URI (previous editor session that
+        // skipped cleanup) must go, or createModel throws.
+        try { monaco.editor.getModel(uri)?.dispose(); } catch (e) {}
+        const model = monaco.editor.createModel(
+            f.content || '', _tabLang(f.path), uri);
+        _editorTabs.push({ path: f.path, model, savedContent: f.content || '' });
+    }
+    let idx = 0;
+    if (activePath) {
+        const found = _editorTabs.findIndex(t => t.path === activePath);
+        if (found >= 0) idx = found;
+    }
+    if (_editorTabs.length) _tabActivate(idx);
+    else _tabsRenderStrip();
+}
+
+function _tabActivate(i) {
+    if (i < 0 || i >= _editorTabs.length) return;
+    _activeTabIdx = i;
+    // The single-file era's state variable survives as "the ACTIVE
+    // tab's identity" — the backup slot, the wizard bridge and the
+    // toolbar rename all read it.
+    _defaultFilename = _editorTabs[i].path;
+    if (_monacoInst) {
+        _monacoInst.setModel(_editorTabs[i].model);
+        setTimeout(() => _monacoInst?.focus(), 0);
+    }
+    _tabsRenderStrip();
+}
+
+function _tabIsDirty(i) {
+    const t = _editorTabs[i];
+    return !!t && t.model.getValue() !== t.savedContent;
+}
+
+// _tabsAnyPending: does the working copy differ from the last save? Any
+// dirty model OR any ledgered deletion/rename counts — the version-switch
+// guard and the restore confirm both ask exactly this question.
+function _tabsAnyPending() {
+    if (_tabDeletedPaths.size > 0) return true;
+    for (let i = 0; i < _editorTabs.length; i++) if (_tabIsDirty(i)) return true;
+    return false;
+}
+
+// _tabsCollectFiles: the working copy in strip order — tab order IS
+// snapshot order (the sort column, the merge order, "first file's doc is
+// the front page" all key off it).
+function _tabsCollectFiles() {
+    return _editorTabs.map(t => ({ path: t.path, content: t.model.getValue() }));
+}
+
+// _tabsValidateName mirrors the server's per-path rules (extension by
+// project language, charset, depth, case-insensitive uniqueness) so the
+// user hears "no" at the prompt, not at Save. The server remains the
+// gate; this copy is UX.
+function _tabsValidateName(name, ignoreIdx) {
+    const n = (name || '').trim();
+    if (!n) return 'Name is required.';
+    if (n.length > 160) return 'Name too long (max 160).';
+    if (n.startsWith('/') || n.includes('\\')) return 'Use a relative path with "/".';
+    const segs = n.split('/');
+    if (segs.length > 4) return 'Path too deep (max 4 segments).';
+    for (const seg of segs) {
+        if (!/^[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(seg)) {
+            return `Invalid path segment: "${seg}".`;
+        }
+    }
+    const lang = _projectLangById(_editProject?.id);
+    const lower = n.toLowerCase();
+    if (lang === 'c') {
+        if (!lower.endsWith('.c') && !lower.endsWith('.h')) {
+            return 'C projects accept .c and .h files.';
+        }
+    } else if (!lower.endsWith('.go')) {
+        return 'Go projects accept .go files.';
+    }
+    if (lang !== 'c' && _editorTabs.length >= 1 && ignoreIdx === undefined) {
+        return 'Go projects are single-file for now.';
+    }
+    for (let i = 0; i < _editorTabs.length; i++) {
+        if (i === ignoreIdx) continue;
+        if (_editorTabs[i].path.toLowerCase() === lower) {
+            return `A file named "${_editorTabs[i].path}" already exists.`;
+        }
+    }
+    return '';
+}
+
+async function _tabAdd() {
+    if (_editorTabs.length >= _TAB_MAX_FILES) {
+        showPageAlert(`A project holds at most ${_TAB_MAX_FILES} files.`, 'warning');
+        return;
+    }
+    const lang = _projectLangById(_editProject?.id);
+    const suggestion = lang === 'c' ? 'util.c' : 'main.go';
+    const name = await showPrompt('New file (' + (lang === 'c' ? '.c/.h' : '.go') + '):', suggestion);
+    if (!name) return;
+    const msg = _tabsValidateName(name);
+    if (msg) { showPageAlert(msg, 'warning'); return; }
+    const trimmed = name.trim();
+    const uri = monaco.Uri.parse(`inmemory://iotm/${_editProject?.id || 'p'}/${trimmed}`);
+    try { monaco.editor.getModel(uri)?.dispose(); } catch (e) {}
+    const model = monaco.editor.createModel('', _tabLang(trimmed), uri);
+    // savedContent stays '' — a brand-new tab is born dirty only once it
+    // has content; an empty new tab that gets closed again cost nothing.
+    // Re-creating a path that was ledgered as deleted un-deletes it.
+    _tabDeletedPaths.delete(trimmed);
+    _editorTabs.push({ path: trimmed, model, savedContent: '' });
+    _tabActivate(_editorTabs.length - 1);
+    projScheduleBackup?.();
+}
+
+async function _tabRenameAt(i) {
+    const t = _editorTabs[i];
+    if (!t) return;
+    const name = await showPrompt('Rename file:', t.path);
+    if (!name || name.trim() === t.path) return;
+    const msg = _tabsValidateName(name, i);
+    if (msg) { showPageAlert(msg, 'warning'); return; }
+    // A rename is delete-old + carry-new in ledger terms: the Save merge
+    // must not resurrect the old path from the server's set.
+    _tabDeletedPaths.add(t.path);
+    t.path = name.trim();
+    _tabDeletedPaths.delete(t.path);
+    // Language may change with the extension (.c ↔ .h keeps c; the Go
+    // case can't cross languages — validation forbids it).
+    monaco.editor.setModelLanguage(t.model, _tabLang(t.path));
+    if (i === _activeTabIdx) _defaultFilename = t.path;
+    _tabsRenderStrip();
+}
+
+async function _tabCloseAt(i) {
+    const t = _editorTabs[i];
+    if (!t) return;
+    if (_editorTabs.length === 1) {
+        // Client-side mirror of the server's "a snapshot needs ≥1 file".
+        showPageAlert('A project needs at least one file. Emptying the project is done from the file tree.', 'warning');
+        return;
+    }
+    if (_tabIsDirty(i)) {
+        const ok = await showConfirm(`"${t.path}" has unsaved changes. Close it anyway?`);
+        if (!ok) return;
+    }
+    _tabDeletedPaths.add(t.path);
+    try { t.model.dispose(); } catch (e) {}
+    _editorTabs.splice(i, 1);
+    if (_activeTabIdx >= _editorTabs.length) _activeTabIdx = _editorTabs.length - 1;
+    else if (i < _activeTabIdx) _activeTabIdx--;
+    _tabActivate(Math.max(0, _activeTabIdx));
+}
+
+// _tabsRenderStrip paints the file strip. Full repaint on structural
+// changes; the per-keystroke dirty dot is toggled surgically by the
+// editor's onDidChangeModelContent (see _doMount) to keep typing cheap.
+function _tabsRenderStrip() {
+    const strip = document.getElementById('proj-file-tabs');
+    if (!strip) return;
+    const parts = _editorTabs.map((t, i) => {
+        const active = i === _activeTabIdx;
+        // Nested paths show whole (they are identity); the strip scrolls
+        // horizontally when crowded. Tooltip carries the full path anyway.
+        const dot = `<span id="proj-ftab-dot-${i}" style="display:${_tabIsDirty(i) ? 'inline' : 'none'};
+            color:var(--warning,#d97706);font-size:10px;line-height:1">●</span>`;
+        const close = _editorTabs.length > 1
+            ? `<span title="Close" onclick="event.stopPropagation();window._projTabClose(${i})"
+                 style="opacity:.55;font-size:12px;padding:0 2px;cursor:pointer"
+                 onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.55'">×</span>`
+            : '';
+        return `
+<div onclick="window._projTabActivate(${i})" ondblclick="window._projTabRename(${i})"
+     title="${esc(t.path)} — double-click to rename"
+     style="display:flex;align-items:center;gap:6px;padding:5px 10px;cursor:pointer;
+            white-space:nowrap;font-size:12px;font-family:'Fira Code','Consolas',monospace;
+            border-right:1px solid var(--border);
+            ${active
+                ? 'background:var(--bg-body,#fff);color:var(--text-primary);border-bottom:2px solid var(--primary)'
+                : 'background:var(--bg-surface);color:var(--text-secondary);border-bottom:2px solid transparent'}">
+  <span>${esc(t.path)}</span>${dot}${close}
+</div>`;
+    });
+    // "+" appears when adding is actually legal: C projects up to the
+    // cap; Go projects only while empty (single-file is a declared
+    // limit — a visible button that always errors is worse UX than no
+    // button).
+    const canAddTab = _projectLangById(_editProject?.id) === 'c'
+        ? _editorTabs.length < _TAB_MAX_FILES
+        : _editorTabs.length === 0;
+    const plus = canAddTab ? `
+<button title="New file" onclick="window._projTabAdd()"
+  style="padding:4px 10px;background:none;border:none;cursor:pointer;
+         color:var(--success);font-size:13px">
+  <i class="fa-solid fa-plus"></i>
+</button>` : '';
+    strip.innerHTML = `<div style="display:flex;align-items:stretch;overflow-x:auto">${parts.join('')}${plus}</div>`;
+}
+
+// Strip handlers go through window: the strip HTML is innerHTML-built,
+// so inline onclick needs globals — same convention as the tree.
+window._projTabActivate = (i) => _tabActivate(i);
+window._projTabRename   = (i) => { _tabRenameAt(i); };
+window._projTabClose    = (i) => { _tabCloseAt(i); };
+window._projTabAdd      = () => { _tabAdd(); };
+
+// _resyncOpenEditorFromServer: the tree just changed this project's
+// snapshot (upload / per-path delete / pencil rename) WHILE the editor
+// may be open on it. A stale working copy would make the next Save
+// resurrect or duplicate paths, so: clean copy → silently re-init from
+// the server (active tab preserved by path); dirty copy → warn and do
+// NOT touch the buffers — discarding unsaved work to chase the tree
+// would be worse than the divergence, and the Save merge still
+// preserves tree-added files either way.
+//
+// Português: A árvore mudou o snapshot com o editor possivelmente
+// aberto nele. Cópia limpa → re-inicializa do servidor em silêncio;
+// suja → avisa e NÃO toca os buffers — descartar trabalho não salvo
+// seria pior que a divergência.
+async function _resyncOpenEditorFromServer(projectId) {
+    if (!_editMode || _editProject?.id !== projectId) return;
+    if (_tabsAnyPending()) {
+        showPageAlert('The file tree changed this project, but the editor has unsaved work — save or discard before the tabs reflect it.', 'warning');
+        return;
+    }
+    try {
+        const r = await api('GET', `/api/v1/projects/${projectId}/files/code`);
+        if (r?.metadata?.status === 200) {
+            _tabsInit(r.data?.files || [], _editorTabs[_activeTabIdx]?.path);
+        }
+    } catch (e) {
+        console.warn('[projects] editor resync failed:', e);
+    }
+}
+
+// projRenameActiveTab: the editor toolbar's Rename. LOCAL to the
+// working copy (committed on Save) — unlike the tree's pencil, which
+// commits a snapshot immediately: the tree has no editing session, the
+// editor IS one, and each context gets the semantics that is honest
+// there.
+//
+// Português: Rename da toolbar do editor — LOCAL à cópia de trabalho
+// (comete no Save); o lápis da árvore comete na hora: lá não há sessão
+// de edição, aqui HÁ, e cada contexto leva a semântica honesta.
+export function projRenameActiveTab() { _tabRenameAt(_activeTabIdx); }
+
 // It is called by openCodeEditor after the editor shell is rendered.
 // Lazy-loads the CDN script once; subsequent calls mount immediately.
-function projMountMonaco(init) {
+function projMountMonaco(files, activePath) {
     if (window.monaco) {
         _monacoReady = true;
-        _doMount(init);
+        _doMount(files, activePath);
         return;
     }
     // _monacoReady=true but window.monaco missing means the AMD loader was
@@ -2030,22 +2404,41 @@ function projMountMonaco(init) {
         s.src = '/monaco/vs/loader.js';
         s.onload = () => {
             require.config({ paths: { vs: '/monaco/vs' } });
-            require(['vs/editor/editor.main'], () => { _monacoReady = true; _doMount(init); });
+            require(['vs/editor/editor.main'], () => { _monacoReady = true; _doMount(files, activePath); });
         };
         document.head.appendChild(s);
     }
 }
 
-function _doMount(init) {
+function _doMount(files, activePath) {
     const wrap = document.getElementById('proj-editor-wrap');
     if (!wrap) return;
     const ta = document.getElementById('proj-fallback');
     if (ta) ta.remove();
     if (_monacoInst) { _monacoInst.dispose(); _monacoInst = null; }
+    _tabsDisposeAll();
 
+    // The HOST holds the file-tab strip AND the editor, and it is the
+    // host that projSetTab re-parents into the Wizard panel — so the
+    // wizard inherits the tabs for free, and "focus the touched file"
+    // (6c-4) is just _tabActivate from over there.
+    //
+    // Português: O HOST carrega a faixa de abas E o editor, e é o host
+    // que o projSetTab re-parenta pro painel do Wizard — o wizard herda
+    // as abas de graça.
     const div = document.createElement('div');
-    // Height = viewport minus: breadcrumb(44) + tab-bar(42) + status(34) + bottom(52) + borders(14) ≈ 186px
-    div.style.cssText = 'height:calc(100vh - 186px);min-height:320px;width:100%';
+    div.style.cssText = 'display:flex;flex-direction:column;width:100%';
+
+    const strip = document.createElement('div');
+    strip.id = 'proj-file-tabs';
+    strip.style.cssText = 'flex:0 0 auto;border-bottom:1px solid var(--border);background:var(--bg-surface)';
+    div.appendChild(strip);
+
+    const editorDiv = document.createElement('div');
+    // Height = viewport minus: breadcrumb(44) + tab-bar(42) + file
+    // strip(30) + status(34) + bottom(52) + borders(14) ≈ 216px
+    editorDiv.style.cssText = 'height:calc(100vh - 216px);min-height:320px;width:100%';
+    div.appendChild(editorDiv);
     wrap.appendChild(div);
 
     // Track the Monaco host div on the module scope and on window so
@@ -2075,8 +2468,11 @@ function _doMount(init) {
     // what would be acceptable in their target ecosystem.
     const useTabs = (monacoLang === 'go');
 
-    _monacoInst = monaco.editor.create(div, {
-        value: init, language: monacoLang, theme: 'vs',
+    _monacoInst = monaco.editor.create(editorDiv, {
+        // No value/language here: content lives in one MODEL PER FILE
+        // (_tabsInit below); monacoLang keeps informing the indentation
+        // choice only.
+        model: null, theme: 'vs',
         wordWrap: 'off', lineNumbers: 'on',
         minimap: { enabled: true }, scrollBeyondLastLine: false,
         fontSize: 13, fontFamily: "'Fira Code','Consolas',monospace",
@@ -2093,6 +2489,12 @@ function _doMount(init) {
     });
 
     _monacoInst.onDidChangeModelContent(() => {
+        // Dirty dot of the ACTIVE tab, toggled surgically — a full strip
+        // repaint per keystroke would be wasteful and would steal focus
+        // states mid-typing.
+        const dot = document.getElementById(`proj-ftab-dot-${_activeTabIdx}`);
+        if (dot) dot.style.display = _tabIsDirty(_activeTabIdx) ? 'inline' : 'none';
+
         const diffWrap = document.getElementById('proj-diff-table-wrap');
         if (diffWrap) {
             const sel = document.getElementById('proj-diff-ver-sel');
@@ -2110,13 +2512,13 @@ function _doMount(init) {
         // Preview tab to its empty-state placeholder so the user
         // doesn't read a stale device drawing as authoritative.
         //
-        // _parsedSnapshotCode (the source string that was last
+        // _parsedSnapshotFP (the source string that was last
         // parsed successfully) is also cleared — its only purpose
         // is to confirm "the parsed data on hand still matches
         // what's in the editor", and after this edit it doesn't.
         if (_parsedData) {
             _parsedData = null;
-            _parsedSnapshotCode = null;
+            _parsedSnapshotFP = null;
             _needsExplicitParse = true;
             const prev = document.getElementById('proj-tab-preview');
             if (prev) {
@@ -2149,6 +2551,9 @@ function _doMount(init) {
     // create() (rather than lazily inside projSetTab) means the wizard
     // can be opened any time after this point with no race.
     window._projMonacoInst = _monacoInst;
+
+    // Working copy born here: one model per file, active tab focused.
+    _tabsInit(files, activePath);
 
     // Focus the editor so the user can start typing immediately. This
     // matters most for "Create with wizard" flow where the editor is
@@ -2188,9 +2593,24 @@ function projGetCode() {
 // reverse import would create a cycle. The window bridge follows
 // the same convention as window._projMonacoHost / _projMonacoInst.
 function _currentProjectLanguage() {
-    const projId = _currentProjectId();
-    if (!projId) return 'go';
-    const proj = _projects.find(p => p.id === projId);
+    return _projectLangById(_currentProjectId());
+}
+
+// _projectLangById resolves a project's language token by id — the
+// context-free sibling of _currentProjectLanguage. The tree view (rename
+// pencil, upload accept filter, delete rules) runs OUTSIDE the editor,
+// where _currentProjectId() is empty; resolving from the id argument is
+// what keeps a C project from being treated as Go there (caught live:
+// the rename prompt suggested "main.go" for a C99 project).
+//
+// Português: Resolve a linguagem PELO id — a irmã sem-contexto de
+// _currentProjectLanguage. A árvore roda FORA do editor, onde
+// _currentProjectId() é vazio; resolver pelo argumento é o que impede
+// projeto C de ser tratado como Go ali (pego ao vivo: o rename sugeria
+// "main.go" num projeto C99).
+function _projectLangById(projectId) {
+    if (!projectId) return 'go';
+    const proj = _projects.find(p => p.id === projectId);
     const langId = proj?.programmingLanguageId || '';
     switch (langId) {
         case 'c':      return 'c';
@@ -2199,17 +2619,76 @@ function _currentProjectLanguage() {
     }
 }
 
+// _codeExtFor: default source extension for a project resolved BY ID —
+// use this in tree-view code; _codeExt() below stays for editor-context
+// code where the current project is the open one.
+function _codeExtFor(projectId) {
+    return _projectLangById(projectId) === 'c' ? '.c' : '.go';
+}
+
+// _codeExt returns the default source extension for the CURRENT
+// project's language. The save contract validates extensions per
+// language server-side (go → .go; c → .c/.h), so a C project whose
+// derived default said ".go" would 400 on its very first save.
+function _codeExt() {
+    return _currentProjectLanguage() === 'c' ? '.c' : '.go';
+}
+
 // Make the language resolver visible to other page modules.
 // projects_wizard.js calls this when it issues its own
 // /wizard/parse requests (the wizard tab has two such call sites
 // that bypass projParse — they need the same `language` field).
 if (typeof window !== 'undefined') {
     window._projGetLanguage = _currentProjectLanguage;
+    // The wizard's parse/rewrite calls send the FILE-SET shape and need
+    // the active tab's path so its parses address the same snapshot
+    // identity the editor saves — "lastParseOk" only means something if
+    // both sides name the file the same way.
+    window._projGetFilename = () =>
+        _editorTabs[_activeTabIdx]?.path || _defaultFilename ||
+        ('main' + _codeExt());
+    // The wizard's full-set bridge (consumed in 6c-4): parse/rewrite
+    // want EVERY tab — header types only resolve with the whole copy.
+    window._projGetAllFiles = () => _tabsCollectFiles();
+    // Focus-the-touched-file bridge: the wizard's rewrite response
+    // names the file it changed; landing the user on that tab is one
+    // call from over there.
+    window._projActivateTabByPath = (path) => {
+        const i = _editorTabs.findIndex(t => t.path === path);
+        if (i >= 0) _tabActivate(i);
+    };
+    // The wizard's rewrite response returns the full updated file set;
+    // this bridge lands it in the MODELS. Each differing file gets an
+    // UNDOABLE full-range edit (pushEditOperations — Ctrl+Z reverts a
+    // wizard edit like any keystroke). Unknown paths are ignored (the
+    // engine never creates files) and savedContent is NOT advanced:
+    // a rewrite is unsaved work — the dirty dot lights up until Save.
+    //
+    // Português: A resposta do rewrite entra nos MODELS por aqui.
+    // Edição DESFAZÍVEL por arquivo; caminhos desconhecidos ignorados;
+    // savedContent NÃO avança — rewrite é trabalho não salvo.
+    window._projApplyRewrittenFiles = (files) => {
+        if (!Array.isArray(files)) return;
+        for (const f of files) {
+            const t = _editorTabs.find(x => x.path === f.path);
+            if (!t || typeof f.content !== 'string') continue;
+            if (t.model.getValue() === f.content) continue;
+            t.model.pushEditOperations(
+                [],
+                [{ range: t.model.getFullModelRange(), text: f.content }],
+                () => null,
+            );
+        }
+        const dot = document.getElementById(`proj-ftab-dot-${_activeTabIdx}`);
+        if (dot) dot.style.display = _tabIsDirty(_activeTabIdx) ? 'inline' : 'none';
+    };
 }
 
 export async function projParse() {
-    const rawCode = projGetCode();
-    if (!rawCode.trim()) { projSetParseStatus('Code is empty', 'warning'); return; }
+    const rawCode = projGetCode(); // active tab — feeds the preview drawing
+    if (!_tabsCollectFiles().some(f => f.content.trim())) {
+        projSetParseStatus('Code is empty', 'warning'); return;
+    }
 
     projSetParseStatus('<i class="fa-solid fa-circle-notch fa-spin"></i> Parsing…', '');
     try {
@@ -2223,7 +2702,7 @@ export async function projParse() {
         // server reject mismatches early.
         const lang = _currentProjectLanguage();
         const json = await api('POST', '/api/v1/blackbox/wizard/parse',
-            { code: rawCode, language: lang });
+            { files: _tabsCollectFiles(), language: lang });
         if (json?.metadata?.status !== 200) {
             projSetParseStatus('✗ ' + (json?.metadata?.error || 'Parse error'), 'error');
             return;
@@ -2249,10 +2728,10 @@ export async function projParse() {
         // does not consume it yet, so we just store the parsed half.
         _parsedData = json.data.parsed;
         _parsedData.sourceCode = rawCode;
-        // Remember which exact source produced this _parsedData so
-        // we can detect drift when the user types in the editor and
-        // know whether to skip the silent re-parse on project open.
-        _parsedSnapshotCode = rawCode;
+        // Remember which exact WORKING COPY produced this _parsedData
+        // so Save can flag lastParseOk honestly and the silent re-parse
+        // on open knows whether it can be skipped.
+        _parsedSnapshotFP = _snapshotFingerprint();
 
         // Bridge to the Wizard tab. projWizardOnEditorParseSuccess
         // is a no-op when the user has not opened the wizard tab yet,
@@ -2447,17 +2926,20 @@ async function projAutoReparse() {
         // successful Live-analysis pass to refresh the parsed model
         // silently (no UI status update). See slice 0 of the wizard plan
         // in docs/tasks/WIZARD_TASKS.md.
+        // Full working copy — this call had kept the pre-multi-file
+        // {code} shape and 400'd in silence (third such caller caught;
+        // see projSilentReparse). Header-owned types need every tab.
         const json = await api('POST', '/api/v1/blackbox/wizard/parse',
-            { code: raw, language: _currentProjectLanguage() });
+            { files: _tabsCollectFiles(), language: _currentProjectLanguage() });
         if (json?.metadata?.status !== 200) return;
         const prev = _parsedData.sourceCode;
         _parsedData = json.data.parsed;
         _parsedData.sourceCode = prev;
         // The auto-reparse just refreshed the parsed model from `raw`.
-        // Update _parsedSnapshotCode to match so a subsequent Save
+        // Update _parsedSnapshotFP to match so a subsequent Save
         // can flag this version as parse-ok without forcing the user
         // to click Parse manually.
-        _parsedSnapshotCode = raw;
+        _parsedSnapshotFP = _snapshotFingerprint();
         _needsExplicitParse = false;
         projRenderPreview();
 
@@ -2496,11 +2978,23 @@ async function projAutoReparse() {
 // in its 'pending' state (disabled). The user resolves it by
 // opening the Wizard tab, which runs its own parse and sets the
 // button via _setIncomplete.
-async function projSilentReparse(raw, populatePreview) {
-    if (!raw || !raw.trim()) return;
+async function projSilentReparse(populatePreview) {
+    // The FULL working copy goes to the parser — header-owned types
+    // (wire types, enums, callbacks) only resolve when every tab rides
+    // along; the active tab alone would show cards with orphan types.
+    // This call site had silently kept the pre-multi-file {code} shape
+    // and 400'd on open — caught while wiring the tabs (6c-2).
+    //
+    // Português: A cópia de trabalho INTEIRA vai ao parser — tipos do
+    // header só resolvem com todas as abas juntas. Este chamador tinha
+    // ficado no shape antigo {code} e dava 400 em silêncio no open —
+    // pego ao ligar as abas (6c-2).
+    const wcFiles = _tabsCollectFiles();
+    if (!wcFiles.some(f => f.content.trim())) return;
+    const raw = _editorTabs[_activeTabIdx]?.model.getValue() || '';
     try {
         const json = await api('POST', '/api/v1/blackbox/wizard/parse',
-            { code: raw, language: _currentProjectLanguage() });
+            { files: wcFiles, language: _currentProjectLanguage() });
         if (json?.metadata?.status !== 200) return;
 
         // Wizard bridge ALWAYS fires — the toolbar Parse button
@@ -2520,7 +3014,7 @@ async function projSilentReparse(raw, populatePreview) {
 
         _parsedData = json.data.parsed;
         _parsedData.sourceCode = raw;
-        _parsedSnapshotCode = raw;
+        _parsedSnapshotFP = _snapshotFingerprint();
         _needsExplicitParse = false;
         projRenderPreview();
     } catch { /* silent */ }
@@ -3340,15 +3834,23 @@ export async function projSaveBackup() {
     // idempotent.
     _backupDirty = true;
 
-    const source = projGetCode();
-    const filename = (_codeVersions[0]?.filename) || _defaultFilename || 'main.go';
+    // The backup protects the WHOLE working copy — with tabs, a
+    // single-slot backup would let a crash eat every sibling of the
+    // active file. activePath rides along so recovery lands the user
+    // on the tab they were in.
+    //
+    // Português: O backup protege a CÓPIA INTEIRA — com abas, slot
+    // único deixaria um crash comer as irmãs da aba ativa. activePath
+    // viaja junto para a recuperação devolver o usuário à aba certa.
+    const bkFiles    = _tabsCollectFiles();
+    const activePath = _editorTabs[_activeTabIdx]?.path || '';
     const mySeq = ++_backupSeq;
     _backupSaving = true;
 
     try {
         const r = await api('POST',
             `/api/v1/projects/${_editProject.id}/files/code/backup`,
-            { source, filename }
+            { files: bkFiles, activePath }
         );
         // Stale response — a newer save already overtook us.
         if (mySeq !== _backupSeq) return;
@@ -3358,7 +3860,9 @@ export async function projSaveBackup() {
             // clears too. Non-empty → backup exists and the user has
             // unsaved work relative to the last version (we err on
             // the side of "pending" until projSave actually runs).
-            _backupPending = (source.trim() !== '');
+            // All-blank set → the backend deleted the row (the "empty
+            // source deletes" rule, generalised to the set).
+            _backupPending = bkFiles.some(f => f.content.trim() !== '');
             projUpdateSaveBtnState();
         }
         // Failures intentionally don't change _backupPending: if the
@@ -3386,19 +3890,16 @@ function projScheduleBackup() {
 export async function projSave() {
     if (!_editProject) return;
 
-    const rawCode = projGetCode();
-    if (!rawCode.trim()) {
-        projSaveBtnWarn('Nothing to save — editor is empty');
+    // "Empty" is a SET question now: any tab with content makes the
+    // snapshot saveable (the active tab may legitimately be a fresh
+    // empty .h while core.c carries the work).
+    if (!_tabsCollectFiles().some(f => f.content.trim())) {
+        projSaveBtnWarn('Nothing to save — all files are empty');
         return;
     }
     if (_needsExplicitParse) {
         projSaveBtnWarn('Parse first — code has changed');
         return;
-    }
-
-    let filename = _defaultFilename || 'main.go';
-    if (_codeVersions.length > 0) {
-        filename = _codeVersions[0].filename || filename;
     }
 
     const btn = document.getElementById('proj-save-btn');
@@ -3410,19 +3911,54 @@ export async function projSave() {
     // we'll use it to skip the "click Parse to visualise" prompt
     // and silently re-populate the Preview tab.
     //
-    // The check `_parsedSnapshotCode === rawCode` confirms that
-    // the parse-of-record actually corresponds to what we're about
-    // to write — not a stale parse from before recent edits.
-    // (_needsExplicitParse would normally be false here too, but
-    // belt-and-braces: an extra check avoids saving a "true" flag
-    // alongside source that nobody parsed yet.)
+    // Fingerprint check: the parse-of-record must cover the exact
+    // WORKING COPY being committed. Files the merge appends from the
+    // server (tree uploads mid-session) were NOT parsed — the
+    // fingerprints then differ and the flag is honestly false.
+    //
+    // Português: O parse-de-registro tem que cobrir a CÓPIA exata sendo
+    // cometida. Arquivos anexados pela fusão (uploads da árvore no meio
+    // da sessão) NÃO foram parseados — fingerprints divergem e a flag é
+    // honestamente falsa.
     const lastParseOk = !!_parsedData
-        && _parsedSnapshotCode === rawCode
+        && _parsedSnapshotFP === _snapshotFingerprint()
         && !_needsExplicitParse;
 
+    // Save commits the WORKING COPY atomically — every tab, in strip
+    // order (tab order IS snapshot order). The server's latest set is
+    // still consulted for one reason: files added via the tree's Upload
+    // while this editor was open must survive; they are appended after
+    // the tabs, minus anything in the deletion ledger — the ledger is
+    // what keeps locally-closed and renamed-away tabs from being
+    // resurrected by this merge. The fetch failing falls back to the
+    // working copy alone: saving the user's buffers beats losing them
+    // to a transient error.
+    //
+    // Português: O Save comete a CÓPIA DE TRABALHO atômica — toda aba,
+    // na ordem da faixa (ordem de aba É ordem do snapshot). O conjunto
+    // do servidor entra por um motivo: arquivos subidos pela árvore com
+    // o editor aberto sobrevivem, anexados depois das abas, menos o que
+    // está no livro-razão — é ele que impede a fusão de ressuscitar
+    // aba fechada ou renomeada. GET falhando, vai a cópia sozinha.
+    const snapshot = _tabsCollectFiles();
+    try {
+        const latest = await api('GET',
+            `/api/v1/projects/${_editProject.id}/files/code`);
+        const latestFiles = latest?.data?.files;
+        if (Array.isArray(latestFiles)) {
+            const known = new Set(snapshot.map(f => f.path.toLowerCase()));
+            for (const f of latestFiles) {
+                if (known.has(f.path.toLowerCase())) continue;
+                if (_tabDeletedPaths.has(f.path)) continue;
+                snapshot.push({ path: f.path, content: f.content });
+            }
+        }
+    } catch (e) {
+        console.warn('[projects] latest-snapshot fetch failed; saving working copy only:', e);
+    }
     const r = await api('POST',
         `/api/v1/projects/${_editProject.id}/files/code/versions`,
-        { source: rawCode, filename, lastParseOk }
+        { files: snapshot, lastParseOk }
     );
 
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save'; }
@@ -3432,7 +3968,17 @@ export async function projSave() {
         _currentVersion  = saved.version;
         _nextVersion     = _currentVersion + 1;
         _needsExplicitParse = false;
-        _defaultFilename = saved.filename || _defaultFilename;
+        // The working copy is now the saved truth: every tab's
+        // savedContent baseline moves, the deletion ledger is settled,
+        // and the strip repaints its dirty dots off.
+        //
+        // Português: A cópia de trabalho virou a verdade salva: a base
+        // savedContent de cada aba avança, o livro-razão é quitado e a
+        // faixa repinta os pontos.
+        for (const t of _editorTabs) t.savedContent = t.model.getValue();
+        _tabDeletedPaths.clear();
+        _tabsRenderStrip();
+        _defaultFilename = _editorTabs[_activeTabIdx]?.path || _defaultFilename;
 
         const rv = await api('GET', `/api/v1/projects/${_editProject.id}/files/code/versions`);
         if (rv?.metadata?.status === 200) _codeVersions = rv.data || [];
@@ -3462,7 +4008,7 @@ export async function projSave() {
 
 export function projReset() {
     _parsedData         = null;
-    _parsedSnapshotCode = null;
+    _parsedSnapshotFP = null;
     _needsExplicitParse = false;
     const prev = document.getElementById('proj-tab-preview');
     if (prev) prev.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;
@@ -3503,10 +4049,12 @@ function updateVersionBar() {
 }
 
 export async function projVersionChange(versionId) {
-    const editorCode = projGetCode();
-    const latest     = _codeVersions[0];
+    const latest = _codeVersions[0];
     if (!latest) return;
-    if (editorCode !== (latest.source || '')) {
+    // Dirty in SET terms: any tab differing from its saved baseline OR
+    // a pending ledgered deletion — comparing one file against latest
+    // would miss edits parked on an inactive tab.
+    if (_tabsAnyPending()) {
         // Three-way prompt instead of the old binary native confirm.
         // 'save' persists the current buffer before swapping versions
         // (so nothing is lost). 'discard' replaces the editor with
@@ -3541,8 +4089,16 @@ export async function projVersionChange(versionId) {
     }
     const v = _codeVersions.find(v => v.id === versionId);
     if (!v) return;
-    if (_monacoInst) _monacoInst.setValue(v.source || '');
-    else { const ta = document.getElementById('proj-fallback'); if (ta) ta.value = v.source || ''; }
+    // Restore replaces the WHOLE working copy — a version is a snapshot
+    // of the set, so restoring one file of it would be a lie. The active
+    // tab is preserved by path when the restored set still has it;
+    // otherwise focus falls to the first tab. savedContent baselines to
+    // the restored content: the copy is clean until the user types.
+    //
+    // Português: Restaurar troca a CÓPIA INTEIRA — versão é snapshot do
+    // conjunto; restaurar um arquivo só seria mentira. A aba ativa é
+    // preservada por caminho quando existe no conjunto restaurado.
+    _tabsInit(v.files || [], _editorTabs[_activeTabIdx]?.path);
     _currentVersion = v.version;
     projSetParseStatus('Loaded v' + v.version + ' — click Parse to validate', 'warning');
 }
@@ -3664,12 +4220,23 @@ export async function projDiffVersions() {
     }
 
     const codeMap = {};
-    _codeVersions.forEach(v => { codeMap[v.id] = v.source || ''; });
+    // The diff compares the ACTIVE tab against the same path in each
+    // version (falling back to the first entry for versions that
+    // predate the file). A per-file selector is 6c-5.
+    const activePath = _editorTabs[_activeTabIdx]?.path;
+    _codeVersions.forEach(v => {
+        const m = v.files?.find(f => f.path === activePath) || v.files?.[0];
+        codeMap[v.id] = m?.content || '';
+    });
     window._projDiffCodeMap = codeMap;
 
     const firstId = _codeVersions[0].id;
     const opts    = _codeVersions.map(v =>
-        `<option value="${v.id}">v${v.version} — ${v.filename}</option>`
+        `<option value="${v.id}">v${v.version} — ${
+            v.files?.length > 1
+                ? `${v.files[0].path} +${v.files.length - 1}`
+                : (v.files?.[0]?.path || '')
+        }</option>`
     ).join('');
 
     function initDiff(savedCode) {
@@ -4918,30 +5485,64 @@ export async function onFileSelected(event, projectId, section) {
     if (r?.metadata?.status === 200 || r?.metadata?.status === 201) {
         await loadProjectFiles(projectId);
         renderTree();
+        // A code upload wrote a new snapshot; an open editor on this
+        // project must learn about it (or warn if it has unsaved work).
+        if (section === 'code') _resyncOpenEditorFromServer(projectId);
     } else {
         showPageAlert(r?.metadata?.error || 'Upload failed.', 'danger');
     }
 }
 
 export async function deleteProjectFile(projectId, section, filename) {
+    // Code section, multi-file rules: with siblings present, deletion
+    // targets ONE path (?path= → the server writes a new snapshot without
+    // it). The LAST file falls back to the bare endpoint — the whole-
+    // section clear of the single-file era — because a per-path delete of
+    // the only file would fail the server's snapshot contract on purpose
+    // (a snapshot needs ≥1 file; "empty the project" is a different
+    // intent, and the bare route expresses it).
+    //
+    // Português: Com irmãos presentes, o delete mira UM caminho (?path= —
+    // versão nova sem ele). O ÚLTIMO arquivo cai na rota crua (limpar a
+    // seção): apagar por caminho o único arquivo falharia o contrato do
+    // snapshot de propósito (snapshot exige ≥1 arquivo; "esvaziar" é
+    // outra intenção, e a rota crua a expressa).
+    const codeSiblings = _projectFiles[projectId]?.code?.length || 0;
     const url = section === 'code'
-        ? `/api/v1/projects/${projectId}/files/code`
+        ? (codeSiblings > 1
+            ? `/api/v1/projects/${projectId}/files/code?path=${encodeURIComponent(filename)}`
+            : `/api/v1/projects/${projectId}/files/code`)
         : `/api/v1/projects/${projectId}/files/${section}/${encodeURIComponent(filename)}`;
     const r = await api('DELETE', url);
     if (r?.metadata?.status === 200) {
         await loadProjectFiles(projectId);
         renderTree();
+        if (section === 'code') _resyncOpenEditorFromServer(projectId);
     } else {
         showPageAlert(r?.metadata?.error || 'Could not delete file.', 'danger');
     }
 }
 
-export async function promptRenameCode(projectId) {
+export async function promptRenameCode(projectId, currentName) {
     const p = _projects.find(x => x.id === projectId);
     if (!p) return;
 
+    // Which file: the row's pencil passes its own name; the toolbar
+    // button (no arg) targets the first file — the single-file era's
+    // meaning, still correct for one-file projects. With nothing saved
+    // yet the suggestion mirrors the editor's first-save default:
+    // project-name slug + the LANGUAGE's extension (this ran in tree
+    // context where the old code assumed Go — the live "main.go on a
+    // C99 project" report).
+    //
+    // Português: Qual arquivo: o lápis da linha passa o próprio nome; o
+    // botão da toolbar (sem arg) mira o primeiro. Sem save ainda, a
+    // sugestão espelha o default do editor: slug do nome + extensão DA
+    // LINGUAGEM (isto rodava na árvore assumindo Go — o "main.go em
+    // projeto C99" reportado ao vivo).
     const files = _projectFiles[projectId];
-    const current = files?.code?.[0]?.name || 'main.go';
+    const existing = currentName || files?.code?.[0]?.name || '';
+    const current = existing || (slugifyFilename(p.name) + _codeExtFor(projectId));
     // showPrompt resolves to null on cancel and to the typed string on
     // OK. We prefer it over window.prompt() because the native dialog
     // sits outside our overlay stack: in fullscreen / kiosk mode some
@@ -4951,15 +5552,28 @@ export async function promptRenameCode(projectId) {
     // which the user reads as "the button does nothing". The portal
     // modal also picks up our theme tokens (--bg-card, --primary)
     // and matches every other dialog in the app.
-    const newName = await showPrompt('New filename (.go):', current);
+    const newName = await showPrompt('New filename (' + _codeExtFor(projectId) + '):', current);
     if (!newName || newName.trim() === current) return;
 
+    // oldPath rides along whenever a real file exists so the server
+    // renames THAT entry; without it (nothing saved yet) the server
+    // answers 400 "no code file" — honest, nothing to rename.
+    const body = { newName: newName.trim() };
+    if (existing) body.oldPath = existing;
     const r = await api('PUT',
         `/api/v1/projects/${projectId}/files/code/rename`,
-        { newName: newName.trim() },
+        body,
     );
     if (r?.metadata?.status === 200) {
-        _defaultFilename = r.data?.name || newName.trim();
+        // Rename is "a save with one path changed": the response is a NEW
+        // snapshot ({version, files}). The renamed identity is the name
+        // the user just typed — files[0] would lie with several entries.
+        _defaultFilename = newName.trim();
+        _resyncOpenEditorFromServer(projectId);
+        if (typeof r.data?.version === 'number') {
+            _currentVersion = r.data.version;
+            _nextVersion    = _currentVersion + 1;
+        }
         if (_editMode && _editProject?.id === projectId) {
             updateVersionBar();
         } else {
@@ -6407,7 +7021,7 @@ export async function projCreateFile(projectId) {
     _editProject = p;
     _editMode    = true;
     _parsedData  = null;
-    _parsedSnapshotCode = null;
+    _parsedSnapshotFP = null;
     _needsExplicitParse = false;
     _parseStatusType    = '';
     _codeVersions       = [];
@@ -6415,7 +7029,7 @@ export async function projCreateFile(projectId) {
     _diffChoices        = [];
     _currentVersion     = 0;
     _nextVersion        = 1;
-    _defaultFilename    = slugifyFilename(p.name) + '.go';
+    _defaultFilename    = slugifyFilename(p.name) + _codeExtFor(p.id);
 
     // Install navigation guards (same pattern as openCodeEditor).
     _installEditorNavGuards();
@@ -6426,7 +7040,10 @@ export async function projCreateFile(projectId) {
         await loadProjectFiles(projectId);
     }
 
-    projMountMonaco('');
+    // Fresh project: the working copy is born with ONE empty tab named
+    // from the project's name and language — same rule as opening an
+    // empty project through openCodeEditor.
+    projMountMonaco([{ path: _defaultFilename, content: '' }]);
     projRegisterSlashMenu(projectId);
     updateVersionBar();
     // Fresh project — Parse stays disabled until the user opens

@@ -39,7 +39,7 @@ const sceneC99ConstString = `{
 }`
 
 // c99DisplayWriteDefs is the def for the displayWrite C99 function device, with
-// the authored source on RawSource so the backend can inline the body.
+// the authored source on Files so the backend can inline the body.
 func c99DisplayWriteDefs() map[string]*blackbox.BlackBoxDef {
 	const src = "" +
 		"// write text to the display.\n" +
@@ -48,7 +48,7 @@ func c99DisplayWriteDefs() map[string]*blackbox.BlackBoxDef {
 		"    (void)text;\n" +
 		"}\n"
 	def := &blackbox.BlackBoxDef{
-		RawSource: src,
+		Files: []blackbox.FileEntry{{Path: "dev.c", Content: src}},
 		Functions: []blackbox.NamedFuncDef{
 			{
 				Name: "displayWrite",

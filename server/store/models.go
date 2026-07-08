@@ -454,23 +454,21 @@ type ProjectCodeVersion struct {
 	ProjectID string `json:"projectId"`
 	UserID    string `json:"userId"`
 	Version   int    `json:"version"`
-	Filename  string `json:"filename"`
-	Source    string `json:"source"`
+	// Files is the snapshot's complete file set, in tab order (see
+	// project_code_files.go for the model doctrine). Every save writes a
+	// new version with its full set — a version is immutable; there is no
+	// per-file history, only per-snapshot history.
+	//
+	// Português: Conjunto completo de arquivos do snapshot, na ordem das
+	// abas. Cada save grava uma versão nova com o conjunto inteiro —
+	// versão é imutável; o histórico é por snapshot, não por arquivo.
+	Files []CodeFileEntry `json:"files"`
 	// LastParseOk records whether the wizard's /parse endpoint
-	// returned a successful BlackBoxDef for this exact source at
+	// returned a successful BlackBoxDef for this exact snapshot at
 	// save time. Used by the IDE on project open to decide whether
 	// to silently re-parse and populate the Preview tab.
 	LastParseOk bool      `json:"lastParseOk"`
 	CreatedAt   time.Time `json:"createdAt"`
-}
-
-// ProjectCodeVersionMeta is the lightweight version record for list endpoints.
-type ProjectCodeVersionMeta struct {
-	ID        string    `json:"id"`
-	ProjectID string    `json:"projectId"`
-	Version   int       `json:"version"`
-	Filename  string    `json:"filename"`
-	CreatedAt time.Time `json:"createdAt"`
 }
 
 // ─── OTP ─────────────────────────────────────────────────────────────────────

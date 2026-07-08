@@ -37,7 +37,7 @@ func bbFixtureDef(id string) *blackbox.BlackBoxDef {
 	return &blackbox.BlackBoxDef{
 		ID:     id,
 		CodeID: "47",
-		RawSource: `#include <stdio.h>
+		Files: []blackbox.FileEntry{{Path: "dev.c", Content: `#include <stdio.h>
 
 typedef struct sht3x { int fd; } sht3x_t;
 
@@ -54,7 +54,7 @@ void sht3x_log(sht3x_t *dev, sht3x_mode_t mode, sht3x_alert_cb_t cb) {
     (void)dev; (void)mode; (void)cb;
     sht3x_create(0);
 }
-`,
+`}},
 		Functions: []blackbox.NamedFuncDef{
 			{Name: "sht3x_create", FuncDef: blackbox.FuncDef{
 				CReturnType: "sht3x_t *",
@@ -105,9 +105,9 @@ func bbFixtureProgram() *ir.Program {
 	})
 
 	handlerDef := &blackbox.BlackBoxDef{
-		ID:        "beefbeefbeefbeefbeefbeefbeefbeef",
-		CodeID:    "9",
-		RawSource: "void alert_handler(float value) { (void)value; }\n",
+		ID:     "beefbeefbeefbeefbeefbeefbeefbeef",
+		CodeID: "9",
+		Files:  []blackbox.FileEntry{{Path: "dev.c", Content: "void alert_handler(float value) { (void)value; }\n"}},
 		Functions: []blackbox.NamedFuncDef{
 			{Name: "alert_handler", FuncDef: blackbox.FuncDef{
 				CReturnType: "void", CParams: "float value",
@@ -133,8 +133,8 @@ func TestEmit_MultiFile_FilesAndMainC(t *testing.T) {
 
 	for _, key := range []string{
 		"main.c", "Makefile",
-		"iotm_47/iotm_47.c", "iotm_47/iotm_47.h",
-		"iotm_9/iotm_9.c", "iotm_9/iotm_9.h",
+		"iotm_47/dev.c", "iotm_47/iotm_47.h",
+		"iotm_9/dev.c", "iotm_9/iotm_9.h",
 	} {
 		if _, ok := files[key]; !ok {
 			t.Fatalf("output misses key %q; got keys: %v", key, keysOf(files))
@@ -176,7 +176,7 @@ func TestEmit_MultiFile_FilesAndMainC(t *testing.T) {
 func TestEmit_MultiFile_BBSourceAndLicensing(t *testing.T) {
 	files := Emit(bbFixtureProgram(), ProfilePortable, blackbox.Naming{})
 
-	bbC := files["iotm_47/iotm_47.c"]
+	bbC := files["iotm_47/dev.c"]
 	for _, want := range []string{
 		"// authored by specialist",
 		"#define sht3x_create iotm_47_sht3x_create",
@@ -221,7 +221,7 @@ func TestEmit_MultiFile_Makefile(t *testing.T) {
 	for _, want := range []string{
 		"CC      ?= cc",
 		"CFLAGS  ?= -std=c99 -Wall -Wextra -O2",
-		"iotm_47/iotm_47.o: iotm_47/iotm_47.c iotm_47/iotm_47.h",
+		"iotm_47/dev.o: iotm_47/dev.c iotm_47/iotm_47.h",
 		// main.o depends on every bb header, listed in full-id order (units
 		// sort by database id, so 3f9a… precedes beef… → 47 before 9).
 		"main.o: main.c iotm_47/iotm_47.h iotm_9/iotm_9.h",
@@ -305,4 +305,96 @@ func keysOf(m map[string]string) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// TestEmit_MultiFile_AuthoredSet is the multi-file heart of the emitter:
+// one box shipping a header plus two translation units under a subfolder,
+// with a cross-file non-static helper. It pins the four multi-file
+// promises at once:
+//
+//   - every authored file lands under the box folder with its AUTHORED
+//     name and relative path (util/helpers.c stays nested);
+//   - each .c gets the SAME preamble (rename defines — including the
+//     ExternalNames entry) and the SAME postamble (compatible
+//     redeclaration per translation unit is legal C99, so every unit
+//     carries the cross-check);
+//   - the authored .h ships VERBATIM — no preamble, no stamp: it is
+//     renamed at inclusion time by the including .c's defines;
+//   - the Makefile compiles one object per authored .c, nested paths
+//     included, each depending on the generated header.
+//
+// Português: O coração multiarquivo: header + duas unidades (uma em
+// subpasta) com helper não-static entre arquivos. Fixa as quatro
+// promessas: nome autoral preservado; MESMO preâmbulo/posâmbulo em cada
+// .c (redeclaração compatível por unidade é C99 legal); .h verbatim
+// (renomeia na inclusão); Makefile com um objeto por .c.
+func TestEmit_MultiFile_AuthoredSet(t *testing.T) {
+	def := &blackbox.BlackBoxDef{
+		ID:     bbFixtureID,
+		CodeID: "47",
+		Files: []blackbox.FileEntry{
+			{Path: "api.h", Content: "typedef struct probe { int fd; } probe_t;\n"},
+			{Path: "core.c", Content: "#include \"api.h\"\nint probe_read(probe_t *p) { return util_clamp(p->fd); }\n"},
+			{Path: "util/helpers.c", Content: "int g_probe_bias = 0;\nint util_clamp(int v) { return v + g_probe_bias; }\n"},
+		},
+		Functions: []blackbox.NamedFuncDef{
+			{Name: "probe_read", FuncDef: blackbox.FuncDef{
+				CReturnType: "int",
+				CParams:     "probe_t *p",
+				Outputs:     []blackbox.PortDef{{Name: "return", GoType: "int"}},
+			}},
+			{Name: "util_clamp", FuncDef: blackbox.FuncDef{
+				CReturnType: "int",
+				CParams:     "int v",
+				Outputs:     []blackbox.PortDef{{Name: "return", GoType: "int"}},
+			}},
+		},
+		WireTypes:     []blackbox.StructDef{{Name: "probe", Alias: "probe_t"}},
+		ExternalNames: []string{"g_probe_bias"},
+	}
+	prog := &ir.Program{
+		BlackBoxDefs: map[string]*blackbox.BlackBoxDef{
+			"probe_read": def,
+			"util_clamp": def,
+		},
+	}
+	files := Emit(prog, ProfilePortable, blackbox.NewNaming(""))
+
+	for _, key := range []string{
+		"iotm_47/iotm_47.h", "iotm_47/api.h", "iotm_47/core.c", "iotm_47/util/helpers.c",
+	} {
+		if _, ok := files[key]; !ok {
+			t.Fatalf("output misses %q; got keys: %v", key, keysOf(files))
+		}
+	}
+
+	// The authored header is byte-identical: verbatim means verbatim.
+	if files["iotm_47/api.h"] != def.Files[0].Content {
+		t.Fatalf("authored .h must ship verbatim; got:\n%s", files["iotm_47/api.h"])
+	}
+
+	// Both .c units carry the same rename define for the cross-file
+	// external variable, and both end with the postamble's cross-check.
+	for _, cKey := range []string{"iotm_47/core.c", "iotm_47/util/helpers.c"} {
+		unit := files[cKey]
+		if !strings.Contains(unit, "#define g_probe_bias iotm_47_g_probe_bias") {
+			t.Fatalf("%s misses the external-variable rename define", cKey)
+		}
+		if !strings.Contains(unit, "#define util_clamp iotm_47_util_clamp") {
+			t.Fatalf("%s misses the helper rename define", cKey)
+		}
+		if !strings.Contains(unit, "generated declaration check") {
+			t.Fatalf("%s misses the postamble cross-check", cKey)
+		}
+	}
+
+	mk := files["Makefile"]
+	for _, want := range []string{
+		"iotm_47/core.o: iotm_47/core.c iotm_47/iotm_47.h",
+		"iotm_47/util/helpers.o: iotm_47/util/helpers.c iotm_47/iotm_47.h",
+	} {
+		if !strings.Contains(mk, want) {
+			t.Fatalf("Makefile misses %q; got:\n%s", want, mk)
+		}
+	}
 }

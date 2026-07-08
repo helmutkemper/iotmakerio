@@ -108,32 +108,17 @@ func Build(w io.Writer, opt BuildOptions) error {
 	if lErr != nil {
 		return errors.New("load source: " + lErr.Error())
 	}
-	codeFilename := strings.TrimSpace(latest.Filename)
-	if codeFilename == "" {
-		// Defensive default. Every saved version should have a
-		// filename, but a corrupted row shouldn't sink the export.
-		codeFilename = "blackbox.go"
-	}
-
-	// TEMPORARY (until multi-file code support lands): the editor/save
-	// path is still Go-only and stamps every stored filename with a .go
-	// extension regardless of the project's language. So a C99 project
-	// has C99 source but a ".go" filename, and the export would emit
-	// e.g. testc99.go containing #include directives. Until the proper
-	// multi-file model exists (where the user organises an arbitrary
-	// set of .c/.h/.go files and the builder ships them verbatim),
-	// normalise the extension here to match the project language so a
-	// C99 project exports a single .c file. This swaps ONLY the
-	// extension; the stem and the source bytes are untouched. Remove
-	// this block once multi-file support replaces the single-filename
-	// model — see the multi-file debt note in
-	// docs/claude_c99_device_support.md.
-	if proj, pErr := store.GetProjectByID(opt.ProjectID); pErr == nil && proj != nil {
-		if strings.EqualFold(proj.ProgrammingLanguageID, "c") {
-			ext := path.Ext(codeFilename)
-			codeFilename = strings.TrimSuffix(codeFilename, ext) + ".c"
-		}
-	}
+	// The snapshot ships VERBATIM: every authored file, its authored name,
+	// its authored bytes, its relative path. Paths were validated at save
+	// time (plain relative, bounded depth, extension per language), so
+	// each one is a safe ZIP key under the project root. The single-file
+	// era's extension-normalising stopgap died with the multi-file model —
+	// the specialist now owns real filenames with real extensions.
+	//
+	// Português: O snapshot embarca VERBATIM — cada arquivo autoral com
+	// nome, bytes e caminho relativo próprios. Caminhos foram validados no
+	// save; o stopgap de trocar extensão morreu com o modelo multiarquivo:
+	// o especialista agora é dono de nomes reais com extensões reais.
 
 	// ── Load help files metadata, then content per entry ────────
 	// We don't fetch all blobs up front: a project with several
@@ -183,10 +168,17 @@ func Build(w io.Writer, opt BuildOptions) error {
 		return nil
 	}
 
-	// 1. Source code at the project root.
-	if err := writeFile(codeFilename, []byte(latest.Source)); err != nil {
-		firstErr = err
-		return firstErr
+	// 1. Source snapshot at the project root — every authored file under
+	//    its authored relative path, in tab order (cosmetically pleasant:
+	//    the ZIP listing reads like the editor's tab strip).
+	//
+	//    Português: O snapshot na raiz — cada arquivo autoral no seu
+	//    caminho relativo, na ordem das abas.
+	for _, f := range latest.Files {
+		if err := writeFile(f.Path, []byte(f.Content)); err != nil {
+			firstErr = err
+			return firstErr
+		}
 	}
 
 	// 2. All help files, preserving their stored relative paths.

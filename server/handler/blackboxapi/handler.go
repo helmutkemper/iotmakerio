@@ -380,7 +380,7 @@ func (h *handler) handleList(c echo.Context) error {
 			// continue below would silently drop the device from the catalog —
 			// the bug this fixes. ParseForLanguage accepts the
 			// programming_languages.id tokens directly ("golang"/"c").
-			def, parseErr := bbparser.ParseForLanguage(item.Language, []byte(item.Source), limits)
+			def, parseErr := bbparser.ParseForLanguageFiles(item.Language, store.ToParserFiles(item.Files), limits)
 			if parseErr != nil {
 				log.Printf("[blackboxapi] skipping project %q (%s): parse error: %v",
 					item.Name, item.ProjectID, parseErr)

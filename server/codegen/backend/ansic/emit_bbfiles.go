@@ -127,7 +127,7 @@ func (e *cEmitter) bbUnits() []*blackbox.CSurface {
 	seen := make(map[string]bool)
 	var units []*blackbox.CSurface
 	for fn, def := range e.prog.BlackBoxDefs {
-		if def == nil || def.Name != "" || def.ID == "" || def.RawSource == "" {
+		if def == nil || def.Name != "" || def.ID == "" || len(def.Files) == 0 {
 			continue // Go-path, no identity, or nothing to ship
 		}
 		if seen[def.ID] {
@@ -198,39 +198,78 @@ func (e *cEmitter) bbFiles(units []*blackbox.CSurface, out map[string]string) {
 
 		out[dir+"/"+e.naming.HeaderName(u.Code())] = u.Header()
 
-		src := u.Preamble() + e.rawSourceOf(u.ID())
-		if !strings.HasSuffix(src, "\n") {
-			src += "\n"
-		}
-		src += u.Postamble()
-		key := dir + "/" + e.naming.SourceName(u.Code())
-		out[key] = src
-
-		// Register the authored key so Emit's stamping loop can exempt it
-		// from the Generated Code Exception BY IDENTITY, not by name pattern
-		// — with a maker-configurable radical, "starts with iotm_" would be
-		// both wrong (custom radicals) and fragile.
+		// Every authored file ships into the box's folder under its OWN
+		// name and relative path — the specialist's project structure is
+		// information, and a linker error naming iotm_47/util.o reads as
+		// "box 47, their util unit". Assembly by extension:
+		//
+		//   .c  → Preamble (attribution + rename defines) + verbatim body
+		//         + Postamble (unprefixed redeclarations; legal to repeat
+		//         per translation unit — compatible redeclaration is C99 —
+		//         so EVERY unit gets the definition↔surface cross-check).
+		//   .h  → verbatim. Local headers are textually included BELOW the
+		//         including .c's defines, so their names are renamed at
+		//         inclusion time; stamping defines into the header too
+		//         would only re-define identical macros for zero gain.
+		//
+		// Paths were validated at the HTTP boundary; the zip-slip guard
+		// here is defense-in-depth for a def arriving from a hostile
+		// parsed blob — the export validator has already errored on such
+		// paths, so this skip is unreachable in a validated export.
+		//
+		// Português: Cada arquivo autoral embarca na pasta da caixa com o
+		// PRÓPRIO nome — a estrutura do especialista é informação. .c ganha
+		// preâmbulo + posâmbulo (redeclaração compatível repetida por
+		// unidade é C99 legal — cross-check em toda unidade); .h vai
+		// verbatim (renomeia na inclusão, sob os defines do .c incluidor).
+		// O guard de zip-slip é defesa em profundidade; o validador já
+		// barrou caminho hostil antes.
 		if e.authoredFiles == nil {
 			e.authoredFiles = make(map[string]bool)
 		}
-		e.authoredFiles[key] = true
+		for _, f := range u.Files() {
+			if !safeRelPath(f.Path) {
+				continue // validator already errored; never write the key
+			}
+			key := dir + "/" + f.Path
+			if strings.HasSuffix(f.Path, ".c") {
+				src := u.Preamble() + f.Content
+				if !strings.HasSuffix(src, "\n") {
+					src += "\n"
+				}
+				src += u.Postamble()
+				out[key] = src
+			} else {
+				out[key] = f.Content
+			}
+			// Authored keys are exempt from the Generated Code Exception
+			// stamp BY IDENTITY (not by name pattern — a configurable
+			// radical broke pattern checks): the author's license governs
+			// their bytes, .h exactly as much as .c.
+			e.authoredFiles[key] = true
+		}
 	}
 }
 
-// rawSourceOf returns the RawSource of the def with the given id. The defs
-// map is keyed by function name (several keys can share one def), so this
-// scans for the id — the map is tiny (one entry per device the scene uses),
-// so a scan beats maintaining a second index.
+// safeRelPath reports whether p is a plain project-relative path: non-empty,
+// no absolute root, no backslashes, no "." or ".." segments. The HTTP save
+// boundary enforces the same rules (plus language extension whitelists);
+// this copy protects the ZIP keys from a def that never went through that
+// boundary.
 //
-// Português: RawSource do def com este id. O map é chaveado por nome de
-// função (várias chaves por def), então varre — o map é minúsculo.
-func (e *cEmitter) rawSourceOf(id string) string {
-	for _, def := range e.prog.BlackBoxDefs {
-		if def != nil && def.ID == id {
-			return def.RawSource
+// Português: p é caminho relativo simples — sem raiz absoluta, sem
+// contrabarra, sem "." ou "..". A borda HTTP impõe o mesmo (e mais); esta
+// cópia protege as chaves do ZIP contra def que nunca passou por lá.
+func safeRelPath(p string) bool {
+	if p == "" || strings.HasPrefix(p, "/") || strings.Contains(p, "\\") {
+		return false
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return false
 		}
 	}
-	return ""
+	return true
 }
 
 // makefile generates the project Makefile for the multi-file output. Every
@@ -254,19 +293,52 @@ func (e *cEmitter) rawSourceOf(id string) string {
 // duplicado nomear as duas black-boxes culpadas pelo id. ?= permite override
 // por ambiente.
 func (e *cEmitter) makefile(units []*blackbox.CSurface) string {
-	type src struct{ c, o, extraDep string }
+	type src struct{ c, o, extraDep, includeDir string }
 	srcs := []src{{c: "main.c", o: "main.o"}}
 	if e.usesRuntime {
 		srcs = append(srcs, src{c: "iotmaker_runtime_stub.c", o: "iotmaker_runtime_stub.o"})
 	}
 	for _, u := range units {
 		dir := e.naming.SourceDir(u.Code())
-		stem := strings.TrimSuffix(e.naming.SourceName(u.Code()), ".c")
-		srcs = append(srcs, src{
-			c:        dir + "/" + e.naming.SourceName(u.Code()),
-			o:        dir + "/" + stem + ".o",
-			extraDep: dir + "/" + e.naming.HeaderName(u.Code()),
-		})
+		for _, f := range u.Files() {
+			if !strings.HasSuffix(f.Path, ".c") || !safeRelPath(f.Path) {
+				continue // headers ship but do not compile; unsafe paths never ship
+			}
+			srcs = append(srcs, src{
+				c: dir + "/" + f.Path,
+				o: dir + "/" + strings.TrimSuffix(f.Path, ".c") + ".o",
+				// The box folder goes on the include path of ITS OWN
+				// units: the specialist wrote `#include "api.h"` against
+				// THEIR project root, and that root was transplanted to
+				// this folder. Quote-includes resolve relative to the
+				// including FILE first — which breaks for a nested unit
+				// (util/helpers.c) including a root header — so the
+				// per-box -I restores the specialist's own resolution
+				// rules without touching their bytes. Caught live by the
+				// gcc smoke, 2026-07.
+				//
+				// Português: A pasta da caixa entra no include path das
+				// PRÓPRIAS unidades: o especialista escreveu `#include
+				// "api.h"` contra a raiz DELE, transplantada para cá.
+				// Include com aspas resolve relativo ao ARQUIVO — quebra
+				// para unidade aninhada — e o -I por caixa restaura as
+				// regras do especialista sem tocar nos bytes. Pego ao
+				// vivo pelo smoke gcc, 2026-07.
+				includeDir: dir,
+				// The generated header is the one dependency the emitter
+				// KNOWS about for every unit (the rename preamble mirrors
+				// its surface). The authored local headers are real
+				// dependencies too, but tracking them means parsing
+				// includes — the maker's escape hatch is `make clean`,
+				// same as any hand-written explicit-rule Makefile.
+				//
+				// Português: O header gerado é a dependência que o emitter
+				// CONHECE de toda unidade. Headers locais autorais também
+				// são dependências reais, mas rastreá-los = parsear
+				// includes; a válvula do maker é `make clean`.
+				extraDep: dir + "/" + e.naming.HeaderName(u.Code()),
+			})
+		}
 	}
 
 	// main.c textually includes every bb header (and the runtime header when
@@ -307,7 +379,11 @@ func (e *cEmitter) makefile(units []*blackbox.CSurface) string {
 			deps += " " + s.extraDep
 		}
 		sb.WriteString(s.o + ": " + deps + "\n")
-		sb.WriteString("\t$(CC) $(CFLAGS) -I. -c " + s.c + " -o " + s.o + "\n\n")
+		inc := "-I."
+		if s.includeDir != "" {
+			inc += " -I" + s.includeDir
+		}
+		sb.WriteString("\t$(CC) $(CFLAGS) " + inc + " -c " + s.c + " -o " + s.o + "\n\n")
 	}
 	sb.WriteString("clean:\n")
 	sb.WriteString("\trm -f $(TARGET) $(OBJS)\n\n")

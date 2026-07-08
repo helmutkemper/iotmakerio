@@ -20,14 +20,14 @@ import (
 )
 
 // surfaceFixtureDef builds a def exercising every surface category at once:
-// two functions (one cross-calls the other in RawSource), a wire type with
+// two functions (one cross-calls the other in the authored source), a wire type with
 // tag+alias, an enum with a computed and a raw value, and a callback typedef
 // whose parameters name the wire type.
 func surfaceFixtureDef() *BlackBoxDef {
 	return &BlackBoxDef{
 		ID:     "3f9a2b1c3f9a2b1c3f9a2b1c3f9a2b1c",
 		CodeID: "47",
-		RawSource: `#include <stdio.h>
+		Files: []FileEntry{{Path: "dev.c", Content: `#include <stdio.h>
 
 typedef struct sht3x { int fd; } sht3x_t;
 
@@ -46,7 +46,7 @@ void sht3x_log(sht3x_t *dev, sht3x_mode_t mode) {
     sht3x_create(0); /* internal cross-call: renamed by the same defines */
     (void)dev;
 }
-`,
+`}},
 		Functions: []NamedFuncDef{
 			{Name: "sht3x_create", FuncDef: FuncDef{
 				CReturnType: "sht3x_t *",

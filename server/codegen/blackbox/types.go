@@ -304,17 +304,44 @@ type BlackBoxDef struct {
 	// uses Structs[]/Methods[] instead.
 	WireTypes []StructDef `json:"wireTypes,omitempty"`
 
-	// RawSource is the verbatim source text the def was parsed from. It is
-	// NOT set by the parser — the loader (store.LoadBlackBoxDefsForScene)
-	// fills it for C99 function-device sources so the ANSI C backend can
-	// inline the authored functions (and their wire-type/`#include`s) into
-	// the generated main.c: a C99 device's implementation lives in the
-	// maker's own source, not in the parsed metadata (the parser keeps
-	// signatures, not bodies). The Go path leaves this empty — the Go
-	// backend re-emits from StructCode/MethodsCode instead. JSON omitempty
-	// keeps the serialized shape unchanged for Go scenes.
-	// See docs/CODEGEN_C99_STAGE.md §5 and §6.
-	RawSource string `json:"rawSource,omitempty"`
+	// Files is the authored source snapshot the def was parsed from: every
+	// file of the specialist's device project, verbatim, in tab order. The
+	// C parser sets it (ParseCFiles); the multi-file emitter ships each
+	// entry into the box's folder — .c files wrapped by the rename
+	// preamble/postamble, .h files untouched (they are renamed at inclusion
+	// time by the including .c's defines). The implementation lives HERE,
+	// not in the parsed metadata: the parser keeps signatures, not bodies.
+	// A single-source flow (the marketplace worker parsing one file from a
+	// release) is simply the one-entry case of the same representation —
+	// there is deliberately no separate "raw source" field.
+	//
+	// Português: O snapshot autoral de onde o def foi parseado: todos os
+	// arquivos do projeto do especialista, verbatim, na ordem das abas. O
+	// emitter multiarquivo embarca cada entrada na pasta da caixa (.c com
+	// preâmbulo/posâmbulo de renomeação; .h intocado — renomeia na inclusão
+	// pelos defines do .c incluidor). Fluxo de fonte única é o caso de uma
+	// entrada da MESMA representação — não existe campo "raw source"
+	// separado, de propósito.
+	Files []FileEntry `json:"files,omitempty"`
+
+	// ExternalNames lists the non-static file-scope VARIABLE names found
+	// across the authored files. Together with Functions (the parser
+	// already excludes `static` functions) it completes the box's set of
+	// external link symbols, which is exactly the RENAME set: internal
+	// linkage across a specialist's own files requires non-static symbols,
+	// and an unrenamed `util_state` in two different boxes would collide in
+	// the maker's link. Rename ALL externals; the generated header still
+	// exposes ONLY the IDS surface (rename-all, expose-some — see
+	// csurface.go). Best-effort by the tolerant parser: exotic declarators
+	// it cannot read are simply not captured (documented limitation).
+	//
+	// Português: Nomes das VARIÁVEIS file-scope não-static de todos os
+	// arquivos. Com Functions (funções static já são excluídas) completa o
+	// conjunto de símbolos externos da caixa = o conjunto de RENOMEAÇÃO:
+	// linkage interna entre arquivos exige não-static, e um `util_state`
+	// sem renome colidiria entre caixas no link do maker. Renomeia-se TUDO
+	// que é externo; o header expõe SÓ a superfície IDS.
+	ExternalNames []string `json:"externalNames,omitempty"`
 
 	// CallbackTypes collects every function-pointer typedef declared in the
 	// source (`typedef void (*sht3x_alert_cb_t)(float, void *);`). These are
@@ -541,11 +568,49 @@ type NamedFuncDef struct {
 	// Used as the suffix of the visual block type: "BlackBox{Name}:{Struct}".
 	Name string `json:"name"`
 
+	// SourceFile is the authored path this function came from — the
+	// def.Files entry whose parse produced it. Stamped by the multi-file
+	// C parser (ParseCFiles) and by the single-file dispatch; when the
+	// definition-upgrades-prototype merge fires, the entry carries the
+	// DEFINITION's file, which is also where the IDS annotations live.
+	// The wizard is the consumer: cards group and badge by file, and a
+	// rewrite targets {files, file: card.sourceFile}. Empty means "the
+	// def has a single source and this predates stamping" — consumers
+	// fall back to Files[0].
+	//
+	// Português: O caminho autoral de onde a função veio — a entrada de
+	// def.Files cujo parse a produziu. Carimbado pelo ParseCFiles e pelo
+	// dispatch de arquivo único; no upgrade definição-sobre-protótipo, a
+	// entrada carrega o arquivo da DEFINIÇÃO (onde moram as anotações).
+	// O wizard consome: cards agrupam por arquivo e o rewrite mira
+	// {files, file}. Vazio = fonte única pré-carimbo; fallback Files[0].
+	SourceFile string `json:"sourceFile,omitempty"`
+
 	FuncDef
 }
 
 // FuncDef describes the signature of a single method (Init or any named method).
 type FuncDef struct {
+	// HasBody reports whether this entry came from a function DEFINITION
+	// (`{ ... }`) rather than a bare prototype (`;`). C-space only — the
+	// Go parser never sets it (Go has no prototypes). The multi-file
+	// merge is the consumer: `int probe_read(probe_t *);` in api.h and
+	// the annotated definition in core.c are the SAME function seen
+	// twice, and the definition must win regardless of tab order —
+	// the standard C layout puts the header (prototypes) first, so a
+	// naive keep-first would keep the bare, unannotated entry. Mirrors
+	// the intra-file rule the scanner already applies (see
+	// parser_c_func.go, "keep the one with HasBody=true").
+	//
+	// Português: Esta entrada veio de uma DEFINIÇÃO (corpo) ou de um
+	// protótipo? Só espaço-C. O consumidor é o merge multiarquivo:
+	// protótipo no api.h + definição anotada no core.c são a MESMA
+	// função vista duas vezes, e a definição precisa vencer
+	// independente da ordem das abas — o layout padrão do C põe o
+	// header primeiro, e um keep-first ingênuo ficaria com a entrada
+	// crua. Espelha a regra intra-arquivo que o scanner já aplica.
+	HasBody bool `json:"hasBody,omitempty"`
+
 	// Doc is the method documentation comment (machine directives stripped out).
 	// The directives executionOrder:, icon:, label: are extracted before this
 	// field is populated, so the value contains human-readable prose only.
@@ -1051,5 +1116,23 @@ type ManualPage struct {
 	ShowIn ManualShowIn `json:"showIn"`
 
 	// Content is the raw Markdown text extracted from the /* */ block.
+	Content string `json:"content"`
+}
+
+// FileEntry is one authored file of a black-box source snapshot: a
+// project-relative path and its verbatim content. Path rules (relative, no
+// "..", extension whitelisted by language, unique case-insensitively) are
+// enforced at the HTTP boundary before a snapshot is ever stored; by the
+// time a def carries them they are trusted. The emitter still defends the
+// two collisions only IT can know about (the generated header's name and
+// the reserved main.c) at export-validation time.
+//
+// Português: Um arquivo autoral do snapshot: caminho relativo + conteúdo
+// verbatim. Regras de caminho são impostas na borda HTTP; ao chegar no def,
+// são confiáveis. O emitter ainda defende as duas colisões que só ele
+// conhece (nome do header gerado e o main.c reservado) na validação do
+// export.
+type FileEntry struct {
+	Path    string `json:"path"`
 	Content string `json:"content"`
 }

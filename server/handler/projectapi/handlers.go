@@ -38,12 +38,14 @@
 package projectapi
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -494,12 +496,22 @@ func handleGetCodeFile(c echo.Context) error {
 		versions = []*store.ProjectCodeVersion{}
 	}
 
+	// The database snapshot is the single source of truth; the on-disk
+	// code section is a derived mirror for /static viewing. The old
+	// read-from-disk fallback served databases that predated code
+	// versions — a population that no longer exists (pre-release, no
+	// legacy data by decision, 2026-07) — so "no version yet" is simply
+	// an empty snapshot.
+	//
+	// Português: O snapshot no banco é a única fonte de verdade; o disco
+	// é espelho derivado. O fallback de leitura do disco atendia bancos
+	// pré-versionamento — população que não existe mais (pré-release, sem
+	// legado): "sem versão" é snapshot vazio.
 	latest, err := store.GetLatestProjectCodeVersion(projectID)
 	if err == nil {
 		return ok(c, map[string]any{
-			"source":      latest.Source,
+			"files":       latest.Files,
 			"version":     latest.Version,
-			"filename":    latest.Filename,
 			"lastParseOk": latest.LastParseOk,
 			"versions":    versions,
 		})
@@ -507,26 +519,10 @@ func handleGetCodeFile(c echo.Context) error {
 	if err != store.ErrNotFound {
 		return fail(c, 500, "internal error")
 	}
-
-	cfg := config.Get()
-	codeDir := filepath.Join(projectBasePath(cfg, claims.UserID, p.Type, p.ID), store.ProjectFileSectionCode)
-	entries, readErr := os.ReadDir(codeDir)
-	if readErr != nil || len(entries) == 0 {
-		return ok(c, map[string]any{
-			"source":   "",
-			"version":  0,
-			"filename": "",
-			"versions": versions,
-		})
-	}
-	content, readErr := os.ReadFile(filepath.Join(codeDir, entries[0].Name()))
-	if readErr != nil {
-		return fail(c, 500, "could not read code file")
-	}
+	_ = p // ownership already verified above; the mirror is not consulted
 	return ok(c, map[string]any{
-		"source":   string(content),
+		"files":    []store.CodeFileEntry{},
 		"version":  0,
-		"filename": entries[0].Name(),
 		"versions": versions,
 	})
 }
@@ -538,42 +534,22 @@ func handleSaveCodeVersion(c echo.Context) error {
 	projectID := c.Param("id")
 
 	var req struct {
-		Source   string `json:"source"`
-		Filename string `json:"filename"`
+		// Files is the complete snapshot being saved — every open tab,
+		// in tab order. A save is atomic over the SET: there is no
+		// per-file save, exactly as there is no per-file version.
+		//
+		// Português: O snapshot completo sendo salvo — toda aba, na
+		// ordem das abas. Save é atômico sobre o CONJUNTO.
+		Files []store.CodeFileEntry `json:"files"`
 		// LastParseOk records whether the wizard's /parse endpoint
-		// returned a successful BlackBoxDef for this exact source at
+		// returned a successful BlackBoxDef for this exact snapshot at
 		// the moment the user clicked Save. The IDE uses this on
 		// project open to decide whether to silently re-parse and
 		// populate the Preview tab without user intervention.
-		// Defaults to false when the field is missing — older
-		// clients keep working, just without the silent-rehydrate
-		// optimisation.
 		LastParseOk bool `json:"lastParseOk,omitempty"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return fail(c, 400, "invalid request body")
-	}
-
-	// Trim only the filename — the source must round-trip the user's
-	// bytes verbatim. In particular, gofmt-formatted Go files always
-	// end with a trailing '\n'; mutating req.Source via TrimSpace
-	// would silently strip that newline on every save, so the next
-	// open shows a one-byte diff against the user's local copy and a
-	// re-format produces a perpetual "modified" state. The empty-
-	// check below uses TrimSpace just for the test, not as a mutation.
-	req.Filename = strings.TrimSpace(req.Filename)
-
-	if strings.TrimSpace(req.Source) == "" {
-		return fail(c, 400, "source is required")
-	}
-	if req.Filename == "" {
-		req.Filename = "main.go"
-	}
-	if !strings.HasSuffix(strings.ToLower(req.Filename), ".go") {
-		return fail(c, 400, "filename must have a .go extension")
-	}
-	if strings.ContainsAny(req.Filename, `/\:*?"<>|`) {
-		return fail(c, 400, "invalid filename")
 	}
 
 	p, err := store.GetProjectByIDAndUser(projectID, claims.UserID)
@@ -582,6 +558,23 @@ func handleSaveCodeVersion(c echo.Context) error {
 			return fail(c, 404, "project not found")
 		}
 		return fail(c, 500, "internal error")
+	}
+
+	// Contents round-trip the user's bytes VERBATIM — gofmt-formatted Go
+	// files end with a trailing '\n'; trimming would produce a perpetual
+	// one-byte "modified" state on every reopen. Only PATHS are trimmed.
+	// Validation of the set (count, path spelling, extension-per-language,
+	// uniqueness) lives in validateCodeFileSet so the upload and rename
+	// endpoints enforce the exact same contract.
+	//
+	// Português: Conteúdo viaja VERBATIM (só caminhos são trimados); a
+	// validação do conjunto mora em validateCodeFileSet para upload e
+	// rename imporem o MESMO contrato.
+	for i := range req.Files {
+		req.Files[i].Path = strings.TrimSpace(req.Files[i].Path)
+	}
+	if msg := validateCodeFileSet(req.Files, p.ProgrammingLanguageID); msg != "" {
+		return fail(c, 400, msg)
 	}
 
 	nextVer, err := store.GetNextCodeVersionNumber(projectID)
@@ -599,8 +592,7 @@ func handleSaveCodeVersion(c echo.Context) error {
 		ProjectID:   projectID,
 		UserID:      claims.UserID,
 		Version:     nextVer,
-		Filename:    req.Filename,
-		Source:      req.Source,
+		Files:       req.Files,
 		LastParseOk: req.LastParseOk,
 	}
 	if err := store.CreateProjectCodeVersion(v); err != nil {
@@ -610,6 +602,12 @@ func handleSaveCodeVersion(c echo.Context) error {
 		return fail(c, 500, "could not save version")
 	}
 
+	// Mirror the whole snapshot to the disk code section (derived data for
+	// /static viewing — the database row set is the source of truth).
+	// Mirror failures are logged, never fatal: the version IS saved.
+	//
+	// Português: Espelha o snapshot inteiro no disco (dado derivado; o
+	// banco é a verdade). Falha de espelho loga e segue: a versão FOI salva.
 	cfg := config.Get()
 	codeDir := filepath.Join(projectBasePath(cfg, claims.UserID, p.Type, p.ID), store.ProjectFileSectionCode)
 	if mkErr := os.MkdirAll(codeDir, 0755); mkErr != nil {
@@ -618,9 +616,7 @@ func handleSaveCodeVersion(c echo.Context) error {
 	if err := clearDirectory(codeDir); err != nil {
 		c.Logger().Errorf("[projectapi] failed to clear code dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(codeDir, req.Filename), []byte(req.Source), 0644); err != nil {
-		c.Logger().Errorf("[projectapi] failed to write code file to disk: %v", err)
-	}
+	mirrorCodeSnapshot(c, codeDir, req.Files)
 
 	// Log a code-update feed event for public projects.
 	if p.Visibility == store.ProjectVisibilityPublic {
@@ -641,9 +637,199 @@ func handleSaveCodeVersion(c echo.Context) error {
 	return ok(c, map[string]any{
 		"id":          v.ID,
 		"version":     v.Version,
-		"filename":    v.Filename,
+		"files":       v.Files,
 		"lastParseOk": v.LastParseOk,
 	})
+}
+
+// ─── Code snapshot: shared contract ──────────────────────────────────────────
+
+// maxCodeFiles caps a snapshot's file count. Sixteen is generous for a
+// device project (a real specialist project is api.h + a handful of .c) and
+// small enough that the wizard's tab strip, the version-history payload and
+// the export ZIP all stay human-scaled. Raising it is a one-line change —
+// the cap exists to make "someone pasted a whole repository" a 400, not a
+// megabyte of tabs.
+//
+// Português: Teto de arquivos por snapshot. Dezesseis é folgado para um
+// projeto de device e pequeno o bastante para abas, histórico e ZIP
+// continuarem humanos; o teto transforma "colaram um repositório" em 400.
+const maxCodeFiles = 16
+
+// codeFileSegment validates one path segment: starts with a letter, digit
+// or underscore (no hidden dot-files, no "-rf" lookalikes), then letters,
+// digits, dot, underscore or hyphen.
+var codeFileSegment = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]*$`)
+
+// validateCodeFileSet enforces the snapshot contract shared by save, upload
+// and rename. Returns "" when valid, else the 400 message.
+//
+// The rules, and why each exists:
+//
+//   - 1..maxCodeFiles entries — an empty save is a no-op the UI should not
+//     ship; the cap is explained above.
+//   - every path: relative, '/'-separated, ≤160 chars, ≤4 segments, each
+//     segment matching codeFileSegment. No "..", no absolute root, no
+//     backslash — these are ZIP keys and #include operands downstream, and
+//     the emitter's zip-slip guard should stay unreachable.
+//   - paths unique CASE-INSENSITIVELY — the maker may unzip on a
+//     case-folding filesystem (Windows, macOS default), where Util.c and
+//     util.c silently become one file.
+//   - extension whitelist BY LANGUAGE: go → .go (and exactly ONE file:
+//     multi-file Go authoring is a declared future slice — the parser
+//     dispatch enforces it, and failing at save time beats failing at
+//     parse time); c → .c/.h with at least one .c (a header-only device
+//     has no definitions for the generated header to promise).
+//   - at least one file with non-blank content — the "source is required"
+//     rule of the single-file era, generalised.
+//
+// Português: Contrato do snapshot compartilhado por save, upload e rename.
+// Caminho relativo simples (chave de ZIP e operando de #include lá na
+// frente); unicidade case-insensitive (Windows/macOS dobram caixa);
+// extensão por linguagem (go = 1 arquivo .go — multiarquivo Go é fatia
+// futura declarada; c = .c/.h com ≥1 .c); ≥1 conteúdo não-vazio.
+func validateCodeFileSet(files []store.CodeFileEntry, languageID string) string {
+	if len(files) == 0 {
+		return "files is required (at least one file)"
+	}
+	if len(files) > maxCodeFiles {
+		return fmt.Sprintf("too many files: %d (max %d)", len(files), maxCodeFiles)
+	}
+
+	lang := strings.ToLower(strings.TrimSpace(languageID))
+	isGo := lang == "" || lang == "go" || lang == "golang"
+
+	seen := make(map[string]bool, len(files))
+	hasContent := false
+	hasC := false
+	for _, f := range files {
+		if f.Path == "" {
+			return "every file needs a path"
+		}
+		if len(f.Path) > 160 {
+			return fmt.Sprintf("path too long: %q (max 160)", f.Path)
+		}
+		if strings.HasPrefix(f.Path, "/") || strings.Contains(f.Path, `\`) {
+			return fmt.Sprintf("invalid path %q: must be relative with '/' separators", f.Path)
+		}
+		segs := strings.Split(f.Path, "/")
+		if len(segs) > 4 {
+			return fmt.Sprintf("path too deep: %q (max 4 segments)", f.Path)
+		}
+		for _, seg := range segs {
+			if !codeFileSegment.MatchString(seg) {
+				return fmt.Sprintf("invalid path segment %q in %q", seg, f.Path)
+			}
+		}
+		lower := strings.ToLower(f.Path)
+		if seen[lower] {
+			return fmt.Sprintf("duplicate path (case-insensitive): %q", f.Path)
+		}
+		seen[lower] = true
+
+		switch {
+		case isGo && strings.HasSuffix(lower, ".go"):
+			// ok
+		case !isGo && strings.HasSuffix(lower, ".c"):
+			hasC = true
+		case !isGo && strings.HasSuffix(lower, ".h"):
+			// ok
+		default:
+			if isGo {
+				return fmt.Sprintf("invalid extension for a Go project: %q (only .go)", f.Path)
+			}
+			return fmt.Sprintf("invalid extension for a C project: %q (only .c and .h)", f.Path)
+		}
+
+		if strings.TrimSpace(f.Content) != "" {
+			hasContent = true
+		}
+	}
+	if isGo && len(files) > 1 {
+		return "Go projects are single-file for now (multi-file Go authoring is a future feature); keep one .go file"
+	}
+	if !isGo && !hasC {
+		return "a C project needs at least one .c file (headers alone carry no definitions)"
+	}
+	if !hasContent {
+		return "at least one file must have content"
+	}
+	return ""
+}
+
+// mirrorCodeSnapshot writes the snapshot into the on-disk code section —
+// derived data for /static viewing; the database is the source of truth,
+// so failures log and never abort the request. Subdirectories are created
+// per file (paths were validated: plain relative, bounded depth).
+//
+// Português: Espelha o snapshot no disco (dado derivado para /static; o
+// banco é a verdade — falha loga e segue). Cria subpastas por arquivo.
+func mirrorCodeSnapshot(c echo.Context, codeDir string, files []store.CodeFileEntry) {
+	for _, f := range files {
+		full := filepath.Join(codeDir, filepath.FromSlash(f.Path))
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			c.Logger().Errorf("[projectapi] mirror mkdir %s: %v", f.Path, err)
+			continue
+		}
+		if err := os.WriteFile(full, []byte(f.Content), 0644); err != nil {
+			c.Logger().Errorf("[projectapi] mirror write %s: %v", f.Path, err)
+		}
+	}
+}
+
+// snapshotNextVersion clones the latest snapshot's file set (empty when no
+// version exists yet), hands it to mutate, validates the result and writes
+// it as a NEW version — the one write path upload, delete and rename share,
+// so a file-manager operation is exactly a save with a computed set.
+//
+// Português: Clona o conjunto do último snapshot, aplica mutate, valida e
+// grava como versão NOVA — o único caminho de escrita que upload, delete e
+// rename compartilham: operação de arquivo é um save com conjunto calculado.
+func snapshotNextVersion(c echo.Context, p *store.Project, userID string,
+	mutate func(files []store.CodeFileEntry) ([]store.CodeFileEntry, string)) error {
+
+	var files []store.CodeFileEntry
+	if latest, err := store.GetLatestProjectCodeVersion(p.ID); err == nil {
+		files = append(files, latest.Files...)
+	} else if err != store.ErrNotFound {
+		return fail(c, 500, "internal error")
+	}
+
+	next, msg := mutate(files)
+	if msg != "" {
+		return fail(c, 400, msg)
+	}
+	if valMsg := validateCodeFileSet(next, p.ProgrammingLanguageID); valMsg != "" {
+		return fail(c, 400, valMsg)
+	}
+
+	nextVer, err := store.GetNextCodeVersionNumber(p.ID)
+	if err != nil {
+		return fail(c, 500, "internal error")
+	}
+	vID, err := cryptoauth.NewID()
+	if err != nil {
+		return fail(c, 500, "internal error")
+	}
+	v := &store.ProjectCodeVersion{
+		ID: vID, ProjectID: p.ID, UserID: userID, Version: nextVer, Files: next,
+	}
+	if err := store.CreateProjectCodeVersion(v); err != nil {
+		if err == store.ErrConflict {
+			return fail(c, 409, "version conflict — please retry")
+		}
+		return fail(c, 500, "could not save version")
+	}
+
+	cfg := config.Get()
+	codeDir := filepath.Join(projectBasePath(cfg, userID, p.Type, p.ID), store.ProjectFileSectionCode)
+	if mkErr := os.MkdirAll(codeDir, 0755); mkErr == nil {
+		if clrErr := clearDirectory(codeDir); clrErr != nil {
+			c.Logger().Errorf("[projectapi] mirror clear: %v", clrErr)
+		}
+		mirrorCodeSnapshot(c, codeDir, next)
+	}
+	return ok(c, map[string]any{"version": v.Version, "files": v.Files})
 }
 
 func handleListCodeVersions(c echo.Context) error {
@@ -686,28 +872,59 @@ func handleUploadCodeFile(c echo.Context) error {
 	if err != nil {
 		return fail(c, 400, "file field is required")
 	}
-	if !strings.HasSuffix(strings.ToLower(fh.Filename), ".go") {
-		return fail(c, 400, "only .go files are allowed in the code section")
-	}
 
-	cfg := config.Get()
-	codeDir := filepath.Join(projectBasePath(cfg, claims.UserID, p.Type, p.ID), store.ProjectFileSectionCode)
-	if err := os.MkdirAll(codeDir, 0755); err != nil {
-		return fail(c, 500, "could not create code directory")
+	// Read the upload into memory — the snapshot lives in the database
+	// (the disk section is a derived mirror), and code files are text
+	// measured in kilobytes. Extension/path legality is enforced by
+	// validateCodeFileSet against the PROJECT's language inside
+	// snapshotNextVersion, the same contract as a Monaco save.
+	//
+	// Português: Lê o upload em memória — o snapshot mora no banco (disco
+	// é espelho) e código se mede em kilobytes. Extensão/caminho passam
+	// pelo MESMO contrato do save, dentro do snapshotNextVersion.
+	src, err := fh.Open()
+	if err != nil {
+		return fail(c, 500, "could not read uploaded file")
 	}
-	if err := clearDirectory(codeDir); err != nil {
-		return fail(c, 500, "could not clear existing code file")
+	content, err := io.ReadAll(src)
+	_ = src.Close()
+	if err != nil {
+		return fail(c, 500, "could not read uploaded file")
 	}
-	if err := saveUploadedFile(fh, filepath.Join(codeDir, filepath.Base(fh.Filename))); err != nil {
-		return fail(c, 500, "could not save file")
-	}
+	name := filepath.Base(strings.TrimSpace(fh.Filename))
 
-	return ok(c, map[string]string{
-		"name": filepath.Base(fh.Filename),
-		"url": fmt.Sprintf("/static/%s/project/%s/%s/%s/%s",
-			claims.UserID, store.ProjectTypeSlug(p.Type), p.ID,
-			store.ProjectFileSectionCode, filepath.Base(fh.Filename)),
-	})
+	return snapshotNextVersion(c, p, claims.UserID,
+		func(files []store.CodeFileEntry) ([]store.CodeFileEntry, string) {
+			// Per-language semantics, matching the save contract:
+			//
+			//   Go — single-file by declared contract, so an upload
+			//   REPLACES the whole set: "here is my new main file" is the
+			//   only meaning an upload can have. (This is also the
+			//   single-slot behaviour the pre-multi-file era pinned in its
+			//   integration test — the intent survives, now scoped to the
+			//   language where it is true.)
+			//
+			//   C — multi-file: replace by path when the file already
+			//   exists (re-upload is an update, not a duplicate); append
+			//   otherwise.
+			//
+			// Português: Semântica por linguagem, espelhando o contrato do
+			// save: Go é arquivo único declarado — upload SUBSTITUI o
+			// conjunto (único sentido possível; era o comportamento da era
+			// single-slot, preservado onde é verdade). C é multiarquivo —
+			// substitui por caminho ou anexa.
+			lang := strings.ToLower(strings.TrimSpace(p.ProgrammingLanguageID))
+			if lang == "" || lang == "go" || lang == "golang" {
+				return []store.CodeFileEntry{{Path: name, Content: string(content)}}, ""
+			}
+			for i := range files {
+				if strings.EqualFold(files[i].Path, name) {
+					files[i].Content = string(content)
+					return files, ""
+				}
+			}
+			return append(files, store.CodeFileEntry{Path: name, Content: string(content)}), ""
+		})
 }
 
 func handleDeleteCodeFile(c echo.Context) error {
@@ -720,6 +937,35 @@ func handleDeleteCodeFile(c echo.Context) error {
 			return fail(c, 404, "project not found")
 		}
 		return fail(c, 500, "internal error")
+	}
+
+	// ?path=util.c removes ONE file from the snapshot (a new version with
+	// the file gone — history keeps it, exactly like any other save). No
+	// query parameter keeps the single-file era's meaning: wipe the code
+	// section, here spelled "clear the disk mirror" — the version history
+	// is the user's data and survives; the next save starts a fresh
+	// snapshot.
+	//
+	// Português: ?path= remove UM arquivo (versão nova sem ele — o
+	// histórico preserva). Sem parâmetro mantém o sentido antigo: limpa o
+	// espelho em disco; o histórico sobrevive e o próximo save recomeça.
+	if path := strings.TrimSpace(c.QueryParam("path")); path != "" {
+		return snapshotNextVersion(c, p, claims.UserID,
+			func(files []store.CodeFileEntry) ([]store.CodeFileEntry, string) {
+				out := files[:0]
+				found := false
+				for _, f := range files {
+					if strings.EqualFold(f.Path, path) {
+						found = true
+						continue
+					}
+					out = append(out, f)
+				}
+				if !found {
+					return nil, fmt.Sprintf("no file named %q in the current snapshot", path)
+				}
+				return out, ""
+			})
 	}
 
 	cfg := config.Get()
@@ -735,20 +981,24 @@ func handleRenameCodeFile(c echo.Context) error {
 	projectID := c.Param("id")
 
 	var req struct {
+		// OldPath selects which file to rename. Optional for the
+		// single-file editor of today: when empty, the snapshot's first
+		// file is the target (there is exactly one). The multi-tab UI
+		// (next slice) always sends it.
+		//
+		// Português: Qual arquivo renomear. Opcional no editor de arquivo
+		// único de hoje (vazio = primeiro arquivo); a UI multiabas sempre
+		// envia.
+		OldPath string `json:"oldPath"`
 		NewName string `json:"newName"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return fail(c, 400, "invalid request body")
 	}
+	req.OldPath = strings.TrimSpace(req.OldPath)
 	req.NewName = strings.TrimSpace(req.NewName)
 	if req.NewName == "" {
 		return fail(c, 400, "newName is required")
-	}
-	if !strings.HasSuffix(strings.ToLower(req.NewName), ".go") {
-		return fail(c, 400, "code file must have a .go extension")
-	}
-	if strings.ContainsAny(req.NewName, `/\:*?"<>|`) {
-		return fail(c, 400, "invalid file name")
 	}
 
 	p, err := store.GetProjectByIDAndUser(projectID, claims.UserID)
@@ -759,16 +1009,35 @@ func handleRenameCodeFile(c echo.Context) error {
 		return fail(c, 500, "internal error")
 	}
 
-	cfg := config.Get()
-	codeDir := filepath.Join(projectBasePath(cfg, claims.UserID, p.Type, p.ID), store.ProjectFileSectionCode)
-	entries, err := os.ReadDir(codeDir)
-	if err != nil || len(entries) == 0 {
-		return fail(c, 404, "no code file found in this project")
-	}
-	if err := os.Rename(filepath.Join(codeDir, entries[0].Name()), filepath.Join(codeDir, req.NewName)); err != nil {
-		return fail(c, 500, "could not rename file")
-	}
-	return ok(c, map[string]string{"name": req.NewName})
+	// The rename itself is "a save with one path changed": spelling and
+	// extension legality come from the same validateCodeFileSet contract
+	// as every other write, so a rename can never smuggle in a path a
+	// save would reject.
+	//
+	// Português: Rename é "um save com um caminho trocado" — passa pelo
+	// MESMO contrato de validação; rename nunca contrabandeia caminho que
+	// o save recusaria.
+	return snapshotNextVersion(c, p, claims.UserID,
+		func(files []store.CodeFileEntry) ([]store.CodeFileEntry, string) {
+			if len(files) == 0 {
+				return nil, "no code file found in this project"
+			}
+			idx := 0
+			if req.OldPath != "" {
+				idx = -1
+				for i := range files {
+					if strings.EqualFold(files[i].Path, req.OldPath) {
+						idx = i
+						break
+					}
+				}
+				if idx < 0 {
+					return nil, fmt.Sprintf("no file named %q in the current snapshot", req.OldPath)
+				}
+			}
+			files[idx].Path = req.NewName
+			return files, ""
+		})
 }
 
 // ─── Image Files ──────────────────────────────────────────────────────────────
@@ -1254,10 +1523,25 @@ func handleGetCodeBackup(c echo.Context) error {
 		return fail(c, 500, "internal error")
 	}
 
+	// The row stores the working copy as a JSON files blob in the
+	// source column and the active tab's path in filename (see the
+	// scratchpad-format doctrine in store/project_backups.go). An
+	// undecodable blob is treated as "no usable backup" — backup is
+	// scratch, and refusing to open a project over corrupt scratch
+	// would invert its purpose.
+	//
+	// Português: A linha guarda a cópia como blob JSON de arquivos no
+	// source e a aba ativa no filename. Blob indecifrável = "sem backup
+	// utilizável" — backup é rascunho; recusar abrir o projeto por
+	// rascunho corrompido inverteria o propósito.
+	var files []store.CodeFileEntry
+	if err := json.Unmarshal([]byte(b.Source), &files); err != nil || len(files) == 0 {
+		return fail(c, 404, "no backup")
+	}
 	return ok(c, map[string]any{
-		"source":    b.Source,
-		"filename":  b.Filename,
-		"updatedAt": b.UpdatedAt,
+		"files":      files,
+		"activePath": b.Filename,
+		"updatedAt":  b.UpdatedAt,
 	})
 }
 
@@ -1271,19 +1555,27 @@ func handleSaveCodeBackup(c echo.Context) error {
 	projectID := c.Param("id")
 
 	var req struct {
-		Source   string `json:"source"`
-		Filename string `json:"filename"`
+		// Files is the WHOLE working copy — every open tab, strip
+		// order. The backup exists to survive a crash, and with tabs a
+		// single-slot backup would let that crash eat every sibling of
+		// the active file. Paths are NOT validated against the save
+		// contract: backup legitimately stores transient mid-edit state
+		// (a half-typed rename, an extension about to change).
+		//
+		// Português: A cópia de trabalho INTEIRA — toda aba, na ordem
+		// da faixa. Caminhos NÃO passam pelo contrato do save: backup
+		// guarda estado transitório de meio-de-edição por legítimo
+		// direito.
+		Files      []store.CodeFileEntry `json:"files"`
+		ActivePath string                `json:"activePath"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return fail(c, 400, "invalid request body")
 	}
-
-	// Filename is optional — when absent the backup uses the empty
-	// string and the frontend recovery path falls back to its own
-	// default (usually "main.go"). We DON'T validate the .go suffix
-	// here because the backup may legitimately store transient
-	// non-.go content the user is mid-edit on.
-	req.Filename = strings.TrimSpace(req.Filename)
+	if len(req.Files) > maxCodeFiles {
+		return fail(c, 400, fmt.Sprintf("too many files: %d (max %d)", len(req.Files), maxCodeFiles))
+	}
+	req.ActivePath = strings.TrimSpace(req.ActivePath)
 
 	if _, err := store.GetProjectByIDAndUser(projectID, claims.UserID); err != nil {
 		if err == store.ErrNotFound {
@@ -1292,7 +1584,21 @@ func handleSaveCodeBackup(c echo.Context) error {
 		return fail(c, 500, "internal error")
 	}
 
-	if err := store.SaveProjectBackup(projectID, req.Source, req.Filename); err != nil {
+	// All-blank set → empty blob → the store's "empty source deletes"
+	// rule fires, generalised to the set: clearing every tab clears the
+	// backup, so reopens don't restore emptiness.
+	blob := ""
+	for _, f := range req.Files {
+		if strings.TrimSpace(f.Content) != "" {
+			enc, mErr := json.Marshal(req.Files)
+			if mErr != nil {
+				return fail(c, 500, "could not encode backup")
+			}
+			blob = string(enc)
+			break
+		}
+	}
+	if err := store.SaveProjectBackup(projectID, blob, req.ActivePath); err != nil {
 		return fail(c, 500, "could not save backup")
 	}
 

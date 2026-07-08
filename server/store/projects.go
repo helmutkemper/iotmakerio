@@ -261,9 +261,14 @@ func ValidateUILanguageID(id string) error {
 
 // ─── Project Code Versions ────────────────────────────────────────────────────
 
-// CreateProjectCodeVersion inserts a new code version row.
-// The version number must be set by the caller via GetNextCodeVersionNumber.
-// Returns ErrConflict on duplicate (project_id, version).
+// CreateProjectCodeVersion inserts a new snapshot: the version row plus its
+// complete file set, in ONE transaction — a snapshot can never exist
+// half-written. The version number must be set by the caller via
+// GetNextCodeVersionNumber. Returns ErrConflict on duplicate
+// (project_id, version).
+//
+// Português: Insere um snapshot: a linha da versão + o conjunto completo de
+// arquivos, em UMA transação — snapshot nunca existe pela metade.
 func CreateProjectCodeVersion(v *ProjectCodeVersion) error {
 	now := time.Now().UTC()
 	v.CreatedAt = now
@@ -276,37 +281,45 @@ func CreateProjectCodeVersion(v *ProjectCodeVersion) error {
 		parseOk = 1
 	}
 
-	_, err := DB.Exec(`
-		INSERT INTO project_code_versions
-			(id, project_id, user_id, version, filename, source, last_parse_ok, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		v.ID, v.ProjectID, v.UserID, v.Version,
-		v.Filename, v.Source, parseOk,
-		v.CreatedAt.Format(time.RFC3339),
-	)
+	tx, err := DB.Begin()
 	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO project_code_versions
+			(id, project_id, user_id, version, last_parse_ok, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		v.ID, v.ProjectID, v.UserID, v.Version, parseOk,
+		v.CreatedAt.Format(time.RFC3339),
+	); err != nil {
+		_ = tx.Rollback()
 		if isSQLiteConstraint(err) {
 			return ErrConflict
 		}
 		return err
 	}
-	return nil
+	if err := insertCodeFilesTx(tx, v.ID, v.Files); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
-// GetLatestProjectCodeVersion returns the highest-version record for the project.
-// Returns ErrNotFound if the project has no saved versions yet.
+// GetLatestProjectCodeVersion returns the highest-version snapshot for the
+// project — header row plus its file set. Returns ErrNotFound if the project
+// has no saved versions yet.
 func GetLatestProjectCodeVersion(projectID string) (*ProjectCodeVersion, error) {
 	var v ProjectCodeVersion
 	var createdAt string
 	var parseOk int
 	err := DB.QueryRow(`
-		SELECT id, project_id, user_id, version, filename, source, last_parse_ok, created_at
+		SELECT id, project_id, user_id, version, last_parse_ok, created_at
 		FROM project_code_versions
 		WHERE project_id = ?
 		ORDER BY version DESC
 		LIMIT 1`, projectID).Scan(
 		&v.ID, &v.ProjectID, &v.UserID,
-		&v.Version, &v.Filename, &v.Source, &parseOk, &createdAt,
+		&v.Version, &parseOk, &createdAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -316,6 +329,9 @@ func GetLatestProjectCodeVersion(projectID string) (*ProjectCodeVersion, error) 
 	}
 	v.LastParseOk = parseOk != 0
 	v.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	if v.Files, err = loadCodeFiles(v.ID); err != nil {
+		return nil, err
+	}
 	return &v, nil
 }
 
@@ -326,11 +342,11 @@ func GetProjectCodeVersionByID(id string) (*ProjectCodeVersion, error) {
 	var createdAt string
 	var parseOk int
 	err := DB.QueryRow(`
-		SELECT id, project_id, user_id, version, filename, source, last_parse_ok, created_at
+		SELECT id, project_id, user_id, version, last_parse_ok, created_at
 		FROM project_code_versions
 		WHERE id = ?`, id).Scan(
 		&v.ID, &v.ProjectID, &v.UserID,
-		&v.Version, &v.Filename, &v.Source, &parseOk, &createdAt,
+		&v.Version, &parseOk, &createdAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -340,15 +356,25 @@ func GetProjectCodeVersionByID(id string) (*ProjectCodeVersion, error) {
 	}
 	v.LastParseOk = parseOk != 0
 	v.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	if v.Files, err = loadCodeFiles(v.ID); err != nil {
+		return nil, err
+	}
 	return &v, nil
 }
 
-// ListProjectCodeVersions returns all versions for a project, newest first.
-// The full Source field is included so the diff tool can compare any two versions
-// without a second round-trip. This is the same pattern used by the blackbox list.
+// ListProjectCodeVersions returns all snapshots for a project, newest first,
+// each with its full file set — so the diff tool can compare any two versions
+// without a second round-trip (the same pattern the blackbox list uses).
+// One query per snapshot for the files is deliberate simplicity: version
+// history is a per-project list measured in dozens, not thousands; a batch
+// IN() loader is the obvious optimisation if that ever changes.
+//
+// Português: Todos os snapshots do projeto, do mais novo para o mais antigo,
+// cada um com seu conjunto de arquivos. Uma query por snapshot é
+// simplicidade deliberada — histórico se mede em dezenas.
 func ListProjectCodeVersions(projectID string) ([]*ProjectCodeVersion, error) {
 	rows, err := DB.Query(`
-		SELECT id, project_id, user_id, version, filename, source, last_parse_ok, created_at
+		SELECT id, project_id, user_id, version, last_parse_ok, created_at
 		FROM project_code_versions
 		WHERE project_id = ?
 		ORDER BY version DESC`, projectID)
@@ -364,7 +390,7 @@ func ListProjectCodeVersions(projectID string) ([]*ProjectCodeVersion, error) {
 		var parseOk int
 		if err := rows.Scan(
 			&v.ID, &v.ProjectID, &v.UserID,
-			&v.Version, &v.Filename, &v.Source, &parseOk, &createdAt,
+			&v.Version, &parseOk, &createdAt,
 		); err != nil {
 			return nil, err
 		}
@@ -372,7 +398,19 @@ func ListProjectCodeVersions(projectID string) ([]*ProjectCodeVersion, error) {
 		v.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 		versions = append(versions, &v)
 	}
-	return versions, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// File sets are loaded AFTER the version cursor is fully drained:
+	// SQLite (and several other engines) dislike a second query racing an
+	// open cursor on the same connection.
+	for _, v := range versions {
+		var fErr error
+		if v.Files, fErr = loadCodeFiles(v.ID); fErr != nil {
+			return nil, fErr
+		}
+	}
+	return versions, nil
 }
 
 // GetNextCodeVersionNumber returns MAX(version)+1 for the project.
@@ -503,7 +541,14 @@ func scanProjectRow(rows *sql.Rows) (*Project, error) {
 type LatestProjectCode struct {
 	ProjectID string
 	Name      string // project name — used as display name in the IDE
-	Source    string // Go source code from the latest project_code_versions row
+	// Files is the latest snapshot's complete file set, in tab order. The
+	// consumers hand it to bbparser.ParseForLanguageFiles — the C parser
+	// walks every file; the Go parser (single-file for now, see the parser
+	// dispatch doc) reads the one file it gets.
+	//
+	// Português: Conjunto de arquivos do snapshot mais recente, na ordem
+	// das abas, entregue direto ao parser multiarquivo.
+	Files []CodeFileEntry
 	// Language is the project's programming-language token, taken directly
 	// from projects.programming_language_id (e.g. "golang", "c"). The list
 	// endpoint dispatches the parser on this — a C99 source must be parsed
@@ -535,7 +580,7 @@ func ListLatestProjectCodeVersions(callerID string) ([]*LatestProjectCode, error
 	}
 
 	rows, err := DB.Query(`
-		SELECT p.id, p.name, p.programming_language_id, pcv.source
+		SELECT p.id, p.name, p.programming_language_id, pcv.id
 		FROM projects p
 		JOIN project_code_versions pcv ON pcv.project_id = p.id
 		  AND pcv.version = (
@@ -543,7 +588,10 @@ func ListLatestProjectCodeVersions(callerID string) ([]*LatestProjectCode, error
 		      FROM project_code_versions v2
 		      WHERE v2.project_id = p.id
 		  )
-		WHERE pcv.source != ''
+		WHERE EXISTS (
+		      SELECT 1 FROM project_code_files f
+		      WHERE f.version_id = pcv.id AND f.content != ''
+		  )
 		  AND p.user_id = ?
 		ORDER BY p.name ASC`, callerID)
 	if err != nil {
@@ -552,14 +600,28 @@ func ListLatestProjectCodeVersions(callerID string) ([]*LatestProjectCode, error
 	defer rows.Close()
 
 	var items []*LatestProjectCode
+	var versionIDs []string
 	for rows.Next() {
 		var item LatestProjectCode
-		if err := rows.Scan(&item.ProjectID, &item.Name, &item.Language, &item.Source); err != nil {
+		var versionID string
+		if err := rows.Scan(&item.ProjectID, &item.Name, &item.Language, &versionID); err != nil {
 			return nil, err
 		}
 		items = append(items, &item)
+		versionIDs = append(versionIDs, versionID)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Load file sets after the cursor is drained (see ListProjectCodeVersions
+	// for the rationale).
+	for i, id := range versionIDs {
+		var fErr error
+		if items[i].Files, fErr = loadCodeFiles(id); fErr != nil {
+			return nil, fErr
+		}
+	}
+	return items, nil
 }
 
 // ListAllLatestProjectCodeVersions returns the most recent code version for
@@ -571,7 +633,7 @@ func ListLatestProjectCodeVersions(callerID string) ([]*LatestProjectCode, error
 // would leak private source code if exposed.
 func ListAllLatestProjectCodeVersions() ([]*LatestProjectCode, error) {
 	rows, err := DB.Query(`
-		SELECT p.id, p.name, COALESCE(p.programming_language_id,''), pcv.source
+		SELECT p.id, p.name, COALESCE(p.programming_language_id,''), pcv.id
 		FROM projects p
 		JOIN project_code_versions pcv ON pcv.project_id = p.id
 		  AND pcv.version = (
@@ -579,7 +641,10 @@ func ListAllLatestProjectCodeVersions() ([]*LatestProjectCode, error) {
 		      FROM project_code_versions v2
 		      WHERE v2.project_id = p.id
 		  )
-		WHERE pcv.source != ''
+		WHERE EXISTS (
+		      SELECT 1 FROM project_code_files f
+		      WHERE f.version_id = pcv.id AND f.content != ''
+		  )
 		ORDER BY p.name ASC`)
 	if err != nil {
 		return nil, err
@@ -587,18 +652,30 @@ func ListAllLatestProjectCodeVersions() ([]*LatestProjectCode, error) {
 	defer rows.Close()
 
 	var items []*LatestProjectCode
+	var versionIDs []string
 	for rows.Next() {
 		var item LatestProjectCode
+		var versionID string
 		// Language rides along so callers can dispatch the right parser
 		// (ParseC for "c", the Go parser otherwise). Without it a C99
 		// black-box source is parsed as Go, fails, and is dropped — the
 		// exact reason C99 function-devices never reached codegen.
-		if err := rows.Scan(&item.ProjectID, &item.Name, &item.Language, &item.Source); err != nil {
+		if err := rows.Scan(&item.ProjectID, &item.Name, &item.Language, &versionID); err != nil {
 			return nil, err
 		}
 		items = append(items, &item)
+		versionIDs = append(versionIDs, versionID)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i, id := range versionIDs {
+		var fErr error
+		if items[i].Files, fErr = loadCodeFiles(id); fErr != nil {
+			return nil, fErr
+		}
+	}
+	return items, nil
 }
 
 // ─── Project Card ─────────────────────────────────────────────────────────────

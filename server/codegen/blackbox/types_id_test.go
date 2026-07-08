@@ -26,7 +26,8 @@ import (
 // some em silêncio. Este teste transforma essa falha em barulho.
 func TestBlackBoxDefID_SurvivesJSONRoundTrip(t *testing.T) {
 	defs := map[string]*BlackBoxDef{
-		"print_int": {ID: "3f9a2b1c", CodeID: "47", RawSource: "void print_int(int v) {}"},
+		"print_int": {ID: "3f9a2b1c", CodeID: "47",
+			Files: []FileEntry{{Path: "dev.c", Content: "void print_int(int v) {}"}}},
 	}
 
 	blob, err := json.Marshal(defs)

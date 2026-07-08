@@ -11,19 +11,21 @@
 //	project through the Save flow, but the upload flow is the
 //	"import existing .go file" case — for example, when a user has
 //	hand-written code outside the IDE that they want to bring in.
-//	Both paths share the same .go-only contract, and both write to
-//	the same code/ directory. These tests pin the upload-side guard.
+//	Both paths share the same snapshot contract (validateCodeFileSet,
+//	extension per language) and both mirror to the code/ directory.
 //
 // What's covered here that the unit tests can't reach:
 //
-//   - The .go-extension reject path: handleUploadCodeFile calls
-//     store.GetProjectByIDAndUser BEFORE inspecting the uploaded
-//     file's extension, so the .go check is unreachable in a no-DB
-//     test. Now that we have a DB, this case becomes testable.
-//   - Happy path: the file lands on disk under {basePath}/code/
-//     with the right name.
-//   - clearDirectory contract: a second upload replaces the first
-//     (the code/ directory is single-slot at any given moment).
+//   - The extension reject path: the language-aware check needs the
+//     project row, so it runs after GetProjectByIDAndUser — only
+//     reachable with a DB.
+//   - Happy path: a new SNAPSHOT is written (response {version,
+//     files}) and the mirror lands on disk with the right name.
+//   - Go replace semantics: Go is single-file by declared contract,
+//     so a second upload REPLACES the set — the single-slot intent
+//     of the pre-multi-file era, preserved where it is still true.
+//     (C projects add/replace BY PATH; pinned by the multi-file C
+//     round trip in code_files_integration_test.go.)
 package projectapi
 
 import (
@@ -60,17 +62,19 @@ func TestHandleUploadCodeFile_writesToDisk(t *testing.T) {
 			rec.Code, http.StatusOK, rec.Body.String())
 	}
 
-	// Response carries the saved name + a static-serving URL.
+	// Upload is "a save with a computed set": the response is the new
+	// SNAPSHOT ({version, files}), not the {name, url} of the
+	// disk-slot era.
 	var resp struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
+		Version int                   `json:"version"`
+		Files   []store.CodeFileEntry `json:"files"`
 	}
 	decodeOKData(t, rec, &resp)
-	if resp.Name != "imported.go" {
-		t.Errorf("response.name: got %q, want %q", resp.Name, "imported.go")
+	if resp.Version != 1 {
+		t.Errorf("response.version: got %d, want 1", resp.Version)
 	}
-	if resp.URL == "" {
-		t.Errorf("response.url is empty")
+	if len(resp.Files) != 1 || resp.Files[0].Path != "imported.go" {
+		t.Errorf("response.files: got %+v, want the one imported.go entry", resp.Files)
 	}
 
 	// The file actually lands on disk with the same bytes.
@@ -138,10 +142,11 @@ func TestHandleUploadCodeFile_rejectsNonGoExtension(t *testing.T) {
 
 // ─── Second upload replaces the first ─────────────────────────────────────────
 //
-// The handler calls clearDirectory before saving, so the code/
-// directory holds at most one .go file at a time. This pins that
-// contract — important because the IDE assumes the canonical-latest
-// file is whatever sits in code/.
+// Go is single-file by declared contract, so an upload REPLACES the
+// whole snapshot — the single-slot intent of the old clearDirectory
+// era, preserved for the language where it is still true. The mirror
+// on disk reflects it: only the newest file remains. (A C project
+// would ADD second.c beside first.c instead.)
 
 func TestHandleUploadCodeFile_secondUploadReplacesFirst(t *testing.T) {
 	setupTestDB(t)

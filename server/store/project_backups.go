@@ -18,6 +18,25 @@
 // Empty source is treated as "no backup": when the user clears the
 // editor, the row is deleted transparently so reopens don't restore
 // emptiness. See SaveProjectBackup.
+//
+// FORMAT (multi-file, Slice 6c-3): the Source column holds the WHOLE
+// working copy as a JSON blob — [{"path","content"},…] in tab order —
+// and Filename holds the ACTIVE tab's path. A JSON blob in a text
+// column would be wrong for a model of record (that's why versions got
+// a child table); backup is SCRATCH — one transient row, overwritten
+// constantly, never queried by content — and the blob is the honest
+// cheap shape for scratch. Encoding/decoding lives at the HTTP
+// boundary (handler/projectapi); this layer stays "a blob and a
+// label".
+//
+// Português: FORMATO (multiarquivo, 6c-3): Source guarda a cópia de
+// trabalho INTEIRA como blob JSON na ordem das abas; Filename guarda a
+// aba ATIVA. Blob em coluna de texto seria errado para modelo de
+// registro (por isso versões ganharam tabela filha); backup é RASCUNHO
+// — uma linha transitória, sobrescrita o tempo todo, nunca consultada
+// pelo conteúdo — e o blob é a forma honesta e barata para rascunho.
+// Codificação mora na borda HTTP; esta camada segue "um blob e um
+// rótulo".
 package store
 
 import (
@@ -27,11 +46,11 @@ import (
 	"time"
 )
 
-// ProjectBackup is the transient working-source snapshot for one project.
+// ProjectBackup is the transient working-copy snapshot for one project.
 type ProjectBackup struct {
 	ProjectID string
-	Source    string
-	Filename  string
+	Source    string // JSON blob of the file set (see FORMAT above)
+	Filename  string // active tab's path
 	UpdatedAt string // ISO 8601 / RFC3339
 }
 

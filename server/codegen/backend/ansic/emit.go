@@ -1837,7 +1837,7 @@ func outParamPortName(reg string) string {
 // A C99 device's implementation lives in the maker's own source (the parser
 // keeps signatures, not bodies), so main.c must carry it to be self-contained
 // and compilable. Only function-device defs (empty struct name) with a
-// non-empty RawSource are inlined; Go-path defs are re-emitted from
+// non-empty Files set are inlined; Go-path defs are re-emitted from
 // StructCode/MethodsCode elsewhere and skipped here. Output is sorted for
 // deterministic builds; duplicate standard-library `#include`s in the inlined
 // source are harmless (header-guarded).
@@ -1861,19 +1861,41 @@ func (e *cEmitter) deviceSources() string {
 	seen := make(map[string]bool)
 	var sources []string
 	for _, def := range e.prog.BlackBoxDefs {
-		if def == nil || def.Name != "" || def.RawSource == "" {
+		if def == nil || def.Name != "" || len(def.Files) == 0 {
 			continue // only C99 function-device sources
 		}
 		if def.ID != "" {
 			continue // has an identity → ships in its own folder (multi-file path)
 		}
-		if seen[def.RawSource] {
+		// Flatten the def's .c contents in tab order. Local authored
+		// headers cannot resolve inside a flattened main.c, so an
+		// identity-less def with more than one file is rejected by the
+		// export validator before emission; reaching here with several
+		// files means an unvalidated caller, and flattening the .c bodies
+		// is still the least-wrong output. Dedupe by the flattened text —
+		// several function names share one def (one source, many devices).
+		//
+		// Português: Achata os .c do def na ordem das abas. Headers locais
+		// não resolvem num main.c achatado, então def sem identidade com
+		// vários arquivos é barrado pelo validador antes daqui; dedupe pelo
+		// texto achatado (várias funções compartilham um def).
+		var body strings.Builder
+		for _, f := range def.Files {
+			if strings.HasSuffix(f.Path, ".c") {
+				body.WriteString(f.Content)
+				if !strings.HasSuffix(f.Content, "\n") {
+					body.WriteByte('\n')
+				}
+			}
+		}
+		flat := body.String()
+		if flat == "" || seen[flat] {
 			continue
 		}
-		seen[def.RawSource] = true
+		seen[flat] = true
 		// Prepend the author attribution directly above the inlined source so a
 		// reader sees whose code this block is (empty when there is no author).
-		sources = append(sources, blackbox.AuthorLine(def)+def.RawSource)
+		sources = append(sources, blackbox.AuthorLine(def)+flat)
 	}
 	if len(sources) == 0 {
 		return ""

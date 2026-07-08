@@ -153,6 +153,19 @@ func NewCSurface(def *BlackBoxDef, naming Naming) *CSurface {
 	for i := range def.CallbackTypes {
 		s.add(def.CallbackTypes[i].Name)
 	}
+	// External state variables join the RENAME set but never the header
+	// surface: rename-all, expose-some. Internal linkage across the
+	// specialist's files requires non-static symbols; renaming them keeps
+	// two boxes' internals from colliding in the maker's link, while the
+	// header stays a clean IDS contract. The Header() renderer reads the
+	// def's typed fields directly, so nothing here leaks into it.
+	//
+	// Português: Variáveis externas entram no conjunto de RENOMEAÇÃO, nunca
+	// na superfície do header (o Header lê os campos tipados do def):
+	// renomeia-se tudo que é externo, expõe-se só o contrato IDS.
+	for _, name := range def.ExternalNames {
+		s.add(name)
+	}
 	return s
 }
 
@@ -173,6 +186,16 @@ func (s *CSurface) ID() string { return s.def.ID }
 // Português: Token de identidade dos nomes (número curto ou fallback do id
 // completo). ID() é QUEM a caixa é; Code() é como os nomes se ESCREVEM.
 func (s *CSurface) Code() string { return s.code }
+
+// Files returns the authored snapshot this surface was parsed from, in tab
+// order — the emitter ships each entry into the box's folder (.c wrapped by
+// Preamble/Postamble, .h verbatim). A method, so the emitter never reaches
+// into the def directly.
+//
+// Português: O snapshot autoral de origem, na ordem das abas — o emitter
+// embarca cada entrada na pasta da caixa. Método para o emitter não tocar o
+// def direto.
+func (s *CSurface) Files() []FileEntry { return s.def.Files }
 
 // sortedNames returns the surface names in deterministic (sorted) order, so
 // the generated defines block is byte-stable across builds — same discipline

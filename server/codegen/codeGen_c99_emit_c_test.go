@@ -13,7 +13,7 @@ import (
 	"server/codegen/blackbox"
 )
 
-// c99AddDefsWithSource is c99AddDefs plus the authored C source on RawSource —
+// c99AddDefsWithSource is c99AddDefs plus the authored C source on Files —
 // the way store.LoadBlackBoxDefsForScene fills it for a C99 device, so the
 // backend can inline the implementation.
 func c99AddDefsWithSource() map[string]*blackbox.BlackBoxDef {
@@ -25,7 +25,7 @@ func c99AddDefsWithSource() map[string]*blackbox.BlackBoxDef {
 		"    return a + b;\n" +
 		"}\n"
 	def := &blackbox.BlackBoxDef{
-		RawSource: src,
+		Files: []blackbox.FileEntry{{Path: "dev.c", Content: src}},
 		Functions: []blackbox.NamedFuncDef{
 			{
 				Name: "add",

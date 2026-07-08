@@ -73,7 +73,7 @@ func sensorChainDefs(t *testing.T) map[string]*blackbox.BlackBoxDef {
 	if err != nil {
 		t.Fatalf("ParseC: %v", err)
 	}
-	def.RawSource = sensorSrcC99
+	def.Files = []blackbox.FileEntry{{Path: "dev.c", Content: sensorSrcC99}}
 	return map[string]*blackbox.BlackBoxDef{
 		"sensor_create":  def,
 		"sensor_read":    def,

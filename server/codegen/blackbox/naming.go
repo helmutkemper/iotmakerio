@@ -207,12 +207,6 @@ func (n Naming) SourceDir(code string) string {
 	return n.Radical() + code
 }
 
-// SourceName returns the C source filename inside SourceDir(code):
-// radical + code + ".c". Example: code "47" → "iotm_47.c".
-func (n Naming) SourceName(code string) string {
-	return n.Radical() + code + ".c"
-}
-
 // HeaderName returns the generated header filename inside SourceDir(code):
 // radical + code + ".h". main.c includes it (as "iotm_47/iotm_47.h") — it is
 // main.c's ONLY view of the black-box. The bb unit itself never includes it:

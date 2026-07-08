@@ -21,7 +21,6 @@ func TestNaming_Family(t *testing.T) {
 	}{
 		{"symbol prefix", def, "47", "iotm_47_", Naming.SymbolPrefix},
 		{"source dir", def, "47", "iotm_47", Naming.SourceDir},
-		{"source name", def, "47", "iotm_47.c", Naming.SourceName},
 		{"header name", def, "47", "iotm_47.h", Naming.HeaderName},
 		{"guard", def, "47", "IOTM_47_H", Naming.Guard},
 		// Custom radical moves the whole family.

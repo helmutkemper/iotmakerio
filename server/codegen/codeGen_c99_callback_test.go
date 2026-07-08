@@ -25,7 +25,7 @@ import (
 // At the IR level: exactly one BB_CALL (fn=setDisplay); none for the handler.
 
 // c99CallbackDefs parses the authored source the way
-// store.LoadBlackBoxDefsForScene does (ParseC → set RawSource → key every
+// store.LoadBlackBoxDefsForScene does (ParseCFiles → def.Files carries the snapshot → key every
 // function name to the same def), so the test exercises the real parser
 // contract (HandlerType, CallbackMode, and the consumer input's
 // port.CallbackType) rather than a hand-built def that could drift from the
@@ -54,7 +54,7 @@ func c99CallbackDefs(t *testing.T) map[string]*blackbox.BlackBoxDef {
 	if err != nil {
 		t.Fatalf("ParseC: %v", err)
 	}
-	def.RawSource = src
+	def.Files = []blackbox.FileEntry{{Path: "dev.c", Content: src}}
 
 	defs := make(map[string]*blackbox.BlackBoxDef, len(def.Functions))
 	for i := range def.Functions {

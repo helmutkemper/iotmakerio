@@ -2,35 +2,32 @@
 // SPDX-FileCopyrightText: 2026 Helmut Kemper
 // SPDX-License-Identifier: AGPL-3.0-only
 // Integration tests for the handlers that persist codegen output:
-// save, get, list, rename of code versions.
+// save, get, list, rename of code SNAPSHOTS.
 //
 // Why this file is codegen-relevant:
 //
-//	The codegen pipeline emits Go source. The IDE saves that source
-//	through handleSaveCodeVersion, reads it back via handleGetCodeFile
-//	on project open, and lets the user rename the file via
-//	handleRenameCodeFile. Together these handlers are the persistence
-//	contract that the codegen output flows through. This file pins
-//	the contract end-to-end against a real DB and a real disk.
+//	A project's source is a snapshot — a SET of files saved atomically
+//	as one version (see store/project_code_files.go for the model).
+//	The IDE saves through handleSaveCodeVersion, reads back via
+//	handleGetCodeFile on project open, and mutates the set through the
+//	rename/upload/delete endpoints, all of which are "a save with a
+//	computed set". This file pins that contract end-to-end against a
+//	real DB and a real disk mirror.
 //
 // What's covered here that the unit tests can't reach:
 //
-//   - Save → Get round trip: a successful POST creates a DB row,
-//     writes the .go file under {basePath}/code/, and a subsequent
-//     GET returns the same source plus version metadata.
+//   - Save → Get round trip (Go, single file): DB row set, disk
+//     mirror, GET response shape.
+//   - Multi-file C round trip: the slice-6 flagship — header + two
+//     .c (one nested), order preserved, nested mirror path on disk.
+//   - Verbatim contract: trailing newline survives byte-exact.
+//   - Version monotonicity over snapshots.
+//   - Rename as a new snapshot (DB is truth; mirror follows).
+//   - Ownership isolation (foreign token → 404).
 //
-//   - Default filename: when the request omits "filename", the
-//     handler stores it as "main.go" (the unit test could only see
-//     this default applied if it could pass through the DB call,
-//     which requires a real DB).
-//
-//   - Version monotonic increment: two sequential saves produce
-//     versions 1 and 2 in that order. The DB UNIQUE(project_id,
-//     version) constraint must not race the GetNextCodeVersionNumber
-//     helper.
-//
-//   - Rename: a saved code file is moved to a new name on disk and
-//     reported back to the client.
+// Português: A fonte de um projeto é um snapshot — conjunto salvo
+// atômico como uma versão. Este arquivo fixa o contrato ponta-a-ponta
+// contra DB e disco reais; o carro-chefe é o round-trip C multiarquivo.
 package projectapi
 
 import (
@@ -44,7 +41,16 @@ import (
 	"server/store"
 )
 
-// ─── Save → Get round trip ────────────────────────────────────────────────────
+// fileBody builds the save request body in the snapshot shape.
+func fileBody(entries ...store.CodeFileEntry) map[string]any {
+	files := make([]map[string]any, len(entries))
+	for i, e := range entries {
+		files[i] = map[string]any{"path": e.Path, "content": e.Content}
+	}
+	return map[string]any{"files": files}
+}
+
+// ─── Save → Get round trip (Go, single file) ──────────────────────────────────
 
 func TestHandleSaveCodeVersion_persistsAndIsReadBack(t *testing.T) {
 	setupTestDB(t)
@@ -54,21 +60,10 @@ func TestHandleSaveCodeVersion_persistsAndIsReadBack(t *testing.T) {
 	token := newTestUserToken(t, userID)
 	projectID := seedProjectDirect(t, userID, "Cycle Project")
 
-	// ── Save a first version ────────────────────────────────────────────────
-	// Source is intentionally written WITHOUT a trailing newline because
-	// handleSaveCodeVersion calls strings.TrimSpace on req.Source before
-	// persisting (handlers.go ~L547). Sending a trim-clean string keeps
-	// this test focused on the round-trip rather than the trim semantics.
-	// If you want to pin the trim behaviour itself, do it in a dedicated
-	// test rather than here.
 	const source1 = "package main\n\nfunc main() {}"
-	saveBody := map[string]any{
-		"source":   source1,
-		"filename": "blink.go",
-	}
 	req := authedJSONRequest(t, http.MethodPost,
 		"/api/v1/projects/"+projectID+"/files/code/versions",
-		token, saveBody)
+		token, fileBody(store.CodeFileEntry{Path: "blink.go", Content: source1}))
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
@@ -77,22 +72,22 @@ func TestHandleSaveCodeVersion_persistsAndIsReadBack(t *testing.T) {
 			rec.Code, http.StatusOK, rec.Body.String())
 	}
 	var saved struct {
-		ID       string `json:"id"`
-		Version  int    `json:"version"`
-		Filename string `json:"filename"`
+		ID      string                `json:"id"`
+		Version int                   `json:"version"`
+		Files   []store.CodeFileEntry `json:"files"`
 	}
 	decodeOKData(t, rec, &saved)
 	if saved.Version != 1 {
 		t.Errorf("saved.version: got %d, want 1", saved.Version)
 	}
-	if saved.Filename != "blink.go" {
-		t.Errorf("saved.filename: got %q, want %q", saved.Filename, "blink.go")
+	if len(saved.Files) != 1 || saved.Files[0].Path != "blink.go" {
+		t.Errorf("saved.files: got %+v, want the one blink.go entry", saved.Files)
 	}
 	if saved.ID == "" {
 		t.Errorf("saved.id is empty")
 	}
 
-	// ── Verify the file landed on disk ──────────────────────────────────────
+	// ── Verify the mirror landed on disk ────────────────────────────────────
 	cfg := config.Get()
 	codeDir := filepath.Join(
 		projectBasePath(cfg, userID, store.ProjectTypeCustomDevice, projectID),
@@ -106,7 +101,7 @@ func TestHandleSaveCodeVersion_persistsAndIsReadBack(t *testing.T) {
 		t.Errorf("disk content drift:\n got: %q\nwant: %q", string(got), source1)
 	}
 
-	// ── GET the code file via the handler ───────────────────────────────────
+	// ── GET the snapshot via the handler ────────────────────────────────────
 	req = authedJSONRequest(t, http.MethodGet,
 		"/api/v1/projects/"+projectID+"/files/code", token, nil)
 	rec = httptest.NewRecorder()
@@ -117,38 +112,92 @@ func TestHandleSaveCodeVersion_persistsAndIsReadBack(t *testing.T) {
 			rec.Code, http.StatusOK, rec.Body.String())
 	}
 	var fetched struct {
-		Source   string `json:"source"`
-		Version  int    `json:"version"`
-		Filename string `json:"filename"`
+		Files    []store.CodeFileEntry `json:"files"`
+		Version  int                   `json:"version"`
 		Versions []struct {
 			ID      string `json:"id"`
 			Version int    `json:"version"`
 		} `json:"versions"`
 	}
 	decodeOKData(t, rec, &fetched)
-	if fetched.Source != source1 {
-		t.Errorf("fetched.source drift:\n got: %q\nwant: %q",
-			fetched.Source, source1)
+	if len(fetched.Files) != 1 || fetched.Files[0].Content != source1 {
+		t.Errorf("fetched.files drift: got %+v", fetched.Files)
 	}
 	if fetched.Version != 1 {
 		t.Errorf("fetched.version: got %d, want 1", fetched.Version)
-	}
-	if fetched.Filename != "blink.go" {
-		t.Errorf("fetched.filename: got %q, want %q", fetched.Filename, "blink.go")
 	}
 	if len(fetched.Versions) != 1 {
 		t.Errorf("fetched.versions length: got %d, want 1", len(fetched.Versions))
 	}
 }
 
+// ─── Multi-file C round trip — the slice-6 flagship ───────────────────────────
+//
+// A C project saves a real specialist layout: public header, core unit,
+// nested util unit. The contract under test: order preserved (tab order
+// IS snapshot order), every entry byte-exact on read-back, and the disk
+// mirror reproduces the NESTED relative path.
+
+func TestHandleSaveCodeVersion_multiFileCRoundTrip(t *testing.T) {
+	setupTestDB(t)
+	e := newProjectsEcho()
+
+	const userID = "u-multifile-c"
+	token := newTestUserToken(t, userID)
+	projectID := seedProjectDirectLang(t, userID, "Probe Device", "c")
+
+	snapshot := []store.CodeFileEntry{
+		{Path: "api.h", Content: "typedef struct probe { int fd; } probe_t;\n"},
+		{Path: "core.c", Content: "#include \"api.h\"\nint probe_read(probe_t *p) { return util_clamp(p->fd); }\n"},
+		{Path: "util/helpers.c", Content: "int g_probe_bias = 0;\nint util_clamp(int v) { return v + g_probe_bias; }\n"},
+	}
+	req := authedJSONRequest(t, http.MethodPost,
+		"/api/v1/projects/"+projectID+"/files/code/versions",
+		token, fileBody(snapshot...))
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save: got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	// Read back: same set, same ORDER, same bytes.
+	latest, err := store.GetLatestProjectCodeVersion(projectID)
+	if err != nil {
+		t.Fatalf("GetLatestProjectCodeVersion: %v", err)
+	}
+	if len(latest.Files) != len(snapshot) {
+		t.Fatalf("snapshot size: got %d, want %d", len(latest.Files), len(snapshot))
+	}
+	for i := range snapshot {
+		if latest.Files[i].Path != snapshot[i].Path {
+			t.Errorf("order drift at %d: got %q, want %q",
+				i, latest.Files[i].Path, snapshot[i].Path)
+		}
+		if latest.Files[i].Content != snapshot[i].Content {
+			t.Errorf("content drift at %q", snapshot[i].Path)
+		}
+	}
+
+	// Disk mirror reproduces the nested relative path.
+	cfg := config.Get()
+	codeDir := filepath.Join(
+		projectBasePath(cfg, userID, store.ProjectTypeCustomDevice, projectID),
+		store.ProjectFileSectionCode,
+	)
+	got, err := os.ReadFile(filepath.Join(codeDir, "util", "helpers.c"))
+	if err != nil {
+		t.Fatalf("nested mirror path missing: %v", err)
+	}
+	if string(got) != snapshot[2].Content {
+		t.Errorf("nested mirror drift: got %q", string(got))
+	}
+}
+
 // ─── Trailing newline survives the round trip ─────────────────────────────────
 //
-// gofmt-formatted Go source always ends with '\n'. The handler must
-// not mutate req.Source — otherwise every save strips one byte and
-// the next open shows an unprovoked diff against the user's local
-// copy. This test pins the verbatim contract: what comes in goes
-// out exactly, including leading/trailing whitespace as part of the
-// payload (whitespace-only is still 400 — see the unit tests).
+// gofmt-formatted Go source always ends with '\n'. The handler must not
+// mutate contents — only PATHS are trimmed — otherwise every save strips
+// one byte and the next open shows an unprovoked diff.
 
 func TestHandleSaveCodeVersion_preservesTrailingNewline(t *testing.T) {
 	setupTestDB(t)
@@ -162,7 +211,7 @@ func TestHandleSaveCodeVersion_preservesTrailingNewline(t *testing.T) {
 
 	req := authedJSONRequest(t, http.MethodPost,
 		"/api/v1/projects/"+projectID+"/files/code/versions",
-		token, map[string]any{"source": source, "filename": "main.go"})
+		token, fileBody(store.CodeFileEntry{Path: "main.go", Content: source}))
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -180,75 +229,25 @@ func TestHandleSaveCodeVersion_preservesTrailingNewline(t *testing.T) {
 		t.Fatalf("read main.go: %v", err)
 	}
 	if string(got) != source {
-		t.Errorf("disk content drift (handler is mutating source):\n got: %q\nwant: %q",
+		t.Errorf("disk content drift (handler is mutating content):\n got: %q\nwant: %q",
 			string(got), source)
 	}
 
-	// DB version row: source field must match exactly too.
+	// DB row set: content must match exactly too.
 	latest, err := store.GetLatestProjectCodeVersion(projectID)
 	if err != nil {
 		t.Fatalf("GetLatestProjectCodeVersion: %v", err)
 	}
-	if latest.Source != source {
-		t.Errorf("DB row source drift:\n got: %q\nwant: %q",
-			latest.Source, source)
-	}
-}
-
-// ─── Default filename ─────────────────────────────────────────────────────────
-//
-// When the client omits "filename", the handler must default to
-// "main.go". This is the path the codegen UI exercises on the very
-// first save of a new project — the IDE doesn't always know what
-// to call the file yet.
-
-func TestHandleSaveCodeVersion_defaultsFilenameToMainGo(t *testing.T) {
-	setupTestDB(t)
-	e := newProjectsEcho()
-
-	const userID = "u-default-filename"
-	token := newTestUserToken(t, userID)
-	projectID := seedProjectDirect(t, userID, "Default Filename Project")
-
-	saveBody := map[string]any{
-		"source": "package main\n",
-		// filename omitted on purpose
-	}
-	req := authedJSONRequest(t, http.MethodPost,
-		"/api/v1/projects/"+projectID+"/files/code/versions",
-		token, saveBody)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("save: got %d, want %d. body: %s",
-			rec.Code, http.StatusOK, rec.Body.String())
-	}
-	var saved struct {
-		Filename string `json:"filename"`
-	}
-	decodeOKData(t, rec, &saved)
-	if saved.Filename != "main.go" {
-		t.Errorf("saved.filename: got %q, want %q (the documented default)",
-			saved.Filename, "main.go")
-	}
-
-	// Confirm the file actually has that name on disk too.
-	cfg := config.Get()
-	codeDir := filepath.Join(
-		projectBasePath(cfg, userID, store.ProjectTypeCustomDevice, projectID),
-		store.ProjectFileSectionCode,
-	)
-	if _, err := os.Stat(filepath.Join(codeDir, "main.go")); err != nil {
-		t.Errorf("main.go missing on disk: %v", err)
+	if len(latest.Files) != 1 || latest.Files[0].Content != source {
+		t.Errorf("DB snapshot drift: got %+v", latest.Files)
 	}
 }
 
 // ─── Version monotonicity ─────────────────────────────────────────────────────
 //
-// Two sequential saves produce versions 1 and 2. The disk file is
-// overwritten — the project's code/ directory is canonical-latest,
-// and the version history lives in the DB.
+// Two sequential saves produce snapshots 1 and 2. The disk mirror is
+// overwritten — the code/ directory is canonical-latest; the snapshot
+// history lives in the DB.
 
 func TestHandleSaveCodeVersion_versionsMonotonicallyIncrement(t *testing.T) {
 	setupTestDB(t)
@@ -262,7 +261,7 @@ func TestHandleSaveCodeVersion_versionsMonotonicallyIncrement(t *testing.T) {
 		t.Helper()
 		req := authedJSONRequest(t, http.MethodPost,
 			"/api/v1/projects/"+projectID+"/files/code/versions",
-			token, map[string]any{"source": source, "filename": "main.go"})
+			token, fileBody(store.CodeFileEntry{Path: "main.go", Content: source}))
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
@@ -282,13 +281,16 @@ func TestHandleSaveCodeVersion_versionsMonotonicallyIncrement(t *testing.T) {
 		t.Errorf("second save version: got %d, want 2", v)
 	}
 
-	// And the DB reflects two version rows.
+	// The DB reflects two snapshot rows, each with its own file set.
 	versions, err := store.ListProjectCodeVersions(projectID)
 	if err != nil {
 		t.Fatalf("ListProjectCodeVersions: %v", err)
 	}
 	if len(versions) != 2 {
 		t.Fatalf("DB version count: got %d, want 2", len(versions))
+	}
+	if len(versions[0].Files) != 1 || versions[0].Files[0].Content != "package main // v2" {
+		t.Errorf("latest snapshot drift: got %+v", versions[0].Files)
 	}
 
 	// Disk still has only the latest.
@@ -307,8 +309,12 @@ func TestHandleSaveCodeVersion_versionsMonotonicallyIncrement(t *testing.T) {
 }
 
 // ─── Rename ───────────────────────────────────────────────────────────────────
+//
+// A rename is "a save with one path changed": it produces a NEW snapshot
+// (the DB is the source of truth) and the disk mirror follows. The old
+// pre-write-a-loose-disk-file semantics died with the disk-as-truth era.
 
-func TestHandleRenameCodeFile_movesFileOnDisk(t *testing.T) {
+func TestHandleRenameCodeFile_createsRenamedSnapshot(t *testing.T) {
 	setupTestDB(t)
 	e := newProjectsEcho()
 
@@ -316,23 +322,21 @@ func TestHandleRenameCodeFile_movesFileOnDisk(t *testing.T) {
 	token := newTestUserToken(t, userID)
 	projectID := seedProjectDirect(t, userID, "Rename Project")
 
-	// Pre-write a code file on disk so rename has something to move.
-	cfg := config.Get()
-	codeDir := filepath.Join(
-		projectBasePath(cfg, userID, store.ProjectTypeCustomDevice, projectID),
-		store.ProjectFileSectionCode,
-	)
 	const source = "package main\n"
-	oldPath := filepath.Join(codeDir, "old.go")
-	if err := os.WriteFile(oldPath, []byte(source), 0644); err != nil {
-		t.Fatalf("write old.go: %v", err)
+	req := authedJSONRequest(t, http.MethodPost,
+		"/api/v1/projects/"+projectID+"/files/code/versions",
+		token, fileBody(store.CodeFileEntry{Path: "old.go", Content: source}))
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("seed save: got %d, body: %s", rec.Code, rec.Body.String())
 	}
 
 	// Rename via the handler.
-	req := authedJSONRequest(t, http.MethodPut,
+	req = authedJSONRequest(t, http.MethodPut,
 		"/api/v1/projects/"+projectID+"/files/code/rename",
 		token, map[string]any{"newName": "new.go"})
-	rec := httptest.NewRecorder()
+	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -340,16 +344,28 @@ func TestHandleRenameCodeFile_movesFileOnDisk(t *testing.T) {
 			rec.Code, http.StatusOK, rec.Body.String())
 	}
 	var resp struct {
-		Name string `json:"name"`
+		Version int                   `json:"version"`
+		Files   []store.CodeFileEntry `json:"files"`
 	}
 	decodeOKData(t, rec, &resp)
-	if resp.Name != "new.go" {
-		t.Errorf("response.name: got %q, want %q", resp.Name, "new.go")
+	if resp.Version != 2 {
+		t.Errorf("rename must create a NEW snapshot: version got %d, want 2", resp.Version)
+	}
+	if len(resp.Files) != 1 || resp.Files[0].Path != "new.go" {
+		t.Errorf("response.files: got %+v, want the renamed entry", resp.Files)
+	}
+	if resp.Files[0].Content != source {
+		t.Errorf("rename must not touch content: got %q", resp.Files[0].Content)
 	}
 
 	// On disk: old gone, new present with same content.
-	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
-		t.Errorf("old.go should be gone; stat err = %v", err)
+	cfg := config.Get()
+	codeDir := filepath.Join(
+		projectBasePath(cfg, userID, store.ProjectTypeCustomDevice, projectID),
+		store.ProjectFileSectionCode,
+	)
+	if _, err := os.Stat(filepath.Join(codeDir, "old.go")); !os.IsNotExist(err) {
+		t.Errorf("old.go should be gone from the mirror; stat err = %v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(codeDir, "new.go"))
 	if err != nil {
@@ -361,11 +377,6 @@ func TestHandleRenameCodeFile_movesFileOnDisk(t *testing.T) {
 }
 
 // ─── Ownership: foreign user cannot save into someone else's project ─────────
-//
-// projectapi/routes.go documents user_id as the scoping key. A token
-// belonging to user B must NOT be able to write to user A's project.
-// The DB ownership check (store.GetProjectByIDAndUser) is what
-// enforces this — the test pins it.
 
 func TestHandleSaveCodeVersion_rejectsForeignUser(t *testing.T) {
 	setupTestDB(t)
@@ -380,7 +391,7 @@ func TestHandleSaveCodeVersion_rejectsForeignUser(t *testing.T) {
 	req := authedJSONRequest(t, http.MethodPost,
 		"/api/v1/projects/"+projectID+"/files/code/versions",
 		tokenIntruder,
-		map[string]any{"source": "package main\n", "filename": "main.go"})
+		fileBody(store.CodeFileEntry{Path: "main.go", Content: "package main\n"}))
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 

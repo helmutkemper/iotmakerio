@@ -531,13 +531,14 @@ func LoadBlackBoxDefsForScene(sceneJSON []byte) (map[string]*bbparser.BlackBoxDe
 	projectVersions, err := ListAllLatestProjectCodeVersions()
 	if err == nil {
 		for _, pv := range projectVersions {
-			if pv.Source == "" {
+			if len(pv.Files) == 0 {
 				continue
 			}
-			// Dispatch on the project's language: a C99 source must be parsed
-			// by ParseC, not the Go parser. ParseForLanguage routes ""/"go"/
-			// "golang" → Go parser and "c"/"c99" → ParseC.
-			def, parseErr := bbparser.ParseForLanguage(pv.Language, []byte(pv.Source), limits)
+			// Dispatch on the project's language: a C99 snapshot must be
+			// parsed by ParseCFiles (walks every file and merges), not the
+			// Go parser. ParseForLanguageFiles routes ""/"go"/"golang" →
+			// Go parser (single file for now) and "c"/"c99" → ParseCFiles.
+			def, parseErr := bbparser.ParseForLanguageFiles(pv.Language, toParserFiles(pv.Files), limits)
 			if parseErr != nil || def == nil {
 				continue
 			}
@@ -579,10 +580,16 @@ func LoadBlackBoxDefsForScene(sceneJSON []byte) (map[string]*bbparser.BlackBoxDe
 			// backend can resolve the "<fn>" in "BlackBox<fn>:". Multiple
 			// function-devices from one source share the same *def pointer.
 			//
-			// Carry the verbatim source so the ANSI C backend can inline the
-			// authored functions into main.c (the parsed metadata has
-			// signatures, not bodies). See BlackBoxDef.RawSource.
-			def.RawSource = pv.Source
+			// The authored snapshot already rides on the def: the
+			// multi-file parser set def.Files from the same pv.Files it
+			// parsed (see BlackBoxDef.Files) — the ANSI C backend ships
+			// those verbatim into the box's folder. Nothing to stitch here
+			// anymore; the parse INPUT is the carrier.
+			//
+			// Português: O snapshot autoral já viaja no def — o parser
+			// multiarquivo preencheu def.Files do mesmo pv.Files que
+			// parseou. Nada a costurar aqui; a ENTRADA do parse é o
+			// portador.
 			for i := range def.Functions {
 				if neededFuncs[def.Functions[i].Name] {
 					defs[def.Functions[i].Name] = def
@@ -747,4 +754,24 @@ func queryDeviceSummaries(query string, args ...any) ([]DeviceSummary, error) {
 		list = []DeviceSummary{}
 	}
 	return list, rows.Err()
+}
+
+// toParserFiles converts the store's snapshot entries into the parser's
+// FileEntry shape. Two types on purpose: the store row carries persistence
+// concerns (Sort) the parser must not know about, and the parser's contract
+// must not chase the database schema. The copy is the boundary.
+//
+// Português: Converte as entradas do snapshot para o shape do parser. Dois
+// tipos de propósito: a linha do store carrega preocupações de persistência
+// (Sort) que o parser não deve conhecer. A cópia é a fronteira.
+// ToParserFiles is the exported spelling for handler-side callers (the IDE
+// catalog builds defs from LatestProjectCode outside this package).
+func ToParserFiles(files []CodeFileEntry) []bbparser.FileEntry { return toParserFiles(files) }
+
+func toParserFiles(files []CodeFileEntry) []bbparser.FileEntry {
+	out := make([]bbparser.FileEntry, len(files))
+	for i, f := range files {
+		out[i] = bbparser.FileEntry{Path: f.Path, Content: f.Content}
+	}
+	return out
 }

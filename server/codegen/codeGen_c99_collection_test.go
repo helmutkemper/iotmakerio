@@ -62,9 +62,9 @@ func mixerC99Defs(t *testing.T) map[string]*blackbox.BlackBoxDef {
 	if err != nil {
 		t.Fatalf("ParseC failed: %v", err)
 	}
-	// The store fills RawSource when loading defs for a scene so the C
+	// The parser carries the authored snapshot on def.Files so the C
 	// backend can inline the implementation; mirror that here.
-	def.RawSource = mixerC99Source
+	def.Files = []blackbox.FileEntry{{Path: "dev.c", Content: mixerC99Source}}
 	return map[string]*blackbox.BlackBoxDef{"mixer_run": def}
 }
 

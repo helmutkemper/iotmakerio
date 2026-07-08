@@ -118,6 +118,7 @@ import {
     projCloseEditor,
     projParse,
     projSave,
+    projRenameActiveTab,
     projSaveBackup,
     projUpdateParseBtnState,
     projOpenFileManager,
@@ -266,7 +267,7 @@ Object.assign(window, {
 
     // projects — Go code editor
     openCodeEditor, projCloseEditor,
-    projParse, projSave, projSaveBackup, projUpdateParseBtnState,
+    projParse, projSave, projRenameActiveTab, projSaveBackup, projUpdateParseBtnState,
     projOpenFileManager,
     projOpenExportFlow, projExportRun,
     projReset, projSetTab,

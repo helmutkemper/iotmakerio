@@ -50,11 +50,16 @@ func TestHandleSaveCodeBackup_persistsAndIsReadBack(t *testing.T) {
 	token := newTestUserToken(t, userID)
 	projectID := seedProjectDirect(t, userID, "Backup Cycle Project")
 
-	// Save a backup.
+	// Save a backup of a MULTI-tab working copy — the whole point of
+	// the 6c-3 shape: a crash must not eat the siblings of the active
+	// tab, and recovery must know which tab the user was on.
 	const source = "package main // mid-edit, not yet saved"
 	saveBody := map[string]any{
-		"source":   source,
-		"filename": "main.go",
+		"files": []map[string]any{
+			{"path": "main.go", "content": source},
+			{"path": "notes.go", "content": "package main // second tab"},
+		},
+		"activePath": "notes.go",
 	}
 	req := authedJSONRequest(t, http.MethodPost,
 		"/api/v1/projects/"+projectID+"/files/code/backup",
@@ -76,15 +81,18 @@ func TestHandleSaveCodeBackup_persistsAndIsReadBack(t *testing.T) {
 		t.Fatalf("get: got %d, body: %s", rec.Code, rec.Body.String())
 	}
 	var got struct {
-		Source   string `json:"source"`
-		Filename string `json:"filename"`
+		Files      []store.CodeFileEntry `json:"files"`
+		ActivePath string                `json:"activePath"`
 	}
 	decodeOKData(t, rec, &got)
-	if got.Source != source {
-		t.Errorf("source drift:\n got: %q\nwant: %q", got.Source, source)
+	if len(got.Files) != 2 || got.Files[0].Content != source {
+		t.Errorf("files drift: %+v", got.Files)
 	}
-	if got.Filename != "main.go" {
-		t.Errorf("filename: got %q, want %q", got.Filename, "main.go")
+	if got.Files[1].Path != "notes.go" {
+		t.Errorf("tab order drift: %+v", got.Files)
+	}
+	if got.ActivePath != "notes.go" {
+		t.Errorf("activePath: got %q, want notes.go", got.ActivePath)
 	}
 }
 
@@ -107,7 +115,7 @@ func TestHandleSaveCodeBackup_emptySourceDeletesExistingRow(t *testing.T) {
 	// Seed a non-empty backup first.
 	req := authedJSONRequest(t, http.MethodPost,
 		"/api/v1/projects/"+projectID+"/files/code/backup", token,
-		map[string]any{"source": "package main", "filename": "main.go"})
+		map[string]any{"files": []map[string]any{{"path": "main.go", "content": "package main"}}, "activePath": "main.go"})
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -117,7 +125,7 @@ func TestHandleSaveCodeBackup_emptySourceDeletesExistingRow(t *testing.T) {
 	// Now save with whitespace-only source — should delete the row.
 	req = authedJSONRequest(t, http.MethodPost,
 		"/api/v1/projects/"+projectID+"/files/code/backup", token,
-		map[string]any{"source": "   \n\t\n  ", "filename": "main.go"})
+		map[string]any{"files": []map[string]any{{"path": "main.go", "content": "   \n\t\n  "}}, "activePath": "main.go"})
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -148,7 +156,7 @@ func TestHandleDeleteCodeBackup_clearsExistingRow(t *testing.T) {
 	// Seed a backup.
 	req := authedJSONRequest(t, http.MethodPost,
 		"/api/v1/projects/"+projectID+"/files/code/backup", token,
-		map[string]any{"source": "package main", "filename": "main.go"})
+		map[string]any{"files": []map[string]any{{"path": "main.go", "content": "package main"}}, "activePath": "main.go"})
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -248,7 +256,7 @@ func TestHandleSaveCodeVersion_clearsBackupAfterSave(t *testing.T) {
 	// Seed a backup.
 	req := authedJSONRequest(t, http.MethodPost,
 		"/api/v1/projects/"+projectID+"/files/code/backup", token,
-		map[string]any{"source": "package main // mid-edit", "filename": "main.go"})
+		map[string]any{"files": []map[string]any{{"path": "main.go", "content": "package main // mid-edit"}}, "activePath": "main.go"})
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -264,7 +272,7 @@ func TestHandleSaveCodeVersion_clearsBackupAfterSave(t *testing.T) {
 	// side effect.
 	req = authedJSONRequest(t, http.MethodPost,
 		"/api/v1/projects/"+projectID+"/files/code/versions", token,
-		map[string]any{"source": "package main // saved", "filename": "main.go"})
+		map[string]any{"files": []map[string]any{{"path": "main.go", "content": "package main // saved"}}})
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

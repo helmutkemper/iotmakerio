@@ -670,6 +670,19 @@ func parseDevicesFromZip(zipBytes []byte, limits bbparser.ParserLimits, owner, r
 			warnings = append(warnings, fmt.Sprintf("%s: %v", cleanPath, parseErr))
 		}
 		if def != nil {
+			// One representation everywhere: the def carries its authored
+			// source as a Files snapshot even on the single-file GitHub
+			// path — the marketplace flow is simply the one-entry case.
+			// The Go backend re-emits from StructCode/MethodsCode and
+			// ignores Files; carrying it costs nothing and keeps every
+			// def shaped the same for tools that read parsed_json.
+			//
+			// Português: Uma representação só: o def carrega o fonte como
+			// snapshot Files mesmo no caminho GitHub de arquivo único — o
+			// marketplace é o caso de uma entrada. O backend Go re-emite
+			// de StructCode e ignora Files; carregar não custa nada e
+			// mantém todo def com o mesmo formato.
+			def.Files = []bbparser.FileEntry{{Path: cleanPath, Content: string(src)}}
 			def.Help = help
 
 			// Resolve the interactive: directive to a public URL.

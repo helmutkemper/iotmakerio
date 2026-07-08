@@ -39,7 +39,12 @@ const (
 	KindMissingCondition    = "missing_condition"
 	KindBlackBoxDefMissing  = "blackbox_def_missing"
 	KindUnsupportedLanguage = "unsupported_language"
-	KindEmitterInternal     = "emitter_internal"
+	// KindBlackBoxFilesInvalid marks an authored device file set that
+	// cannot ship: hostile path, missing .c, authored main(), collision
+	// with the generated header, or a multi-file def without identity.
+	// Rules in codegen/bbfiles_validate.go.
+	KindBlackBoxFilesInvalid = "blackbox_files_invalid"
+	KindEmitterInternal      = "emitter_internal"
 
 	// KindCancelled — codegen was cancelled by the caller (typically
 	// because the user closed the IDE tab or clicked Cancel on the

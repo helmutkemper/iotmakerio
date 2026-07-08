@@ -19,13 +19,13 @@
 //
 //	GET    /api/v1/projects/:id/files              — list all files grouped by section
 //
-//	GET    /api/v1/projects/:id/files/code         — get latest code + version list
-//	POST   /api/v1/projects/:id/files/code         — upload code file (multipart)
-//	DELETE /api/v1/projects/:id/files/code         — delete code file from disk
-//	PUT    /api/v1/projects/:id/files/code/rename  — rename code file
+//	GET    /api/v1/projects/:id/files/code         — get latest snapshot {files[]} + version list
+//	POST   /api/v1/projects/:id/files/code         — upload: add/replace ONE file in a new snapshot (multipart)
+//	DELETE /api/v1/projects/:id/files/code         — ?path= removes one file (new snapshot); bare = clear disk mirror
+//	PUT    /api/v1/projects/:id/files/code/rename  — rename a path in a new snapshot {oldPath?, newName}
 //
-//	GET    /api/v1/projects/:id/files/code/versions      — list all code versions
-//	POST   /api/v1/projects/:id/files/code/versions      — save new version from Monaco
+//	GET    /api/v1/projects/:id/files/code/versions      — list all snapshots (each with files[])
+//	POST   /api/v1/projects/:id/files/code/versions      — save new snapshot {files:[{path,content}], lastParseOk?}
 //
 //	GET    /api/v1/projects/:id/files/code/backup        — get the working-source backup (404 if none)
 //	POST   /api/v1/projects/:id/files/code/backup        — overwrite the working-source backup

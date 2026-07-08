@@ -143,8 +143,16 @@ func Validate(projectID, userID string) *Result {
 		})
 		return res
 	}
-	src := []byte(latest.Source)
-	if len(strings.TrimSpace(latest.Source)) == 0 {
+	// A snapshot with no non-empty file is "no code" for export purposes:
+	// the specialist saved, but saved nothing shippable.
+	hasContent := false
+	for _, f := range latest.Files {
+		if len(strings.TrimSpace(f.Content)) > 0 {
+			hasContent = true
+			break
+		}
+	}
+	if !hasContent {
 		res.Issues = append(res.Issues, Issue{
 			Category: CategoryParseErrors,
 			Detail:   "Source code is empty.",
@@ -153,12 +161,33 @@ func Validate(projectID, userID string) *Result {
 	}
 
 	limits := store.GetParserLimits(userID)
+
+	// goSrc is the Go path's single-file source bytes, hoisted here
+	// because TWO passes read it: Pass 1 (bbparser.Parse, below) and
+	// Pass 2 (blackbox.Analyze, further down — Go-only; the C99 branch
+	// skips the analyzer entirely, so goSrc staying empty on that path
+	// is never observed). Go authoring is single-file for now
+	// (multi-file Go is a declared future slice — the parser dispatch
+	// enforces it), so "the snapshot's first file" IS the whole set.
+	//
+	// Português: Bytes do fonte Go (arquivo único), içados porque DOIS
+	// passes leem: o Parse e o Analyze (só-Go; o ramo C99 pula o
+	// analisador, então goSrc vazio ali nunca é observado). Go é
+	// arquivo único por enquanto — o primeiro arquivo É o conjunto.
+	var goSrc []byte
+	if !isC99 && len(latest.Files) > 0 {
+		goSrc = []byte(latest.Files[0].Content)
+	}
+
 	var def *bbparser.BlackBoxDef
 	var parseErr error
 	if isC99 {
-		def, parseErr = bbparser.ParseC(src, limits)
+		// The multi-file parser walks every authored file and merges the
+		// surfaces (see bbparser.ParseCFiles); a hard error carries the
+		// offending path so the wizard can point at the right tab.
+		def, parseErr = bbparser.ParseCFiles(store.ToParserFiles(latest.Files), limits)
 	} else {
-		def, parseErr = bbparser.Parse(src, limits)
+		def, parseErr = bbparser.Parse(goSrc, limits)
 	}
 	if def == nil {
 		// Hard parse failure. Surface the error verbatim — the
@@ -187,7 +216,7 @@ func Validate(projectID, userID string) *Result {
 	// into two issue categories so the SPA's modal shows them
 	// separately (the user can decide which to tackle first).
 	if !isC99 {
-		an := blackbox.Analyze(src)
+		an := blackbox.Analyze(goSrc)
 		for _, d := range an.Diagnostics {
 			switch d.Severity {
 			case "error":

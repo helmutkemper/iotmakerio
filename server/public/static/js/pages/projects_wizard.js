@@ -15,6 +15,30 @@
 // re-exported from `projects.js` and bridged to `window` so the
 // existing global-onclick HTML attributes resolve.
 //
+// _wizardCopy returns the WHOLE working copy — every editor tab, in
+// strip order — through the window._projGetAllFiles bridge projects.js
+// installs (6c-2). Every wizard parse and rewrite sends the full copy:
+// header-owned types (wire types, enums, callbacks) only resolve when
+// all tabs ride along, and the rewrite engine needs the set to return
+// it updated. The single-file fallback covers the early-init race only
+// (bridge not installed yet), mirroring the _projGetLanguage pattern.
+//
+// Português: A cópia de trabalho INTEIRA — toda aba, na ordem da faixa
+// — pela ponte que o projects.js instala. Todo parse/rewrite do wizard
+// envia a cópia completa: tipos do header só resolvem com todas as
+// abas juntas. O fallback de arquivo único cobre só a corrida de init.
+function _wizardCopy() {
+    if (typeof window !== 'undefined' && window._projGetAllFiles) {
+        return window._projGetAllFiles();
+    }
+    const lang = (typeof window !== 'undefined' && window._projGetLanguage)
+        ? window._projGetLanguage() : 'go';
+    const path = (typeof window !== 'undefined' && window._projGetFilename)
+        ? window._projGetFilename()
+        : (lang === 'c' ? 'device.c' : 'main.go');
+    return [{ path, content: _readMonacoSource() }];
+}
+
 // State lifecycle
 // ===============
 //
@@ -92,7 +116,9 @@ const _NATIVE_TYPES = new Set([
 // doesn't leak data across boundaries.
 let _state = {
     projectId: null,
-    code: '',          // full Go source
+    code: '',          // ACTIVE tab's source at last hydrate (card line lookup)
+    filesFP: '',       // fingerprint (JSON) of the working copy that produced
+                       // `parsed` — staleness is a SET question with tabs
     parsed: null,      // BlackBoxDef (object form)
     incomplete: [],    // []string of dotted paths
     _saveTimer: null,  // setTimeout handle for the debounced save
@@ -127,8 +153,11 @@ export async function projWizardOpen(projectId) {
         // Distinguish by comparing the Monaco source to what we
         // hydrated with last. Whitespace-only differences are not
         // worth a network round-trip.
-        const liveSource = _readMonacoSource();
-        if (liveSource.trim() !== (_state.code || '').trim()) {
+        // Staleness is a SET question: an edit parked on an inactive
+        // tab must trigger the re-parse exactly like an edit on the
+        // active one.
+        const liveCopy = _wizardCopy();
+        if (JSON.stringify(liveCopy) !== (_state.filesFP || '')) {
             _renderLoading();
             // The language token comes from projects.js — see the
             // window._projGetLanguage bridge it installs. The wizard
@@ -143,7 +172,7 @@ export async function projWizardOpen(projectId) {
             const parseResponse = await api(
                 'POST',
                 '/api/v1/blackbox/wizard/parse',
-                { code: liveSource, language: lang },
+                { files: liveCopy, language: lang },
             );
             if (parseResponse?.metadata?.status !== 200) {
                 // Parse failed — show the error in place. The toolbar
@@ -154,7 +183,7 @@ export async function projWizardOpen(projectId) {
                 );
                 return;
             }
-            _hydrateFromParseResponse(liveSource, parseResponse.data);
+            _hydrateFromParseResponse(liveCopy, parseResponse.data);
             _scheduleDraftSave();
             _renderTab();
             return;
@@ -179,12 +208,13 @@ export async function projWizardOpen(projectId) {
         return;
     }
 
-    // No draft yet — bootstrap from the current Monaco source. If
-    // the editor is empty (new project), show an empty state with
-    // instructions to write some Go.
-    const source = _readMonacoSource();
-    if (!source.trim()) {
+    // No draft yet — bootstrap from the current WORKING COPY. Empty
+    // means every tab blank (a fresh .h beside a full core.c is not
+    // empty); show the empty state with instructions.
+    const copy = _wizardCopy();
+    if (!copy.some(f => f.content.trim())) {
         _state.code = '';
+        _state.filesFP = '';
         _state._opened = true;
         _renderEmptyState();
         return;
@@ -197,20 +227,20 @@ export async function projWizardOpen(projectId) {
         ? window._projGetLanguage()
         : 'go';
     const parseResponse = await api('POST', '/api/v1/blackbox/wizard/parse',
-        { code: source, language: lang2 });
+        { files: copy, language: lang2 });
     if (parseResponse?.metadata?.status !== 200) {
         // Parse failed — usually means the user has invalid source
         // (any supported language) in the editor. The wizard cannot
         // do anything until that is fixed. Show the error and offer
         // the "edit source" path so they can fix it without leaving
         // the tab.
-        _state.code = source;
+        _state.code = _readMonacoSource();
         _state._opened = true;
         _renderParseError(parseResponse?.metadata?.error || 'Unknown parse error');
         return;
     }
 
-    _hydrateFromParseResponse(source, parseResponse.data);
+    _hydrateFromParseResponse(copy, parseResponse.data);
     _state._opened = true;
     // Save the freshly bootstrapped draft so refreshing the page
     // restores this view without a re-parse.
@@ -384,13 +414,20 @@ async function _hydrateFromDraft(d) {
     // blob gravado obsoleto e o wizard renderiza a forma antiga. `code` é
     // a única fonte da verdade — re-parseamos aqui em vez de confiar no
     // d.parsed.
-    _state.code = d.code || '';
+    // Since 6c the WORKING COPY (editor tabs + multi-tab backup) is the
+    // single owner of the source — the draft never writes Monaco: a
+    // cached draft overwriting the copy would fight the tab loader and
+    // the crash-recovery system that now owns that job. The draft's
+    // remaining value is its parsed blob as a FALLBACK when the live
+    // parse cannot run.
+    //
+    // Português: Desde a 6c a CÓPIA DE TRABALHO (abas + backup
+    // multiabas) é a dona única do fonte — o draft nunca escreve o
+    // Monaco. O valor restante dele é o blob parsed como FALLBACK.
+    _state.code = _readMonacoSource();
 
-    // Restore the Monaco view first so the editor shows the draft source
-    // while the (fast) re-parse runs behind the loader.
-    _writeMonacoSource(_state.code);
-
-    if (_state.code.trim()) {
+    const liveCopy = _wizardCopy();
+    if (liveCopy.some(f => f.content.trim())) {
         // Same `language` bridge as the other /wizard/parse call sites.
         const lang = (typeof window !== 'undefined' && window._projGetLanguage)
             ? window._projGetLanguage()
@@ -398,9 +435,10 @@ async function _hydrateFromDraft(d) {
         const fresh = await api(
             'POST',
             '/api/v1/blackbox/wizard/parse',
-            { code: _state.code, language: lang },
+            { files: liveCopy, language: lang },
         );
         if (fresh?.metadata?.status === 200 && fresh.data) {
+            _state.filesFP = JSON.stringify(liveCopy);
             _state.parsed = fresh.data.parsed || null;
             _setIncomplete(Array.isArray(fresh.data.incomplete) ? fresh.data.incomplete : []);
             return;
@@ -415,8 +453,12 @@ async function _hydrateFromDraft(d) {
     _setIncomplete(Array.isArray(d.incomplete) ? d.incomplete : []);
 }
 
-function _hydrateFromParseResponse(source, data) {
-    _state.code = source;
+function _hydrateFromParseResponse(files, data) {
+    // filesFP is the staleness anchor: "the copy that produced this
+    // parsed blob". code keeps the ACTIVE tab's source for the card
+    // line-lookup (jump-to-line searches the visible source).
+    _state.filesFP = JSON.stringify(files);
+    _state.code = _readMonacoSource();
     _state.parsed = data.parsed || null;
     _setIncomplete(Array.isArray(data.incomplete) ? data.incomplete : []);
 }
@@ -487,49 +529,6 @@ function _readMonacoSource() {
     return document.getElementById('proj-fallback')?.value || '';
 }
 
-// _writeMonacoSource pushes `text` into the live Monaco editor (or
-// the fallback textarea when Monaco hasn't mounted yet, e.g. during
-// tests). Used by every wizard code path that hydrates state into
-// the editor: draft restore, parse-response hydration, rewrite-
-// response hydration, and the explicit "edit source" toggle.
-//
-// IMPORTANT: we MUST short-circuit when the requested text already
-// matches the editor's current value. The reason is subtle:
-//
-//   Monaco's `setValue()` dispatches `onDidChangeModelContent` even
-//   when the new text is byte-identical to the old text — there is
-//   no internal equality check. The host (projects.js) listens to
-//   that event and, on every fire, invalidates `_parsedData` (the
-//   parsed BlackBoxDef cache) on the assumption that "content
-//   changed → parser output stale". Most of the time that
-//   assumption holds, but on tab-switch into the wizard right after
-//   a successful Parse, the wizard's draft restore writes the very
-//   same source back into Monaco — invalidating `_parsedData` for
-//   no good reason.
-//
-//   Symptom in the wild: the user clicks Parse, switches to Files
-//   (or any feature consuming `_parsedData`), and gets "Please
-//   parse first" even though they just parsed. Clicking Parse a
-//   second time worked because subsequent wizard tab activations go
-//   through the `_state._opened` fast path, which skips the draft
-//   restore + setValue call.
-//
-// The equality check below makes the call a no-op when the editor
-// is already in sync, which is the common case (draft on the
-// server matches what the user sees). When the wizard genuinely
-// rewrites the source (e.g. after `_hydrateFromRewriteResponse`),
-// the texts differ and the setValue runs as expected — the host's
-// invalidation is then correct.
-function _writeMonacoSource(text) {
-    const m = window._projMonacoInst;
-    if (m) {
-        if (m.getValue() === text) return; // no-op; preserves _parsedData
-        m.setValue(text);
-        return;
-    }
-    const ta = document.getElementById('proj-fallback');
-    if (ta && ta.value !== text) ta.value = text;
-}
 
 // =============================================================================
 //  Rendering
@@ -1800,7 +1799,11 @@ function _renderFunctionCard(fn, incompleteSet, lines) {
         commentLine: lines && lines[path] && lines[path].commentLine,
         isIncomplete: deviceIncomplete || incompleteSet.has(path),
         title: `${icon} ${esc(label)}`,
-        subtitle: 'function device',
+        // The file badge is the card's provenance — with several tabs,
+        // "which file does this device live in" stops being obvious.
+        subtitle: fn.sourceFile
+            ? `function device — <span style="font-family:'Fira Code','Consolas',monospace">${esc(fn.sourceFile)}</span>`
+            : 'function device',
         body: portRows || `<p class="wiz-card-empty">No ports on this function.</p>`,
     });
 }
@@ -2165,8 +2168,20 @@ async function _applyEditAndClose(backdrop, edit) {
     const lang = (typeof window !== 'undefined' && window._projGetLanguage)
         ? window._projGetLanguage()
         : 'go';
+    // The rewrite request carries the full working copy plus the TARGET
+    // file — the file the edited construct LIVES in, resolved from the
+    // edit's dotted path via the parsed def's sourceFile (6c-1). The
+    // active tab is irrelevant: the user may edit a util.c card while
+    // looking at api.h.
+    //
+    // Português: A cópia completa + o arquivo-ALVO — onde o construto
+    // editado MORA, resolvido pelo sourceFile do def (6c-1). A aba
+    // ativa é irrelevante: pode-se editar um card do util.c olhando o
+    // api.h.
+    const wizFiles = _wizardCopy();
     const r = await api('POST', '/api/v1/blackbox/wizard/rewrite', {
-        code: _state.code,
+        files: wizFiles,
+        file: _fileForEdit(edit, wizFiles),
         edits: [edit],
         language: lang,
     });
@@ -2199,15 +2214,50 @@ async function _applyEditAndClose(backdrop, edit) {
 }
 
 // _hydrateFromRewriteResponse mirrors _hydrateFromParseResponse for
-// /wizard/rewrite responses. The Code field is what differentiates
-// the two — rewrite returns a fresh source string that we push back
-// into Monaco so the user sees the rewritten Go.
+// /wizard/rewrite responses. The files[] set is what differentiates
+// the two — rewrite returns the updated snapshot; we push the touched
+// entry back into Monaco so the user sees the rewritten source.
 function _hydrateFromRewriteResponse(data) {
-    const newCode = typeof data.code === 'string' ? data.code : _state.code;
-    _state.code = newCode;
+    // The response is the full updated SET plus the touched path. The
+    // set goes into the editor MODELS through the host bridge (an
+    // undoable edit — Ctrl+Z reverts a wizard edit like any keystroke),
+    // and the touched file's tab takes focus so the user SEES what the
+    // wizard changed.
+    //
+    // Português: O conjunto atualizado entra nos MODELS pela ponte do
+    // host (edição desfazível — Ctrl+Z reverte um edit do wizard como
+    // qualquer tecla) e a aba do arquivo tocado ganha o foco.
+    if (Array.isArray(data.files) && typeof window !== 'undefined') {
+        window._projApplyRewrittenFiles?.(data.files);
+        if (data.file) window._projActivateTabByPath?.(data.file);
+        _state.filesFP = JSON.stringify(data.files);
+    }
+    _state.code = _readMonacoSource();
     _state.parsed = data.parsed || _state.parsed;
     _setIncomplete(Array.isArray(data.incomplete) ? data.incomplete : _state.incomplete);
-    _writeMonacoSource(newCode);
+}
+
+// _fileForEdit resolves which authored file an edit's construct lives
+// in: 'function.<name>…' paths look the function up in the parsed def
+// and read its sourceFile (stamped by the multi-file parser, 6c-1).
+// Everything else — struct/enum/callback paths, or a def predating the
+// stamp — falls back to the first entry of the copy: for C those
+// constructs are overwhelmingly header-owned and the header is
+// conventionally the first tab; when the guess is wrong the engine
+// reports "construct not found in file" and nothing is corrupted.
+//
+// Português: Resolve em que arquivo o construto do edit MORA:
+// 'function.<nome>' consulta o sourceFile do def (6c-1); o resto cai no
+// primeiro arquivo da cópia (structs/enums são tipicamente do header,
+// convencionalmente a primeira aba); palpite errado = erro limpo do
+// engine, nunca corrupção.
+function _fileForEdit(edit, files) {
+    const m = /^function\.([A-Za-z_][A-Za-z0-9_]*)/.exec(edit?.path || '');
+    if (m && Array.isArray(_state.parsed?.functions)) {
+        const fn = _state.parsed.functions.find(f => f.name === m[1]);
+        if (fn?.sourceFile) return fn.sourceFile;
+    }
+    return files[0]?.path || '';
 }
 
 // =============================================================================

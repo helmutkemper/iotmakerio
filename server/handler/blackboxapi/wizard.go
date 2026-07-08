@@ -102,21 +102,25 @@ import (
 
 // ─── Wizard request bodies ────────────────────────────────────────────────────
 
-// wizardParseRequest matches the body the Projects page sends. The field
-// is named `code` (not `source`) because that is what the SPA already sends
-// — changing the field name would force a coordinated SPA + server release.
-// The wizard tab added in later slices will use the same shape.
+// wizardParseRequest is the multi-file parse body: the specialist's whole
+// snapshot, in tab order, plus the language token. There is deliberately no
+// single-string sibling field — one input shape, and a single-file caller
+// sends a one-entry set (pre-release decision, 2026-07: no legacy clients
+// exist to keep alive).
 //
 // Language is optional and tells the handler which parser to invoke:
 //
-//	""   or "go"     → Go AST parser (bbparser.Parse)
-//	"c"  or "c99"    → C99 parser    (bbparser.ParseC)
+//	""   or "go"     → Go AST parser (bbparser.Parse — single file for now)
+//	"c"  or "c99"    → C99 multi-file parser (bbparser.ParseCFiles)
 //
-// Default (empty) is "go" for back-compat with the pre-multi-language
-// SPA. Any other value yields HTTP 400.
+// Any other value yields HTTP 400.
+//
+// Português: Corpo do parse multiarquivo: o snapshot inteiro na ordem das
+// abas + linguagem. Não há campo-irmão de string única de propósito — uma
+// forma de entrada; chamador de arquivo único manda conjunto de uma entrada.
 type wizardParseRequest struct {
-	Code     string `json:"code"`
-	Language string `json:"language,omitempty"`
+	Files    []bbparser.FileEntry `json:"files"`
+	Language string               `json:"language,omitempty"`
 }
 
 // wizardAnalyzeRequest is identical to wizardParseRequest; kept as a
@@ -160,9 +164,15 @@ func (h *handler) handleWizardParse(c echo.Context) error {
 		return wizardErr(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	body.Code = strings.TrimSpace(body.Code)
-	if body.Code == "" {
-		return wizardErr(c, http.StatusBadRequest, "code is required")
+	hasContent := false
+	for _, f := range body.Files {
+		if strings.TrimSpace(f.Content) != "" {
+			hasContent = true
+			break
+		}
+	}
+	if !hasContent {
+		return wizardErr(c, http.StatusBadRequest, "files with code are required")
 	}
 
 	// Per-user limits — same resolution path as every other call into
@@ -179,7 +189,7 @@ func (h *handler) handleWizardParse(c echo.Context) error {
 	// Português: Roteia pra parser específico da linguagem. Ambos
 	// produzem BlackBoxDef — a resposta tem mesma forma. Adicionar
 	// uma linguagem nova é escrever ParseX + um case aqui.
-	def, err := bbparser.ParseForLanguage(body.Language, []byte(body.Code), limits)
+	def, err := bbparser.ParseForLanguageFiles(body.Language, body.Files, limits)
 	// Parse can return (def != nil, err != nil) simultaneously: a
 	// non-nil def with soft warnings (missing connection: tags, prop
 	// truncation, malformed manual blocks). The wizard tab consumes
@@ -262,9 +272,21 @@ func (h *handler) handleWizardAnalyze(c echo.Context) error {
 // edits. Source and Edits are both required — an empty Edits list is
 // valid and acts as a "format only" pass via codegen/blackbox.Rewrite.
 type wizardRewriteRequest struct {
-	// Code is the full source the user is editing. The same field
-	// name as parse and analyze for client-side consistency.
-	Code string `json:"code"`
+	// Files is the complete snapshot being edited, in tab order. The
+	// rewrite engine mutates exactly ONE of them (File); the others ride
+	// along untouched so the response can return the full updated set and
+	// the re-parse can see every tab — an edit to core.c may resolve a ⚠
+	// on a card whose type lives in api.h.
+	//
+	// Português: O snapshot completo em edição. O motor muta exatamente UM
+	// arquivo (File); os demais viajam intactos para a resposta devolver o
+	// conjunto e o re-parse enxergar todas as abas.
+	Files []bbparser.FileEntry `json:"files"`
+
+	// File is the path of the entry the edits apply to. Optional for the
+	// single-file editor of today (empty = first entry); the multi-tab UI
+	// always sends it. Must match one Files[i].Path exactly.
+	File string `json:"file,omitempty"`
 
 	// Edits is the ordered list of mutations to apply. Each edit is a
 	// JSON object with `op`, `path`, and an op-specific `args`. See
@@ -274,8 +296,6 @@ type wizardRewriteRequest struct {
 	// Language selects the rewrite engine. Empty / "go" / "golang"
 	// → Go engine (bbparser.Rewrite). "c" / "c99" → C99 engine
 	// (bbparser.RewriteC). Any other value returns HTTP 400.
-	//
-	// Default "go" keeps pre-Slice-3 callers working unchanged.
 	Language string `json:"language,omitempty"`
 }
 
@@ -287,8 +307,19 @@ type wizardRewriteRequest struct {
 // We do NOT echo back the original source — the client already has it,
 // and including it would double the payload of a debounced save.
 type wizardRewriteResponse struct {
-	// Code is the rewritten, gofmt-clean Go source.
-	Code string `json:"code"`
+	// Files is the FULL updated snapshot — the touched entry rewritten,
+	// every other entry byte-identical to what the client sent. Returning
+	// the set (not just the one file) keeps the client's world trivially
+	// consistent: replace state wholesale, no splicing.
+	//
+	// Português: O snapshot COMPLETO atualizado — a entrada tocada
+	// reescrita, as demais idênticas. Devolver o conjunto mantém o estado
+	// do cliente trivialmente consistente: substitui por inteiro.
+	Files []bbparser.FileEntry `json:"files"`
+
+	// File is the path of the entry the edits were applied to — the
+	// client focuses that tab after a rewrite.
+	File string `json:"file"`
 
 	// Parsed is the BlackBoxDef as raw JSON, recomputed from the
 	// rewritten source. RawMessage (not *BlackBoxDef) protects against
@@ -332,8 +363,35 @@ func (h *handler) handleWizardRewrite(c echo.Context) error {
 	if err := c.Bind(&body); err != nil {
 		return wizardErr(c, http.StatusBadRequest, "invalid request body")
 	}
-	if strings.TrimSpace(body.Code) == "" {
-		return wizardErr(c, http.StatusBadRequest, "code is required")
+	if len(body.Files) == 0 {
+		return wizardErr(c, http.StatusBadRequest, "files are required")
+	}
+
+	// Resolve the target entry: the named file, or the first entry for
+	// the single-file editor of today. The engine mutates ONE translation
+	// unit — its dotted paths address constructs of one source text — so
+	// the endpoint's job is picking the right text and putting the result
+	// back in the set.
+	//
+	// Português: Resolve o alvo — o arquivo nomeado, ou o primeiro para o
+	// editor de arquivo único. O motor muta UMA unidade; o endpoint só
+	// escolhe o texto certo e recoloca o resultado no conjunto.
+	target := 0
+	if body.File != "" {
+		target = -1
+		for i := range body.Files {
+			if body.Files[i].Path == body.File {
+				target = i
+				break
+			}
+		}
+		if target < 0 {
+			return wizardErr(c, http.StatusBadRequest,
+				"file not found in the submitted set: "+body.File)
+		}
+	}
+	if strings.TrimSpace(body.Files[target].Content) == "" {
+		return wizardErr(c, http.StatusBadRequest, "target file has no code")
 	}
 
 	// Edits == nil is a valid no-op: format the code (Go) or echo
@@ -348,9 +406,9 @@ func (h *handler) handleWizardRewrite(c echo.Context) error {
 	var rewriteErr error
 	switch strings.ToLower(strings.TrimSpace(body.Language)) {
 	case "", "go", "golang":
-		rewritten, rewriteErr = bbparser.Rewrite(body.Code, body.Edits)
+		rewritten, rewriteErr = bbparser.Rewrite(body.Files[target].Content, body.Edits)
 	case "c", "c99":
-		rewritten, rewriteErr = bbparser.RewriteC(body.Code, body.Edits)
+		rewritten, rewriteErr = bbparser.RewriteC(body.Files[target].Content, body.Edits)
 	default:
 		return wizardErr(c, http.StatusBadRequest,
 			"unsupported language: "+body.Language)
@@ -360,6 +418,7 @@ func (h *handler) handleWizardRewrite(c echo.Context) error {
 		// error). 422 keeps these distinct from network or 5xx faults.
 		return wizardErr(c, http.StatusUnprocessableEntity, rewriteErr.Error())
 	}
+	body.Files[target].Content = rewritten
 
 	// Re-parse the rewritten source to refresh the BlackBoxDef and the
 	// incomplete set. Soft warnings are dropped (same rationale as in
@@ -369,7 +428,7 @@ func (h *handler) handleWizardRewrite(c echo.Context) error {
 	// 500 with a generic message rather than leaking implementation
 	// detail to the user.
 	limits := store.GetParserLimits(spaauth.BearerClaims(c).UserID)
-	def, parseErr := bbparser.ParseForLanguage(body.Language, []byte(rewritten), limits)
+	def, parseErr := bbparser.ParseForLanguageFiles(body.Language, body.Files, limits)
 	if def == nil {
 		return wizardErr(c, http.StatusInternalServerError,
 			"rewritten source failed to parse: "+parseErr.Error())
@@ -383,7 +442,8 @@ func (h *handler) handleWizardRewrite(c echo.Context) error {
 	}
 
 	return wizardOK(c, wizardRewriteResponse{
-		Code:       rewritten,
+		Files:      body.Files,
+		File:       body.Files[target].Path,
 		Parsed:     parsedJSON,
 		Incomplete: bbparser.ComputeIncomplete(def),
 		Applied:    len(body.Edits),

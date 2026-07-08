@@ -89,6 +89,21 @@ func ParseC(src []byte, limits ParserLimits) (*BlackBoxDef, error) {
 	// ── Phase 3: includes ────────────────────────────────────────────────
 	def.Imports = extractCIncludes(stripped)
 
+	// ── Phase 3b: external variables ─────────────────────────────────────
+	// Non-static file-scope variable names — the state half of the box's
+	// external link symbols. Functions (the other half) come out of the
+	// function scanner below, which already skips `static`. Together they
+	// form the RENAME set: every external is renamed at export so two
+	// boxes' internals can never collide in the maker's link, while the
+	// generated header exposes only the IDS surface (rename-all,
+	// expose-some — see BlackBoxDef.ExternalNames and csurface.go).
+	//
+	// Português: Variáveis file-scope não-static — a metade "estado" dos
+	// símbolos externos da caixa (funções são a outra metade). Juntas
+	// formam o conjunto de RENOMEAÇÃO: todo externo é renomeado no export;
+	// o header expõe só a superfície IDS.
+	def.ExternalNames = extractCExternalVars(stripped)
+
 	// ── Phase 4: find all structs ────────────────────────────────────────
 	rawStructs, err := findAllCStructs(stripped)
 	if err != nil {
@@ -220,10 +235,14 @@ func ParseC(src []byte, limits ParserLimits) (*BlackBoxDef, error) {
 	// order they appear in the file.
 	for fi := range rawFuncs {
 		fn := &rawFuncs[fi]
-		def.Functions = append(def.Functions, NamedFuncDef{
+		nfd := NamedFuncDef{
 			Name:    fn.RawName,
 			FuncDef: *funcDefFromRaw(fn, limits),
-		})
+		}
+		// Definition-vs-prototype provenance rides along for the
+		// multi-file merge (see FuncDef.HasBody).
+		nfd.HasBody = fn.HasBody
+		def.Functions = append(def.Functions, nfd)
 	}
 
 	// ── Phase 9.6: callback types + handler reference ports ──────────────

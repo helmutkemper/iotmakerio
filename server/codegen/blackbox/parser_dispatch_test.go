@@ -26,6 +26,12 @@ type Sensor struct {
 func (s *Sensor) Init() (err error) { return nil }
 `
 
+// oneFile wraps a single source into the file-set shape the dispatch
+// consumes — the single-file case of the one representation.
+func oneFile(path, src string) []FileEntry {
+	return []FileEntry{{Path: path, Content: src}}
+}
+
 // TestParseForLanguageDispatch verifies the single dispatch point routes each
 // language token to the correct parser, and rejects unknown languages instead
 // of silently falling back to Go (the exact failure that hid C99 devices).
@@ -36,9 +42,17 @@ func TestParseForLanguageDispatch(t *testing.T) {
 	// programming_languages.id token ("golang"), empty (legacy default),
 	// case, and whitespace.
 	for _, lang := range []string{"go", "golang", "GO", "  go  ", ""} {
-		def, err := ParseForLanguage(lang, []byte(goSrcForDispatch), limits)
+		def, err := ParseForLanguageFiles(lang, oneFile("dev.go", goSrcForDispatch), limits)
 		if def == nil {
-			t.Fatalf("ParseForLanguage(%q, goSrc) = nil def, err=%v", lang, err)
+			t.Fatalf("ParseForLanguageFiles(%q, goSrc) = nil def, err=%v", lang, err)
+		}
+		if len(def.Files) != 1 || def.Files[0].Path != "dev.go" {
+			t.Fatalf("ParseForLanguageFiles(%q): def must carry its snapshot, got %+v", lang, def.Files)
+		}
+		for _, fn := range def.Functions {
+			if fn.SourceFile != "dev.go" {
+				t.Fatalf("single-file provenance: %s.SourceFile = %q, want dev.go", fn.Name, fn.SourceFile)
+			}
 		}
 		if def.Name != "Sensor" {
 			t.Fatalf("ParseForLanguage(%q): want struct Sensor, got %q", lang, def.Name)
@@ -52,9 +66,9 @@ func TestParseForLanguageDispatch(t *testing.T) {
 	// C token spellings → C parser. shtC is the decision-b C99 fixture; the C
 	// parser yields device-functions and (no primary struct) an empty Name.
 	for _, lang := range []string{"c", "c99", "C99", " c "} {
-		def, err := ParseForLanguage(lang, []byte(shtC), limits)
+		def, err := ParseForLanguageFiles(lang, oneFile("dev.c", shtC), limits)
 		if def == nil {
-			t.Fatalf("ParseForLanguage(%q, shtC) = nil def, err=%v", lang, err)
+			t.Fatalf("ParseForLanguageFiles(%q, shtC) = nil def, err=%v", lang, err)
 		}
 		if len(def.Functions) == 0 {
 			t.Fatalf("ParseForLanguage(%q): a C99 device must expose Functions, got 0", lang)
@@ -64,16 +78,34 @@ func TestParseForLanguageDispatch(t *testing.T) {
 	// Routing actually differs: a Go source asked for as C must NOT come back
 	// as the Go struct result. Proves "go" and "c" hit distinct engines, not
 	// one hardcoded parser.
-	if cAsDef, _ := ParseForLanguage("c", []byte(goSrcForDispatch), limits); cAsDef != nil && cAsDef.Name == "Sensor" {
-		t.Fatal("ParseForLanguage routed a C request to the Go parser")
+	if cAsDef, _ := ParseForLanguageFiles("c", oneFile("dev.c", goSrcForDispatch), limits); cAsDef != nil && cAsDef.Name == "Sensor" {
+		t.Fatal("ParseForLanguageFiles routed a C request to the Go parser")
 	}
 
 	// Unknown language is a hard error, never a silent Go fallback.
-	def, err := ParseForLanguage("python", []byte(goSrcForDispatch), limits)
+	def, err := ParseForLanguageFiles("python", oneFile("dev.go", goSrcForDispatch), limits)
 	if def != nil || err == nil {
-		t.Fatalf("ParseForLanguage(python) = (%v, %v), want (nil, error)", def, err)
+		t.Fatalf("ParseForLanguageFiles(python) = (%v, %v), want (nil, error)", def, err)
 	}
 	if !strings.Contains(err.Error(), "unsupported language") {
-		t.Fatalf("ParseForLanguage(python) error = %q, want to contain 'unsupported language'", err)
+		t.Fatalf("ParseForLanguageFiles(python) error = %q, want to contain 'unsupported language'", err)
+	}
+
+	// Multi-file Go is a DECLARED future slice: more than one .go file must
+	// be a loud, explicit error — never "silently parse the first tab".
+	multiGo := []FileEntry{
+		{Path: "a.go", Content: goSrcForDispatch},
+		{Path: "b.go", Content: goSrcForDispatch},
+	}
+	if def, err := ParseForLanguageFiles("go", multiGo, limits); def != nil || err == nil {
+		t.Fatalf("ParseForLanguageFiles(go, 2 files) = (%v, %v), want (nil, error)", def, err)
+	} else if !strings.Contains(err.Error(), "multi-file Go") {
+		t.Fatalf("multi-file Go error = %q, want it to name the limitation", err)
+	}
+
+	// Empty set mirrors Parse(nil): an empty def, no error — the "new
+	// project, nothing typed yet" state must not explode.
+	if def, err := ParseForLanguageFiles("go", nil, limits); def == nil || err != nil {
+		t.Fatalf("ParseForLanguageFiles(go, empty) = (%v, %v), want (def, nil)", def, err)
 	}
 }

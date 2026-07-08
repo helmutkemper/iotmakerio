@@ -312,6 +312,18 @@ func authedMultipartCodeUploadRequest(t *testing.T, path, token, filename string
 // "foreign user" rejection test only issues a token for the intruder).
 func seedProjectDirect(t *testing.T, userID, name string) string {
 	t.Helper()
+	return seedProjectDirectLang(t, userID, name, "golang")
+}
+
+// seedProjectDirectLang seeds a project with an explicit programming
+// language — the multi-file save contract validates extensions PER
+// LANGUAGE, so C-flow integration tests need a "c" project to exercise
+// the .c/.h whitelist the same way the wizard does.
+//
+// Português: Semeia projeto com linguagem explícita — o contrato de save
+// valida extensão POR LINGUAGEM; testes do fluxo C precisam de projeto "c".
+func seedProjectDirectLang(t *testing.T, userID, name, languageID string) string {
+	t.Helper()
 	seedUser(t, userID)
 
 	id, err := cryptoauth.NewID()
@@ -325,7 +337,7 @@ func seedProjectDirect(t *testing.T, userID, name string) string {
 		Name:                  name,
 		Type:                  store.ProjectTypeCustomDevice,
 		Visibility:            store.ProjectVisibilityPrivate,
-		ProgrammingLanguageID: "golang",
+		ProgrammingLanguageID: languageID,
 		UILanguageID:          "en",
 	}
 	if err := store.CreateProject(p); err != nil {
