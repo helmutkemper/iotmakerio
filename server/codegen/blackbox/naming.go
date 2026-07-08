@@ -38,9 +38,9 @@ import "strings"
 //	PARAMETER of this family (Naming), defaulting to DefaultRadical: a maker
 //	whose larger codebase already uses the radical (for example, two
 //	IoTMaker exports linked into one firmware, sharing a box) will be able
-//	to change it per scene. The scene metadata field (ExportPrefix) exists;
-//	the UI to set it is a documented future pendency — see
-//	docs/C99_EXPORT_NAMING.md.
+//	to change it per scene through the board picker's advanced panel
+//	(ui/mainMenu/targetPicker.go writes scene Metadata.ExportPrefix;
+//	UI added 2026-07-08).
 //
 //	Why prefix UNCONDITIONALLY (see Naming.PrefixSymbol): the prefix is
 //	applied to every exported symbol without checking whether it already
@@ -73,7 +73,7 @@ import "strings"
 //	Keil 8051, P1_0 e P2_3 são os bits das portas de hardware). "iotm_" tem
 //	marca do projeto e não é reivindicado por ninguém. O radical é PARÂMETRO
 //	da família (Naming), com default DefaultRadical; a configuração por cena
-//	(ExportPrefix) existe no metadata — a UI é pendência futura documentada.
+//	(ExportPrefix) é escrita pelo painel avançado do picker de placas (2026-07-08).
 //
 //	Por quê prefixar SEMPRE: propriedade de segurança, independente do VALOR
 //	do radical — `iotm_47_roubar` malicioso vira `iotm_103_iotm_47_roubar`.

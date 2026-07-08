@@ -121,17 +121,16 @@ type MetadataInput struct {
 	// anti-hijack property is radical-independent (unconditional stamping),
 	// so ANY valid value is safe.
 	//
-	// FUTURE PENDING (agreed 2026-07): the scene/export UI control that
-	// writes this field does not exist yet — the backend path is complete
-	// (this field → codeGen.go → ansic.Emit) and covered by tests, so the
-	// future work is UI-only. Tracked in docs/C99_EXPORT_NAMING.md.
+	// UI (added 2026-07-08): written by the board picker's advanced panel
+	// (ui/mainMenu/targetPicker.go), validated live against ValidRadical's
+	// rule client-side, held by the workspace (SelectedExportPrefix) and
+	// stamped by the scene serializer next to Target and StringBufferSize.
 	//
 	// Português: Sobrescreve o RADICAL da família de nomes do export C
 	// multiarquivo (default "iotm_"). O maker configura quando o radical
 	// colide com outro trabalho dele (caso canônico: dois exports IoTMaker
-	// linkados num firmware só). Vazio/inválido cai no default. PENDÊNCIA
-	// FUTURA: falta só a UI que escreve este campo — o caminho de backend
-	// está completo e testado. Rastreado em docs/C99_EXPORT_NAMING.md.
+	// linkados num firmware só). Vazio/inválido cai no default. UI: o painel
+	// avançado do picker de placas escreve este campo (2026-07-08).
 	ExportPrefix string `json:"exportPrefix,omitempty"`
 }
 

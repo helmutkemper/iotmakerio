@@ -256,6 +256,22 @@ type Workspace struct {
 	// placa selecionada, ou 0 quando não sobrescreveu. Carimbado no export pelo
 	// callback do SetBufferSizeFunc; o picker o seta via SetSelectedBufferSize.
 	selectedBufferSize int
+
+	// selectedExportPrefix is the maker's export-prefix override — the RADICAL
+	// of the C naming family (folders, files, symbols, include guards; default
+	// "iotm_") — from the board picker's advanced panel, or "" when the maker
+	// did not override (the common case). Stamped into the exported metadata by
+	// the SetExportPrefixFunc callback; the picker sets it via
+	// SetSelectedExportPrefix. The canonical use: two IoTMaker exports linked
+	// into one firmware, where a shared box would define the same iotm_<n>_*
+	// symbols twice — one of them moves family.
+	//
+	// Português: Override do prefixo de export do maker — o RADICAL da família
+	// de nomes do C (default "iotm_") — do painel avançado do picker, ou ""
+	// quando não sobrescreveu. Carimbado no export pelo callback do
+	// SetExportPrefixFunc; o picker o seta via SetSelectedExportPrefix. Uso
+	// canônico: dois exports IoTMaker linkados num firmware só.
+	selectedExportPrefix string
 }
 
 // Config configures a workspace before Init().
@@ -487,6 +503,15 @@ func (w *Workspace) Init(cfg Config) error {
 	// the codegen then keeps the board's default). Mirrors SetTargetFunc above.
 	w.SceneMgr.SetBufferSizeFunc(func() int {
 		return w.selectedBufferSize
+	})
+	// Stamp the maker's export-prefix override onto every export ("" when
+	// none; the codegen then keeps the default "iotm_" radical). Mirrors
+	// SetTargetFunc above.
+	//
+	// Português: Carimba o override do prefixo de export em todo export (""
+	// = nenhum; o codegen mantém o radical default). Espelha o SetTargetFunc.
+	w.SceneMgr.SetExportPrefixFunc(func() string {
+		return w.selectedExportPrefix
 	})
 
 	// Invalidate codegen diagnostic highlights the moment the scene
@@ -1618,8 +1643,12 @@ func (w *Workspace) export() {
 	// ignora o target); e se o picker não abrir, gera com a escolha atual, então
 	// nunca bloqueia a geração.
 	if w.Language == "c" {
-		mainMenu.ShowTargetPicker(w.SelectedTarget(), func(id string, bufferBytes int) {
+		mainMenu.ShowTargetPicker(w.SelectedTarget(), w.SelectedExportPrefix(), func(id string, bufferBytes int, exportPrefix string) {
 			w.SetSelectedTarget(id)
+			// The maker's export-prefix override from the advanced panel (""
+			// when left empty — the default radical). Set before the re-export
+			// so it lands in the metadata next to the target and the buffer.
+			w.SetSelectedExportPrefix(exportPrefix)
 			// The maker's string-buffer override, in bytes (0 = keep the board's
 			// default). Set before the re-export below so it lands in the scene
 			// metadata next to the target, and the codegen applies it.
@@ -3017,6 +3046,31 @@ func (w *Workspace) SelectedBufferSize() int {
 	return w.selectedBufferSize
 }
 
+// SetSelectedExportPrefix records the maker's export-prefix override (the C
+// naming family's radical) from the board picker's advanced panel. Empty
+// clears it (the codegen keeps the default "iotm_"). The next export stamps it
+// into Metadata.ExportPrefix via the SetExportPrefixFunc callback. The value
+// arrives already validated by the picker; the server's blackbox.NewNaming
+// degrades tolerantly anyway, so a bad value can never break a generation.
+//
+// Português: Registra o override do prefixo de export do maker (o radical da
+// família de nomes do C) do painel avançado do picker. Vazio limpa (o codegen
+// mantém o default "iotm_"). O próximo export o carimba em
+// Metadata.ExportPrefix via o callback do SetExportPrefixFunc. O valor chega
+// validado pelo picker; o servidor degrada tolerante de qualquer forma.
+func (w *Workspace) SetSelectedExportPrefix(prefix string) {
+	w.selectedExportPrefix = prefix
+}
+
+// SelectedExportPrefix returns the maker's current export-prefix override, or
+// "" when none. The board picker reads it to prefill its advanced field.
+//
+// Português: Retorna o override atual do prefixo de export, ou "" quando
+// nenhum. O picker o lê para pré-preencher o campo avançado.
+func (w *Workspace) SelectedExportPrefix() string {
+	return w.selectedExportPrefix
+}
+
 // SetImportBroadcastFn injects the function that fans an extracted scene out
 // to every workspace. The ViewManager wires it so image (PNG) import — which
 // is triggered on a single workspace — reaches both stages. See
@@ -3106,6 +3160,30 @@ func mergeScenes(primaryJSON, secondaryJSON string) (string, error) {
 		for stage, cam := range secondary.Metadata.Cameras {
 			primary.Metadata.Cameras[stage] = cam
 		}
+	}
+
+	// The maker's export choices (board target, string-buffer override,
+	// export prefix) have a SINGLE writer — the board picker, which sets
+	// them on whichever workspace it ran in. "Metadata from the primary"
+	// would therefore LOSE them whenever the save/PNG is triggered from the
+	// other stage's tab: the primary's copy is empty. So these three fields
+	// are taken from whichever document carries them; when both do (which a
+	// single writer makes an unreachable tie), the primary wins, keeping
+	// the rest of the metadata doctrine intact.
+	//
+	// Português: As escolhas de export do maker têm UM escritor só — o
+	// picker, que as seta no workspace em que rodou. "Metadata do primário"
+	// as PERDERIA quando o save/PNG parte da aba da outra stage. Então os
+	// três campos vêm de quem os carrega; empate (inalcançável com escritor
+	// único) fica com o primário.
+	if primary.Metadata.Target == "" {
+		primary.Metadata.Target = secondary.Metadata.Target
+	}
+	if primary.Metadata.StringBufferSize == 0 {
+		primary.Metadata.StringBufferSize = secondary.Metadata.StringBufferSize
+	}
+	if primary.Metadata.ExportPrefix == "" {
+		primary.Metadata.ExportPrefix = secondary.Metadata.ExportPrefix
 	}
 
 	out, err := json.Marshal(primary)
@@ -3910,6 +3988,23 @@ func (w *Workspace) importFromImageURL(url string, label string) {
 		w.importScene(string(jsonBytes))
 	}
 
+	// A freshly imported PNG is unsaved work the maker just chose to have —
+	// schedule the combined backup immediately so a crash before the first
+	// manual save cannot lose it. Routed through the project's single backup
+	// owner exactly like the scene-change path (see OnExport /
+	// backupScheduler and the 409 collision that routing prevents); the
+	// scheduler is debounced, so this is one extra write at most.
+	//
+	// Português: PNG recém-importado é trabalho não salvo que o maker acabou
+	// de escolher ter — agenda o backup combinado na hora, para um crash
+	// antes do primeiro save não o perder. Roteado pelo dono único do backup,
+	// como o caminho de mudança de cena; o scheduler é debounced.
+	if w.backupScheduler != nil {
+		w.backupScheduler()
+	} else {
+		w.ScheduleBackupSave()
+	}
+
 	// Show success toast-style notification via a brief overlay.
 	log.Printf("[Workspace:%s] Image import: stage reconstructed from %s", w.Name, label)
 }
@@ -4032,6 +4127,27 @@ func (w *Workspace) importScene(sceneJSON string) {
 		w.importing = false
 		return
 	}
+
+	// Restore the maker's export choices carried in the metadata — board
+	// target, string-buffer override, export prefix — so a save / PNG / backup
+	// round trip keeps them: importScene is the SINGLE funnel every load path
+	// drains into (project open, backup restore, PNG import, dual-stage
+	// fan-out), so this one hook covers them all, and the next board picker
+	// opens prefilled with what the scene was generated with. Assignments are
+	// unconditional: empty values CLEAR — importing a scene that never made a
+	// choice must not inherit a leftover from the previously open scene. In
+	// dual mode both workspaces run their own import pass over the same
+	// document, so both end up holding the same values.
+	//
+	// Português: Restaura as escolhas de export do metadata (target, buffer,
+	// prefixo) — o importScene é o funil Único de todo load (open, restore de
+	// backup, PNG, fan-out dual), então um gancho cobre tudo e o picker reabre
+	// pré-preenchido. Atribuições incondicionais: vazio LIMPA — cena sem
+	// escolha não herda sobra da cena anterior. No dual, os dois workspaces
+	// importam o mesmo documento e ficam com os mesmos valores.
+	w.SetSelectedTarget(sc.Metadata.Target)
+	w.SetSelectedBufferSize(sc.Metadata.StringBufferSize)
+	w.SetSelectedExportPrefix(sc.Metadata.ExportPrefix)
 
 	// Step 1: clear existing stage — removes all devices, connectors, and wires.
 	w.SceneMgr.RemoveAll()

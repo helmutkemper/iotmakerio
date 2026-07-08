@@ -2114,6 +2114,16 @@ function _injectEditorStyles() {
 let _editorTabs      = [];     // [{path, model, savedContent}] — strip order = snapshot order
 let _activeTabIdx    = -1;
 let _tabDeletedPaths = new Set(); // paths locally closed/renamed-away; applied at Save
+// _tabsSavedOrder is the path sequence of the last load/save. Tab ORDER
+// is semantic — it is the snapshot's sort column, the parser's merge
+// order (definition-upgrades-prototype scans in it) and "the first
+// file's doc is the front page" — so a pure reorder with zero keystrokes
+// is still a pending change the Save must be able to see.
+//
+// Português: Sequência de caminhos do último load/save. A ORDEM das
+// abas é semântica (coluna sort, ordem do merge, capa = primeiro
+// arquivo), então reordenar sem digitar nada ainda é mudança pendente.
+let _tabsSavedOrder  = [];
 
 // Mirrors the server's maxCodeFiles. A drift only hides the "+" button;
 // the server remains the gate.
@@ -2146,6 +2156,7 @@ function _tabsInit(files, activePath) {
             f.content || '', _tabLang(f.path), uri);
         _editorTabs.push({ path: f.path, model, savedContent: f.content || '' });
     }
+    _tabsSavedOrder = _editorTabs.map(t => t.path);
     let idx = 0;
     if (activePath) {
         const found = _editorTabs.findIndex(t => t.path === activePath);
@@ -2180,6 +2191,13 @@ function _tabIsDirty(i) {
 function _tabsAnyPending() {
     if (_tabDeletedPaths.size > 0) return true;
     for (let i = 0; i < _editorTabs.length; i++) if (_tabIsDirty(i)) return true;
+    // A pure reorder: same files, different sequence — semantic, so
+    // pending (see _tabsSavedOrder).
+    const order = _editorTabs.map(t => t.path);
+    if (order.length !== _tabsSavedOrder.length) return true;
+    for (let i = 0; i < order.length; i++) {
+        if (order[i] !== _tabsSavedOrder[i]) return true;
+    }
     return false;
 }
 
@@ -2309,7 +2327,11 @@ function _tabsRenderStrip() {
             : '';
         return `
 <div onclick="window._projTabActivate(${i})" ondblclick="window._projTabRename(${i})"
-     title="${esc(t.path)} — double-click to rename"
+     draggable="true"
+     ondragstart="window._projTabDragStart(event, ${i})"
+     ondragover="event.preventDefault()"
+     ondrop="window._projTabDrop(event, ${i})"
+     title="${esc(t.path)} — drag to reorder · double-click to rename"
      style="display:flex;align-items:center;gap:6px;padding:5px 10px;cursor:pointer;
             white-space:nowrap;font-size:12px;font-family:'Fira Code','Consolas',monospace;
             border-right:1px solid var(--border);
@@ -2338,6 +2360,32 @@ function _tabsRenderStrip() {
 // Strip handlers go through window: the strip HTML is innerHTML-built,
 // so inline onclick needs globals — same convention as the tree.
 window._projTabActivate = (i) => _tabActivate(i);
+// Drag reorder — native HTML5 DnD, index in dataTransfer. The drop
+// splices the tab to the target position; the active tab is tracked by
+// OBJECT identity across the splice so focus follows the file, not the
+// index. Reordering is a pending change (see _tabsSavedOrder) and the
+// parse fingerprint diverges on its own — JSON order is snapshot order
+// — so lastParseOk cannot ride a reorder without a re-parse.
+//
+// Português: Reordenar por arraste — DnD nativo. O drop move a aba; o
+// foco segue o ARQUIVO (identidade de objeto), não o índice. Reordenar
+// é mudança pendente e o fingerprint do parse diverge sozinho.
+window._projTabDragStart = (ev, i) => {
+    ev.dataTransfer.setData('text/plain', String(i));
+    ev.dataTransfer.effectAllowed = 'move';
+};
+window._projTabDrop = (ev, to) => {
+    ev.preventDefault();
+    const from = parseInt(ev.dataTransfer.getData('text/plain'), 10);
+    if (isNaN(from) || from === to) return;
+    if (from < 0 || from >= _editorTabs.length) return;
+    const act = _editorTabs[_activeTabIdx];
+    const [moved] = _editorTabs.splice(from, 1);
+    _editorTabs.splice(to, 0, moved);
+    _activeTabIdx = _editorTabs.indexOf(act);
+    _tabsRenderStrip();
+    projScheduleBackup?.();
+};
 window._projTabRename   = (i) => { _tabRenameAt(i); };
 window._projTabClose    = (i) => { _tabCloseAt(i); };
 window._projTabAdd      = () => { _tabAdd(); };
@@ -3977,6 +4025,7 @@ export async function projSave() {
         // faixa repinta os pontos.
         for (const t of _editorTabs) t.savedContent = t.model.getValue();
         _tabDeletedPaths.clear();
+        _tabsSavedOrder = _editorTabs.map(t => t.path);
         _tabsRenderStrip();
         _defaultFilename = _editorTabs[_activeTabIdx]?.path || _defaultFilename;
 
@@ -4219,16 +4268,31 @@ export async function projDiffVersions() {
         return;
     }
 
+    // The diff is PER FILE: the selector below picks which path is
+    // compared; left = that path's content in the chosen version, right
+    // = that path's MODEL in the working copy. A version predating the
+    // file shows an empty left side — an all-added diff is the honest
+    // rendering of "this file did not exist yet"; silently falling back
+    // to another file would be a lie with an explicit selector present.
+    //
+    // Português: O diff é POR ARQUIVO: o seletor escolhe o caminho;
+    // esquerda = conteúdo dele na versão, direita = o MODEL dele na
+    // cópia. Versão anterior ao arquivo mostra esquerda vazia —
+    // tudo-adicionado é a renderização honesta de "ainda não existia".
+    let diffPath = _editorTabs[_activeTabIdx]?.path || '';
     const codeMap = {};
-    // The diff compares the ACTIVE tab against the same path in each
-    // version (falling back to the first entry for versions that
-    // predate the file). A per-file selector is 6c-5.
-    const activePath = _editorTabs[_activeTabIdx]?.path;
-    _codeVersions.forEach(v => {
-        const m = v.files?.find(f => f.path === activePath) || v.files?.[0];
-        codeMap[v.id] = m?.content || '';
-    });
-    window._projDiffCodeMap = codeMap;
+    function rebuildCodeMap() {
+        _codeVersions.forEach(v => {
+            const m = v.files?.find(f => f.path === diffPath);
+            codeMap[v.id] = m?.content || '';
+        });
+        window._projDiffCodeMap = codeMap;
+    }
+    function diffRightSource() {
+        const t = _editorTabs.find(x => x.path === diffPath);
+        return t ? t.model.getValue() : projGetCode();
+    }
+    rebuildCodeMap();
 
     const firstId = _codeVersions[0].id;
     const opts    = _codeVersions.map(v =>
@@ -4241,7 +4305,7 @@ export async function projDiffVersions() {
 
     function initDiff(savedCode) {
         _projDiffSavedCode = savedCode;
-        _diffHunks   = projDiffHunks(savedCode, projGetCode());
+        _diffHunks   = projDiffHunks(savedCode, diffRightSource());
         _diffChoices = _diffHunks.filter(h => h.type !== 'equal').map(() => 'right');
     }
     initDiff(codeMap[firstId]);
@@ -4264,6 +4328,12 @@ export async function projDiffVersions() {
     <i class="fa-solid fa-code-compare" style="color:var(--primary)"></i>
     <strong style="font-size:14px">Diff — ${esc(_editProject.name)}</strong>
     <select id="proj-diff-ver-sel" class="proj-ver-select">${opts}</select>
+    <select id="proj-diff-file-sel" class="proj-ver-select"
+            title="Which file to compare">${
+        _editorTabs.map(t =>
+            `<option value="${esc(t.path)}" ${t.path === diffPath ? 'selected' : ''}>${esc(t.path)}</option>`
+        ).join('')
+    }</select>
     <span style="font-size:12px;color:var(--text-muted)">
       ◀ use saved &nbsp;|&nbsp; ▶ keep editor &nbsp;|&nbsp; edit right column directly
     </span>
@@ -4286,7 +4356,9 @@ export async function projDiffVersions() {
     </div>
     <div style="width:44px;flex-shrink:0;text-align:center;padding:5px 0">◀▶</div>
     <div style="flex:1;padding:5px 10px;border-left:1px solid var(--border)">
-      <i class="fa-brands fa-golang" style="margin-right:4px;color:#00ADD8"></i>Result
+      ${_projectLangById(_editProject.id) === 'c'
+          ? '<i class="fa-solid fa-code" style="margin-right:4px;color:#5c6bc0"></i>'
+          : '<i class="fa-brands fa-golang" style="margin-right:4px;color:#00ADD8"></i>'}Result
       <span style="font-size:10px;font-weight:400;color:var(--success)">editable</span>
     </div>
   </div>
@@ -4301,6 +4373,20 @@ export async function projDiffVersions() {
         initDiff(_projDiffSavedCode);
         projRefreshDiffTable();
     });
+
+    modal.querySelector('#proj-diff-file-sel').addEventListener('change', function () {
+        // Switching file rebuilds BOTH sides coherently: the per-version
+        // map for the new path, and the right side from that path's
+        // model. Apply-to-editor (below) follows the same selection.
+        diffPath = this.value;
+        window._projDiffApplyPath = diffPath;
+        rebuildCodeMap();
+        const verSel = modal.querySelector('#proj-diff-ver-sel');
+        _projDiffSavedCode = codeMap[verSel.value] || '';
+        initDiff(_projDiffSavedCode);
+        projRefreshDiffTable();
+    });
+    window._projDiffApplyPath = diffPath;
 
     let _sub = null;
     if (_monacoInst) {
@@ -4321,9 +4407,30 @@ export async function projDiffVersions() {
 
 export function projDiffApplyToEditor() {
     const result = projCollectDiffResult().replace(/\u00A0/g, ' ');
-    if (_monacoInst) _monacoInst.setValue(result);
-    else { const ta = document.getElementById('proj-fallback'); if (ta) ta.value = result; }
+    // The result lands in the SELECTED file's model (the diff is per
+    // file), as an UNDOABLE edit — same contract as the wizard rewrite
+    // bridge — and that tab takes focus so the user sees what changed.
+    //
+    // Português: O resultado entra no MODEL do arquivo SELECIONADO,
+    // como edição desfazível, e a aba dele ganha o foco.
+    const path = window._projDiffApplyPath || _editorTabs[_activeTabIdx]?.path;
+    const t = _editorTabs.find(x => x.path === path);
+    if (t) {
+        if (t.model.getValue() !== result) {
+            t.model.pushEditOperations(
+                [],
+                [{ range: t.model.getFullModelRange(), text: result }],
+                () => null,
+            );
+        }
+        window._projActivateTabByPath?.(path);
+    } else if (_monacoInst) {
+        _monacoInst.setValue(result);
+    } else {
+        const ta = document.getElementById('proj-fallback'); if (ta) ta.value = result;
+    }
     document.getElementById('proj-diff-modal')?.remove();
+    window._projDiffApplyPath = null;
     projSetParseStatus('⚠ Code updated from diff — click Parse to validate.', 'warning');
 }
 

@@ -1801,8 +1801,17 @@ function _renderFunctionCard(fn, incompleteSet, lines) {
         title: `${icon} ${esc(label)}`,
         // The file badge is the card's provenance — with several tabs,
         // "which file does this device live in" stops being obvious.
+        // Clicking it activates that file's tab (the tab-aware jump):
+        // the wizard's Monaco switches to the source the card came
+        // from and the card column realigns against it.
+        //
+        // Português: O badge é a proveniência do card; clicá-lo ativa a
+        // aba daquele arquivo (o pulo ciente de abas) e a coluna de
+        // cards realinha contra o fonte novo.
         subtitle: fn.sourceFile
-            ? `function device — <span style="font-family:'Fira Code','Consolas',monospace">${esc(fn.sourceFile)}</span>`
+            ? `function device — <span onclick="event.stopPropagation();window._projWizardJumpToFile('${esc(fn.sourceFile)}')"
+                 title="Show ${esc(fn.sourceFile)} in the editor"
+                 style="font-family:'Fira Code','Consolas',monospace;cursor:pointer;text-decoration:underline dotted">${esc(fn.sourceFile)}</span>`
             : 'function device',
         body: portRows || `<p class="wiz-card-empty">No ports on this function.</p>`,
     });
@@ -2251,6 +2260,23 @@ function _hydrateFromRewriteResponse(data) {
 // primeiro arquivo da cópia (structs/enums são tipicamente do header,
 // convencionalmente a primeira aba); palpite errado = erro limpo do
 // engine, nunca corrupção.
+// _projWizardJumpToFile is the tab-aware jump behind the card's file
+// badge: activate the file's tab through the host bridge, refresh
+// _state.code (the card line-lookup reads the ACTIVE source), and
+// re-render so the card column realigns against the newly visible
+// file. Cards from other files fall back to static flow — by design.
+//
+// Português: O pulo ciente de abas do badge: ativa a aba pelo host,
+// atualiza _state.code (o line-lookup lê o fonte ATIVO) e re-renderiza
+// para a coluna realinhar contra o arquivo agora visível.
+if (typeof window !== 'undefined') {
+    window._projWizardJumpToFile = (path) => {
+        window._projActivateTabByPath?.(path);
+        _state.code = _readMonacoSource();
+        _renderTab();
+    };
+}
+
 function _fileForEdit(edit, files) {
     const m = /^function\.([A-Za-z_][A-Za-z0-9_]*)/.exec(edit?.path || '');
     if (m && Array.isArray(_state.parsed?.functions)) {

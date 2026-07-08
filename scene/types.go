@@ -325,6 +325,19 @@ type MetadataJSON struct {
 	// escolhida usaria. Setado no painel avançado do picker (a UI converte de
 	// KB/MB); 0 = usa o default da placa. Escrito pelo serializer.
 	StringBufferSize int `json:"stringBufferSize,omitempty"`
+
+	// ExportPrefix overrides the RADICAL of the multi-file C export's naming
+	// family (default "iotm_"): folders, files, symbol prefixes and include
+	// guards all derive from it. Set from the board picker's advanced panel;
+	// empty means "use the default", and the codegen falls back tolerantly on
+	// any invalid value (see server blackbox.NewNaming). Written by the
+	// serializer from the workspace's selected prefix.
+	//
+	// Português: Sobrescreve o RADICAL da família de nomes do export C
+	// multiarquivo (default "iotm_"). Setado no painel avançado do picker;
+	// vazio = default, e o codegen degrada tolerante em valor inválido.
+	// Escrito pelo serializer.
+	ExportPrefix string `json:"exportPrefix,omitempty"`
 }
 
 // CameraJSON represents camera state in JSON.

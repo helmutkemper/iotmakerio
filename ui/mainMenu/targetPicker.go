@@ -18,7 +18,18 @@
 //	default and re-filled whenever the selection changes. The maker never has to
 //	know that 1 KB is 1024 bytes: they pick a unit. On generate the value is
 //	converted to bytes and handed back as an override; the buffer is the only
-//	safe knob to expose (snprintf truncates), so the type profile is NOT here.
+//	safe TYPE-affecting knob to expose (snprintf truncates), so the type
+//	profile is NOT here.
+//
+//	The advanced section carries a second, board-INDEPENDENT knob: the export
+//	prefix — the radical of the C naming family (folders, files, symbols,
+//	include guards; default "iotm_"). A maker sets it when the default radical
+//	collides with other work of theirs (canonically: two IoTMaker exports
+//	linked into one firmware). The field validates live against the server's
+//	radical rule (C-identifier prefix, at most 16 chars) and an invalid value
+//	is handed back as "" — mirroring blackbox.NewNaming's tolerant fallback —
+//	so generation is never blocked. Unlike the buffer it does NOT refill on
+//	board change: it is a per-export choice, not a per-board one.
 //
 //	Structure: a fixed backdrop holds a centred modal whose inner HTML is the
 //	header, the board cards, the advanced section and the footer buttons. A
@@ -44,8 +55,15 @@
 //	string — como número + unidade (bytes/KB/MB), pré-preenchido com o default da
 //	placa e re-preenchido ao trocar a seleção. O maker nunca precisa saber que
 //	1 KB = 1024 bytes: ele escolhe a unidade. No generate o valor vira bytes e é
-//	devolvido como override; o buffer é o único knob seguro (snprintf trunca),
-//	então o profile NÃO está aqui. Um listener delegado no modal trata tudo via
+//	devolvido como override; o buffer é o único knob seguro de tipos (snprintf
+//	trunca), então o profile NÃO está aqui. A seção Advanced traz um segundo
+//	knob, INDEPENDENTE de placa: o prefixo de export — o radical da família de
+//	nomes do C (default "iotm_"), para o caso de dois exports linkados num
+//	firmware só. Valida ao vivo contra a regra do servidor (prefixo de
+//	identificador C, ≤16 chars); valor inválido volta como "" (espelho do
+//	fallback tolerante do NewNaming), então a geração nunca bloqueia. Ao
+//	contrário do buffer, NÃO re-preenche ao trocar de placa: é escolha por
+//	export, não por placa. Um listener delegado no modal trata tudo via
 //	Element.closest(). onChosen é sempre chamado uma vez, inclusive nas falhas
 //	(com current, 0). É UI de browser (WASM), não testável offline.
 package mainMenu
@@ -71,18 +89,24 @@ const (
 	pickerBlue     = "#89b4fa"                // accent — selected card, icons, Generate
 	pickerBlueTint = "rgba(137,180,250,0.12)" // selected card fill
 	pickerCrust    = "#11111b"                // text on the accent button
+	pickerRed      = "#f38ba8"                // invalid-input border (export prefix)
 )
 
-// ShowTargetPicker opens the board picker and calls onChosen(id, bufferBytes)
-// when the maker clicks Generate: id is the picked board, bufferBytes is the
-// string-buffer override in bytes (0 when the maker left the advanced field on
-// the board's default, so the codegen keeps that default). current is the last
-// choice, highlighted on open (pass "" for none). See the package-level doc for
-// the once-only / never-block guarantee.
-func ShowTargetPicker(current string, onChosen func(id string, bufferBytes int)) {
+// ShowTargetPicker opens the board picker and calls onChosen(id, bufferBytes,
+// exportPrefix) when the maker clicks Generate: id is the picked board,
+// bufferBytes is the string-buffer override in bytes (0 when the maker left
+// the advanced field on the board's default, so the codegen keeps that
+// default), and exportPrefix is the C naming radical override ("" when left
+// empty or invalid — the codegen keeps the default "iotm_"). current is the
+// last board choice, highlighted on open (pass "" for none); currentPrefix
+// prefills the advanced prefix field so the maker's earlier override is
+// visible and editable. See the package-level doc for the once-only /
+// never-block guarantee — failure paths hand back (current, 0, currentPrefix)
+// so an existing prefix choice survives a picker that could not open.
+func ShowTargetPicker(current string, currentPrefix string, onChosen func(id string, bufferBytes int, exportPrefix string)) {
 	targets := LoadTargets()
 	if len(targets) == 0 {
-		onChosen(current, 0)
+		onChosen(current, 0, currentPrefix)
 		return
 	}
 
@@ -103,7 +127,7 @@ func ShowTargetPicker(current string, onChosen func(id string, bufferBytes int))
 		"width:480px;max-width:92vw;max-height:88vh;overflow:auto;background:%s;"+
 			"border:1px solid %s;border-radius:12px;color:%s;box-shadow:0 16px 48px rgba(0,0,0,0.6);",
 		pickerBase, pickerSurface1, pickerText))
-	modal.Set("innerHTML", buildPickerHTML(targets, selected))
+	modal.Set("innerHTML", buildPickerHTML(targets, selected, currentPrefix))
 	backdrop.Call("appendChild", modal)
 	doc.Get("body").Call("appendChild", backdrop)
 
@@ -142,7 +166,13 @@ func ShowTargetPicker(current string, onChosen func(id string, bufferBytes int))
 	// fillAdvanced prefills the advanced field with the given board's default
 	// buffer size, in bytes. Called on open and whenever the selection changes so
 	// the field always shows the selected board's current value. The defaults are
-	// small (well under 1 KB), so the unit resets to bytes.
+	// small (well under 1 KB), so the unit resets to bytes. The export-prefix
+	// field is deliberately NOT touched here: the radical is a per-export choice,
+	// not a per-board one, so a board change must not wipe what the maker typed.
+	//
+	// Português: O campo do prefixo de export NÃO é tocado aqui de propósito: o
+	// radical é escolha por export, não por placa — trocar de placa não pode
+	// apagar o que o maker digitou.
 	fillAdvanced := func(id string) {
 		def := 0
 		for _, t := range targets {
@@ -185,6 +215,57 @@ func ShowTargetPicker(current string, onChosen func(id string, bufferBytes int))
 		return int(n * mult)
 	}
 
+	// readExportPrefix reads the advanced prefix field and returns the C
+	// naming-radical override, or "" for empty OR invalid input — the exact
+	// mirror of the server's tolerant stance (blackbox.NewNaming falls back to
+	// the default radical on anything invalid), so the value handed back can
+	// never block or break a generation. The live input listener below paints
+	// the field's border red while the value is invalid, so the maker sees the
+	// problem before clicking Generate rather than silently getting "iotm_".
+	//
+	// Português: Lê o campo do prefixo e retorna o override do radical, ou ""
+	// para vazio OU inválido — espelho exato da postura tolerante do servidor
+	// (NewNaming degrada para o default), então o valor devolvido nunca
+	// bloqueia nem quebra uma geração. O listener de input abaixo pinta a
+	// borda de vermelho enquanto inválido, para o maker ver o problema antes
+	// do Generate em vez de ganhar "iotm_" em silêncio.
+	readExportPrefix := func() string {
+		field := modal.Call("querySelector", "[data-export-prefix]")
+		if !field.Truthy() {
+			return ""
+		}
+		v := strings.TrimSpace(field.Get("value").String())
+		if !validRadical(v) {
+			return ""
+		}
+		return v
+	}
+
+	// Live validation of the prefix field: red border while the (non-empty)
+	// value breaks the radical rule, normal border otherwise. Feedback only —
+	// readExportPrefix stays the gate at Generate time.
+	//
+	// Português: Validação ao vivo do campo: borda vermelha enquanto o valor
+	// (não-vazio) fere a regra do radical. Só feedback — o portão é o
+	// readExportPrefix no Generate.
+	prefixInputFn := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		field := modal.Call("querySelector", "[data-export-prefix]")
+		if !field.Truthy() {
+			return nil
+		}
+		v := strings.TrimSpace(field.Get("value").String())
+		if v != "" && !validRadical(v) {
+			field.Get("style").Set("borderColor", pickerRed)
+		} else {
+			field.Get("style").Set("borderColor", pickerSurface1)
+		}
+		return nil
+	})
+	funcs = append(funcs, prefixInputFn)
+	if field := modal.Call("querySelector", "[data-export-prefix]"); field.Truthy() {
+		field.Call("addEventListener", "input", prefixInputFn)
+	}
+
 	// One delegated click listener: actions first (data-action), then card
 	// selection (data-target-id), resolved with Element.closest().
 	clickFn := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
@@ -194,8 +275,9 @@ func ShowTargetPicker(current string, onChosen func(id string, bufferBytes int))
 			case "generate":
 				id := selected
 				bytes := readBufferBytes()
+				prefix := readExportPrefix()
 				closePicker()
-				onChosen(id, bytes)
+				onChosen(id, bytes, prefix)
 			case "cancel":
 				closePicker()
 			case "toggle-advanced":
@@ -242,7 +324,7 @@ func ShowTargetPicker(current string, onChosen func(id string, bufferBytes int))
 // the collapsible advanced section, and the footer buttons. Every text value is
 // HTML-escaped. Colours are inlined from the palette above so the overlay needs
 // no stylesheet.
-func buildPickerHTML(targets []TargetView, selected string) string {
+func buildPickerHTML(targets []TargetView, selected string, currentPrefix string) string {
 	var b strings.Builder
 
 	b.WriteString(fmt.Sprintf(
@@ -303,9 +385,18 @@ func buildPickerHTML(targets []TargetView, selected string) string {
 			`border:1px solid %s;border-radius:6px;padding:6px 8px;font-size:13px;">`+
 			`<select data-buffer-unit style="background:%s;color:%s;border:1px solid %s;border-radius:6px;`+
 			`padding:6px 8px;font-size:13px;"><option value="b">bytes</option><option value="kb">KB</option>`+
-			`<option value="mb">MB</option></select></span></div></div></div>`,
+			`<option value="mb">MB</option></select></span></div>`+
+			`<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;">`+
+			`<div><div style="font-size:13px;color:%s;">Export prefix</div>`+
+			`<div style="font-size:12px;color:%s;margin-top:2px;">Names the generated C after your codebase (default iotm_).</div></div>`+
+			`<input data-export-prefix type="text" value="%s" placeholder="iotm_" spellcheck="false" `+
+			`style="width:120px;text-align:right;background:%s;color:%s;border:1px solid %s;`+
+			`border-radius:6px;padding:6px 8px;font-size:13px;font-family:monospace;flex-shrink:0;">`+
+			`</div></div></div>`,
 		pickerSubtext, pickerText, pickerOverlay, def,
 		pickerMantle, pickerText, pickerSurface1,
+		pickerMantle, pickerText, pickerSurface1,
+		pickerText, pickerOverlay, html.EscapeString(currentPrefix),
 		pickerMantle, pickerText, pickerSurface1))
 
 	b.WriteString(fmt.Sprintf(
@@ -318,6 +409,36 @@ func buildPickerHTML(targets []TargetView, selected string) string {
 		pickerSubtext, pickerSurface1, pickerBlue, pickerCrust))
 
 	return b.String()
+}
+
+// validRadical is the client-side mirror of the server's radical rule
+// (blackbox.ValidRadical): letter or underscore first, then letters, digits
+// or underscores, non-empty, at most 16 characters. Kept in sync by hand — a
+// drift here only mis-paints the live border; the server remains the gate and
+// degrades tolerantly to the default radical on anything invalid.
+//
+// Português: Espelho client-side da regra do radical do servidor: letra ou
+// underscore primeiro, depois letras/dígitos/underscores, não-vazio, ≤16
+// chars. Sincronizado à mão — um desvio aqui só pinta a borda errado; o
+// portão é o servidor, que degrada tolerante.
+func validRadical(s string) bool {
+	if s == "" || len(s) > 16 {
+		return false
+	}
+	for i, r := range s {
+		isLetter := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_'
+		isDigit := r >= '0' && r <= '9'
+		if i == 0 {
+			if !isLetter {
+				return false
+			}
+			continue
+		}
+		if !isLetter && !isDigit {
+			return false
+		}
+	}
+	return true
 }
 
 // faIcon maps a registry icon name to a FontAwesome solid class (the app's icon

@@ -100,6 +100,17 @@ type Serializer struct {
 	// a targetFunc. Zero não escreve override (o codegen mantém o default).
 	bufferSizeFunc func() int
 
+	// exportPrefixFunc returns the maker's export-prefix override (the C
+	// naming family's radical) at export time — the value from the board
+	// picker's advanced panel, held by the workspace. Injected like
+	// targetFunc, so the Serializer never reaches up. Empty writes no
+	// override (the codegen keeps the default "iotm_" radical).
+	//
+	// Português: Retorna o override do radical do export (família de nomes
+	// do C) no export — valor do painel avançado do picker, guardado no
+	// workspace. Injetada como a targetFunc. Vazio não escreve override.
+	exportPrefixFunc func() string
+
 	// observer is installed on the graph and bridges graph events to
 	// the Serializer's OnExport callback and to external consumers.
 	observer *graphObserver
@@ -215,6 +226,18 @@ func (s *Serializer) SetTargetFunc(fn func() string) {
 // export (ver bufferSizeFunc). O workspace o liga ao override guardado.
 func (s *Serializer) SetBufferSizeFunc(fn func() int) {
 	s.bufferSizeFunc = fn
+}
+
+// SetExportPrefixFunc installs the callback returning the maker's export
+// prefix (the C naming family's radical) at export time (see
+// exportPrefixFunc). The workspace wires it to its held prefix, so
+// buildSceneJSON stamps Metadata.ExportPrefix.
+//
+// Português: Instala o callback que retorna o prefixo de export do maker
+// (o radical da família de nomes) no export (ver exportPrefixFunc). O
+// workspace o liga ao prefixo guardado.
+func (s *Serializer) SetExportPrefixFunc(fn func() string) {
+	s.exportPrefixFunc = fn
 }
 
 // SetOnConflictsChanged installs a callback that fires whenever a
@@ -708,6 +731,11 @@ func (s *Serializer) buildSceneJSON() SceneJSON {
 		// The maker's string-buffer override, in bytes; 0 means none, and the
 		// codegen keeps the board's default.
 		sc.Metadata.StringBufferSize = s.bufferSizeFunc()
+	}
+	if s.exportPrefixFunc != nil {
+		// The maker's export-prefix override (the C naming radical); empty
+		// means none, and the codegen keeps the default "iotm_".
+		sc.Metadata.ExportPrefix = s.exportPrefixFunc()
 	}
 	if s.canvasSizeFunc != nil {
 		sc.Metadata.CanvasWidth, sc.Metadata.CanvasHeight = s.canvasSizeFunc()
