@@ -126,8 +126,19 @@ func Validate(projectID, userID string) *Result {
 	// lookup problem — back-compat with the pre-multi-language model,
 	// mirroring the wizard handler's empty-language default.
 	isC99 := false
+	// langID is hoisted here because the unified parse entry point
+	// (ParseForLanguageFiles, below) wants the raw language token — proj
+	// itself deliberately dies with this if-scope. Empty on lookup
+	// failure = the dispatch's Go default, same back-compat stance as
+	// isC99 above.
+	//
+	// Português: langID é içado aqui porque a entrada unificada de parse
+	// quer o token cru — proj morre com este if-scope de propósito. Vazio
+	// em falha de lookup = o default Go do dispatch.
+	langID := ""
 	if proj, perr := store.GetProjectByIDAndUser(projectID, userID); perr == nil && proj != nil {
 		isC99 = strings.EqualFold(proj.ProgrammingLanguageID, "c")
+		langID = proj.ProgrammingLanguageID
 	}
 
 	// ── Pass 1: load source and parse ───────────────────────────
@@ -162,33 +173,19 @@ func Validate(projectID, userID string) *Result {
 
 	limits := store.GetParserLimits(userID)
 
-	// goSrc is the Go path's single-file source bytes, hoisted here
-	// because TWO passes read it: Pass 1 (bbparser.Parse, below) and
-	// Pass 2 (blackbox.Analyze, further down — Go-only; the C99 branch
-	// skips the analyzer entirely, so goSrc staying empty on that path
-	// is never observed). Go authoring is single-file for now
-	// (multi-file Go is a declared future slice — the parser dispatch
-	// enforces it), so "the snapshot's first file" IS the whole set.
+	// One entry point for BOTH languages since GoMF: the dispatch routes
+	// Go single-file through Parse, Go multi-file through ParseGoFiles
+	// and C through ParseCFiles — the validator stopped owning that
+	// knowledge (the goSrc hoist of the single-file era died with it).
+	// A hard error carries the offending path so the wizard can point at
+	// the right tab.
 	//
-	// Português: Bytes do fonte Go (arquivo único), içados porque DOIS
-	// passes leem: o Parse e o Analyze (só-Go; o ramo C99 pula o
-	// analisador, então goSrc vazio ali nunca é observado). Go é
-	// arquivo único por enquanto — o primeiro arquivo É o conjunto.
-	var goSrc []byte
-	if !isC99 && len(latest.Files) > 0 {
-		goSrc = []byte(latest.Files[0].Content)
-	}
-
-	var def *bbparser.BlackBoxDef
-	var parseErr error
-	if isC99 {
-		// The multi-file parser walks every authored file and merges the
-		// surfaces (see bbparser.ParseCFiles); a hard error carries the
-		// offending path so the wizard can point at the right tab.
-		def, parseErr = bbparser.ParseCFiles(store.ToParserFiles(latest.Files), limits)
-	} else {
-		def, parseErr = bbparser.Parse(goSrc, limits)
-	}
+	// Português: Uma entrada só para as duas linguagens desde o GoMF: o
+	// dispatch roteia Go single pelo Parse, Go multi pelo ParseGoFiles e
+	// C pelo ParseCFiles — o validador deixou de ser dono desse
+	// conhecimento (o içamento do goSrc morreu junto).
+	def, parseErr := bbparser.ParseForLanguageFiles(
+		langID, store.ToParserFiles(latest.Files), limits)
 	if def == nil {
 		// Hard parse failure. Surface the error verbatim — the
 		// codegen parser already formats line/col in its message
@@ -216,25 +213,42 @@ func Validate(projectID, userID string) *Result {
 	// into two issue categories so the SPA's modal shows them
 	// separately (the user can decide which to tackle first).
 	if !isC99 {
-		an := blackbox.Analyze(goSrc)
-		for _, d := range an.Diagnostics {
-			switch d.Severity {
-			case "error":
-				res.Issues = append(res.Issues, Issue{
-					Category: CategoryAnalyzeErrors,
-					Detail:   d.Message,
-					Line:     d.Line,
-					Col:      d.Col,
-				})
-			case "warning":
-				res.Issues = append(res.Issues, Issue{
-					Category: CategoryAnalyzeWarnings,
-					Detail:   d.Message,
-					Line:     d.Line,
-					Col:      d.Col,
-				})
-				// Other severities ("info", "hint") are deliberately
-				// ignored — they're advisory, not blocking.
+		// AnalyzeFiles type-checks the whole PACKAGE (GoMF): a
+		// methods-only sibling is legitimate Go, and analysing files one
+		// at a time would flag "undefined: <Struct>" all over it. Each
+		// diagnostic's Detail is prefixed with its file so the export
+		// modal reads unambiguously in a multi-file project (Line/Col
+		// alone would be ambiguous across tabs).
+		//
+		// Português: O AnalyzeFiles checa o PACOTE inteiro: irmão
+		// só-métodos é Go legítimo. Cada Detail leva o arquivo na
+		// frente — Line/Col sozinhos seriam ambíguos entre abas.
+		srcFiles := make([]blackbox.SourceFile, 0, len(latest.Files))
+		for _, f := range latest.Files {
+			srcFiles = append(srcFiles, blackbox.SourceFile{Path: f.Path, Content: f.Content})
+		}
+		an := blackbox.AnalyzeFiles(srcFiles)
+		for _, fd := range an.Files {
+			for _, d := range fd.Diagnostics {
+				detail := fd.Path + ": " + d.Message
+				switch d.Severity {
+				case "error":
+					res.Issues = append(res.Issues, Issue{
+						Category: CategoryAnalyzeErrors,
+						Detail:   detail,
+						Line:     d.Line,
+						Col:      d.Col,
+					})
+				case "warning":
+					res.Issues = append(res.Issues, Issue{
+						Category: CategoryAnalyzeWarnings,
+						Detail:   detail,
+						Line:     d.Line,
+						Col:      d.Col,
+					})
+					// Other severities ("info", "hint") are deliberately
+					// ignored — they're advisory, not blocking.
+				}
 			}
 		}
 	}

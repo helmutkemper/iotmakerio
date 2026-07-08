@@ -76,21 +76,31 @@ func ParseForLanguageFiles(language string, files []FileEntry, limits ParserLimi
 			// noise here, not information.)
 			return &BlackBoxDef{}, nil
 		case 1:
+			// The single-file set keeps riding the original Parse — the
+			// battle-tested path whose error strings a decade of tests and
+			// muscle memory pin down. ParseGoFiles exists for N > 1 and
+			// orchestrates the SAME primitives, so the two cannot drift in
+			// substance, only in message wording.
+			//
+			// Português: Conjunto de um arquivo segue no Parse original
+			// (testado em batalha); ParseGoFiles existe para N > 1 e
+			// orquestra as MESMAS primitivas — não há como divergirem em
+			// substância, só no fraseado das mensagens.
 			def, err := Parse([]byte(files[0].Content), limits)
 			if def != nil {
 				def.Files = files
 				// Single-file provenance is trivial but stamped anyway:
 				// one representation, one rule — consumers never need a
-				// "was this multi-file?" special case.
-				for i := range def.Functions {
-					def.Functions[i].SourceFile = files[0].Path
+				// "was this multi-file?" special case. Go defs carry
+				// METHODS (the 6c-1 stamping of Functions here was a no-op
+				// — Go never fills that list; corrected with GoMF).
+				for i := range def.Methods {
+					def.Methods[i].SourceFile = files[0].Path
 				}
 			}
 			return def, err
 		default:
-			return nil, fmt.Errorf(
-				"multi-file Go authoring is not supported yet (a future slice); keep a single .go file, got %d",
-				len(files))
+			return ParseGoFiles(files, limits)
 		}
 	case "c", "c99":
 		return ParseCFiles(files, limits)

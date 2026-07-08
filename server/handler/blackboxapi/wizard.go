@@ -123,11 +123,17 @@ type wizardParseRequest struct {
 	Language string               `json:"language,omitempty"`
 }
 
-// wizardAnalyzeRequest is identical to wizardParseRequest; kept as a
-// distinct type so future fields can be added independently to either
-// endpoint without surprising one with the other.
+// wizardAnalyzeRequest carries the WHOLE working copy (GoMF): go/types
+// is a package-level checker, and analysing one tab of a multi-file Go
+// project manufactures "undefined: <Struct>" noise on legitimate code.
+// Kept as a distinct type from wizardParseRequest so future fields can
+// be added independently to either endpoint.
+//
+// Português: Carrega a cópia de trabalho INTEIRA — go/types é
+// verificador de PACOTE; analisar uma aba de um projeto multiarquivo
+// fabrica ruído "undefined" em código legítimo.
 type wizardAnalyzeRequest struct {
-	Code string `json:"code"`
+	Files []bbparser.FileEntry `json:"files"`
 }
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
@@ -252,18 +258,30 @@ func (h *handler) handleWizardAnalyze(c echo.Context) error {
 		return wizardErr(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	if strings.TrimSpace(body.Code) == "" {
-		// An empty body returns an empty diagnostics array rather than a
-		// 400. The SPA debounces analyse-on-keystroke and may fire while
-		// the user is mid-edit; treating that case as an error spams the
-		// console with red squiggles for no reason.
-		return wizardOK(c, blackbox.AnalysisResult{
-			Diagnostics: []blackbox.Diagnostic{},
+	// An all-blank set returns an empty per-file result rather than a
+	// 400. The SPA debounces analyse-on-keystroke and may fire while the
+	// user is mid-edit; treating that case as an error spams the console
+	// with red squiggles for no reason.
+	allBlank := true
+	for _, f := range body.Files {
+		if strings.TrimSpace(f.Content) != "" {
+			allBlank = false
+			break
+		}
+	}
+	if allBlank {
+		return wizardOK(c, blackbox.FilesAnalysisResult{
+			Files: []blackbox.FileDiagnostics{},
 		})
 	}
 
-	result := blackbox.Analyze([]byte(body.Code))
-	return wizardOK(c, result)
+	// The HTTP boundary converts between the two packages' file shapes —
+	// the analyzer deliberately does not import codegen/blackbox.
+	srcFiles := make([]blackbox.SourceFile, 0, len(body.Files))
+	for _, f := range body.Files {
+		srcFiles = append(srcFiles, blackbox.SourceFile{Path: f.Path, Content: f.Content})
+	}
+	return wizardOK(c, blackbox.AnalyzeFiles(srcFiles))
 }
 
 // ─── /wizard/rewrite ──────────────────────────────────────────────────────────

@@ -79,9 +79,12 @@ func TestValidateCodeFileSet(t *testing.T) {
 		{"go rejects .py", []store.CodeFileEntry{f("main.py", "x")}, "golang", "only .go"},
 		{"go rejects .c", []store.CodeFileEntry{f("main.c", "x")}, "golang", "only .go"},
 		{"c rejects .go", []store.CodeFileEntry{f("main.go", "x")}, "c", "only .c and .h"},
-		{"go multi-file is a future slice", []store.CodeFileEntry{
-			f("a.go", "package a"), f("b.go", "package a"),
-		}, "golang", "single-file for now"},
+		// GoMF (2026-07-08): a Go project is a Go PACKAGE — multi-file is
+		// valid at this gate; the Go-shaped rules (one struct, same
+		// package, no redeclaration) live in the parser.
+		{"go multi-file (GoMF)", []store.CodeFileEntry{
+			f("device.go", "package a"), f("run.go", "package a"),
+		}, "golang", ""},
 		{"c headers alone", []store.CodeFileEntry{f("api.h", "typedef int t;")}, "c", "at least one .c"},
 
 		// Content rule — the single-file era's "source is required".

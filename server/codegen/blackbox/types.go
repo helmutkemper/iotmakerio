@@ -372,6 +372,38 @@ type CallbackTypeDef struct {
 	// (e.g. "float temperature_c, void *user_data"). Not split into ports —
 	// these parameters are supplied by the caller at runtime, never wired.
 	Params string `json:"params,omitempty"`
+
+	// Icon and Label are the callback type's visual identity, read from the
+	// leading comment above the typedef (`// icon:…. label:….`) — §12.3:
+	// the wizard card for a callback type exists for the SOLE purpose of
+	// setting these two; the signature is fixed by the typedef.
+	//
+	// Português: Identidade visual do callback type, lida do comentário
+	// líder do typedef — §12.3: o card existe SÓ para icon/label.
+	Icon  string `json:"icon,omitempty"`
+	Label string `json:"label,omitempty"`
+
+	// Doc is the human prose of the leading comment after directive
+	// stripping — same trio as EnumDef.
+	Doc string `json:"doc,omitempty"`
+
+	// UsedAsParameter is §12.3's trigger rule: the wizard surfaces a
+	// callback-type card ONLY when the typedef is consumed as a parameter
+	// of a public function (an input port carries it). A typedef declared
+	// but never consumed stays in this list (handler matching still needs
+	// it) but does NOT earn a card — "interno não representa": an orphan
+	// contract has no counterpart to wire to.
+	//
+	// Português: A regra de gatilho do §12.3: o card só aparece quando o
+	// typedef é consumido como parâmetro de função pública. Declarado e
+	// nunca consumido fica na lista (o matching de handlers precisa) mas
+	// não ganha card.
+	UsedAsParameter bool `json:"usedAsParameter,omitempty"`
+
+	// DeclStart is the typedef keyword's byte offset in the original
+	// source — parser-internal (leading-comment read and rewrite anchor);
+	// never serialized.
+	DeclStart int `json:"-"`
 }
 
 // StructDef carries everything the parser knows about a single

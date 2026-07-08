@@ -2233,9 +2233,6 @@ function _tabsValidateName(name, ignoreIdx) {
     } else if (!lower.endsWith('.go')) {
         return 'Go projects accept .go files.';
     }
-    if (lang !== 'c' && _editorTabs.length >= 1 && ignoreIdx === undefined) {
-        return 'Go projects are single-file for now.';
-    }
     for (let i = 0; i < _editorTabs.length; i++) {
         if (i === ignoreIdx) continue;
         if (_editorTabs[i].path.toLowerCase() === lower) {
@@ -2251,7 +2248,7 @@ async function _tabAdd() {
         return;
     }
     const lang = _projectLangById(_editProject?.id);
-    const suggestion = lang === 'c' ? 'util.c' : 'main.go';
+    const suggestion = lang === 'c' ? 'util.c' : 'helpers.go';
     const name = await showPrompt('New file (' + (lang === 'c' ? '.c/.h' : '.go') + '):', suggestion);
     if (!name) return;
     const msg = _tabsValidateName(name);
@@ -2341,13 +2338,14 @@ function _tabsRenderStrip() {
   <span>${esc(t.path)}</span>${dot}${close}
 </div>`;
     });
-    // "+" appears when adding is actually legal: C projects up to the
-    // cap; Go projects only while empty (single-file is a declared
-    // limit — a visible button that always errors is worse UX than no
-    // button).
-    const canAddTab = _projectLangById(_editProject?.id) === 'c'
-        ? _editorTabs.length < _TAB_MAX_FILES
-        : _editorTabs.length === 0;
+    // "+" appears up to the snapshot cap for BOTH languages since GoMF:
+    // a Go project is a Go PACKAGE (struct in one file, methods across
+    // siblings), so multi-file stopped being a C privilege.
+    //
+    // Português: "+" até o teto nas DUAS linguagens desde o GoMF:
+    // projeto Go é um PACOTE Go — multiarquivo deixou de ser privilégio
+    // do C.
+    const canAddTab = _editorTabs.length < _TAB_MAX_FILES;
     const plus = canAddTab ? `
 <button title="New file" onclick="window._projTabAdd()"
   style="padding:4px 10px;background:none;border:none;cursor:pointer;
@@ -2760,11 +2758,15 @@ export async function projParse() {
         clearTimeout(_analyzeTimer);
         const analyzeResult = await projRunAnalyze();
         if (analyzeResult?.hasErrors) {
-            projSetParseStatus(projFormatAnalyzeErrors(analyzeResult.diagnostics), 'error');
+            // Per-file shape (GoMF): flatten with each diagnostic
+            // carrying its path for the status line.
+            const flat = (analyzeResult.files || []).flatMap(fd =>
+                (fd.diagnostics || []).map(d => ({ ...d, path: fd.path })));
+            projSetParseStatus(projFormatAnalyzeErrors(flat), 'error');
             return;
         }
 
-        projApplyMonacoMarkers([]);
+        projApplyMonacoMarkersPerFile([]);
         projFormAlert('', '');
         _needsExplicitParse = false;
 
@@ -2869,8 +2871,16 @@ function projScheduleAnalyze() {
 
 async function projRunAnalyze() {
     const seq  = ++_analyzeSeq;
-    const code = projGetCode();
-    if (!code.trim() || !_monacoInst) return null;
+    // The WHOLE working copy goes to the analyzer (GoMF): go/types is a
+    // package-level checker — one tab of a multi-file Go project alone
+    // would light "undefined: <Struct>" on legitimate code. "Empty" is
+    // a SET question for the same reason Save's is.
+    //
+    // Português: A cópia INTEIRA vai ao analisador — go/types é
+    // verificador de PACOTE; uma aba sozinha acenderia "undefined" em
+    // código legítimo. "Vazio" é pergunta de conjunto.
+    const wcFiles = _tabsCollectFiles();
+    if (!wcFiles.some(f => f.content.trim()) || !_monacoInst) return null;
 
     // Live analysis runs `go/parser` + `go/types` on the source — it
     // is intrinsically Go-only. For any other language (C99 today,
@@ -2885,7 +2895,7 @@ async function projRunAnalyze() {
     // pass. See docs/CLAUDE_C99_DEVICE_SUPPORT.md §2.10 for the
     // long-term plan to bring analyse to non-Go languages.
     if (_currentProjectLanguage() !== 'go') {
-        projApplyMonacoMarkers([]);
+        projApplyMonacoMarkersPerFile([]);
         projSetParseStatus('', '');
         return { hasErrors: false, diagnostics: [] };
     }
@@ -2896,15 +2906,20 @@ async function projRunAnalyze() {
         // docs/tasks/WIZARD_TASKS.md. Cancellation by sequence number
         // remains: we discard the response if a newer request started
         // while we were waiting.
-        const json = await api('POST', '/api/v1/blackbox/wizard/analyze', { code });
+        const json = await api('POST', '/api/v1/blackbox/wizard/analyze', { files: wcFiles });
         if (_analyzeSeq !== seq) return null;
         if (json?.metadata?.status !== 200) return null;
 
         const result = json.data;
-        projApplyMonacoMarkers(result.diagnostics || []);
+        projApplyMonacoMarkersPerFile(result.files || []);
 
         if (result.hasErrors) {
-            projSetParseStatus(projFormatAnalyzeErrors(result.diagnostics), 'error');
+            // Flatten the per-file buckets for the status line, each
+            // diagnostic carrying its file — line numbers alone are
+            // ambiguous across tabs.
+            const flat = (result.files || []).flatMap(fd =>
+                (fd.diagnostics || []).map(d => ({ ...d, path: fd.path })));
+            projSetParseStatus(projFormatAnalyzeErrors(flat), 'error');
         } else if (_parsedData) {
             projSetParseStatus(projParseSummary(_parsedData), 'ok');
             projAutoReparse();
@@ -2915,18 +2930,49 @@ async function projRunAnalyze() {
     } catch { return null; }
 }
 
-function projApplyMonacoMarkers(diagnostics) {
-    if (!_monacoInst || !window.monaco) return;
-    const model = _monacoInst.getModel();
-    if (!model) return;
+// projApplyMonacoMarkersPerFile lands each file's diagnostics on ITS
+// tab's MODEL — markers are model-scoped in Monaco, so an error parked
+// on an inactive tab keeps its squiggle (and the Problems tooltip) for
+// when the user switches there, and an empty bucket CLEARS a tab's
+// stale markers. The whole-line red decorations stay ACTIVE-tab only:
+// deltaDecorations is a view concern, and painting the visible editor
+// for a hidden file would decorate the wrong text. Passing [] clears
+// every tab (the non-Go gate).
+//
+// Português: Cada bucket cai no MODEL da sua aba — markers são do
+// model, então erro em aba inativa mantém o rabisco para quando o
+// usuário trocar, e bucket vazio LIMPA markers velhos. As decorações
+// de linha ficam só na ativa (são da view). [] limpa todas as abas.
+function projApplyMonacoMarkersPerFile(fileBuckets) {
+    if (!window.monaco) return;
+    const byPath = new Map((fileBuckets || []).map(fd => [fd.path, fd.diagnostics || []]));
+    const activePath = _editorTabs[_activeTabIdx]?.path;
+    for (const t of _editorTabs) {
+        const diags = byPath.get(t.path) || [];
+        _setMarkersOnModel(t.model, diags);
+        if (t.path === activePath) _applyErrorLineDecorations(diags);
+    }
+}
+
+// _setMarkersOnModel: one model's markers. The message strip now peels
+// ANY leading "path:line:col:" prefix — the multi-file analyzer parses
+// under real paths, so the old hardcoded "blackbox.go" prefix is gone.
+function _setMarkersOnModel(model, diagnostics) {
+    if (!model || !window.monaco) return;
     const sevMap = { error: 8, warning: 4, info: 2, hint: 1 };
     monaco.editor.setModelMarkers(model, 'proj-analyzer', diagnostics.map(d => ({
         severity:        sevMap[d.severity] ?? 8,
-        message:         d.message.replace(/^blackbox\.go:\d+:\d+:\s*/, '').trim(),
+        message:         d.message.replace(/^\S+\.go:\d+:\d+:\s*/, '').trim(),
         startLineNumber: d.line, startColumn: d.col,
         endLineNumber:   d.endLine, endColumn: d.endCol,
         source:          d.source,
     })));
+}
+
+// _applyErrorLineDecorations: the ACTIVE editor-view's whole-line red
+// paint (view concern — see projApplyMonacoMarkersPerFile).
+function _applyErrorLineDecorations(diagnostics) {
+    if (!_monacoInst || !window.monaco) return;
     const errDec = diagnostics.filter(d => d.severity === 'error').map(d => ({
         range: new monaco.Range(d.line, 1, d.endLine, 9999),
         options: {
@@ -2949,8 +2995,9 @@ function projFormatAnalyzeErrors(diagnostics) {
     const errors = diagnostics.filter(d => d.severity === 'error');
     if (!errors.length) return '✗ Semantic analysis error';
     const shown = errors.slice(0, 2).map(d =>
-        `<span style="font-family:var(--mono);font-weight:700">line&nbsp;${d.line}:</span> ${
-            esc(d.message.replace(/^blackbox\.go:\d+:\d+:\s*/, '').trim())}`
+        `<span style="font-family:var(--mono);font-weight:700">${
+            d.path ? esc(d.path) + ':' : 'line&nbsp;'}${d.line}:</span> ${
+            esc(d.message.replace(/^\S+\.go:\d+:\d+:\s*/, '').trim())}`
     ).join(' &nbsp;·&nbsp; ');
     const more = errors.length > 2
         ? ` <span style="opacity:.65">(+${errors.length - 2} more)</span>` : '';
@@ -4069,7 +4116,7 @@ export function projReset() {
     projSetParseStatus('', '');
     clearTimeout(_analyzeTimer);
     _analyzeSeq++;
-    projApplyMonacoMarkers([]);
+    projApplyMonacoMarkersPerFile([]);
 }
 
 function updateVersionBar() {

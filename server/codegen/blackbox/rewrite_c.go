@@ -104,6 +104,17 @@ func RewriteC(source string, edits []WizardEdit) (string, error) {
 			plans = append(plans, plan)
 			continue
 		}
+		// Callback-type paths (`callbacktype.<Name>`, §12.3) — same
+		// interception doctrine as the enum paths above: C99-specific,
+		// unknown to the shared grammar, the Go router stays untouched.
+		if name, ok := parseCCallbackTypePath(e.Path); ok {
+			plan, err := planCCallbackTypeEdit(source, name, e)
+			if err != nil {
+				return source, fmt.Errorf("edit %d (%s): %w", i, e.Op, err)
+			}
+			plans = append(plans, plan)
+			continue
+		}
 		// Standalone function-device paths (Slice C99-8) are also
 		// C99-specific and unknown to the shared grammar.
 		if fp, ok := parseCFunctionPath(e.Path); ok {

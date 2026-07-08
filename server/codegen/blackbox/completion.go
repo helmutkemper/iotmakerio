@@ -251,6 +251,21 @@ func ComputeIncomplete(def *BlackBoxDef) []string {
 		}
 	}
 
+	// Callback types (§12.3): the card exists solely to set icon/label,
+	// so "no label yet" IS the incomplete condition — but only for
+	// typedefs that actually surface (UsedAsParameter); an unconsumed
+	// contract has no card to be incomplete on.
+	//
+	// Português: O card do callback type existe só para icon/label — sem
+	// label é a condição de incompleto; só para os que aparecem
+	// (UsedAsParameter).
+	for i := range def.CallbackTypes {
+		ct := &def.CallbackTypes[i]
+		if ct.UsedAsParameter && ct.Label == "" {
+			set["callbacktype."+ct.Name] = struct{}{}
+		}
+	}
+
 	// Wire-types (opaque handles carried on a wire): need a label AND
 	// an icon — the same visual-identity bar as a device. They have no
 	// ports, so that is the whole check.

@@ -142,13 +142,13 @@ func TestHandleUploadCodeFile_rejectsNonGoExtension(t *testing.T) {
 
 // ─── Second upload replaces the first ─────────────────────────────────────────
 //
-// Go is single-file by declared contract, so an upload REPLACES the
-// whole snapshot — the single-slot intent of the old clearDirectory
-// era, preserved for the language where it is still true. The mirror
-// on disk reflects it: only the newest file remains. (A C project
-// would ADD second.c beside first.c instead.)
+// Since GoMF a Go project is a Go PACKAGE: a second upload with a NEW
+// name ADDS the file beside the first (same per-path semantics as C),
+// and re-uploading an EXISTING name replaces that entry only. The old
+// whole-set replacement died with the single-file era — uploading
+// helpers.go must not silently delete device.go.
 
-func TestHandleUploadCodeFile_secondUploadReplacesFirst(t *testing.T) {
+func TestHandleUploadCodeFile_goPackageGrowsByPath(t *testing.T) {
 	setupTestDB(t)
 	e := newProjectsEcho()
 
@@ -172,7 +172,8 @@ func TestHandleUploadCodeFile_secondUploadReplacesFirst(t *testing.T) {
 	upload("first.go", "package main // first")
 	upload("second.go", "package main // second")
 
-	// Only second.go should remain.
+	// GoMF: both files coexist in the snapshot's disk mirror — the
+	// package grew, nothing was silently deleted.
 	cfg := config.Get()
 	codeDir := filepath.Join(
 		projectBasePath(cfg, userID, store.ProjectTypeCustomDevice, projectID),
@@ -182,14 +183,25 @@ func TestHandleUploadCodeFile_secondUploadReplacesFirst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadDir: %v", err)
 	}
-	if len(entries) != 1 {
-		names := make([]string, 0, len(entries))
-		for _, e := range entries {
-			names = append(names, e.Name())
-		}
-		t.Fatalf("expected 1 file in code/; got %d: %v", len(entries), names)
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
 	}
-	if entries[0].Name() != "second.go" {
-		t.Errorf("expected second.go to be the only file; got %q", entries[0].Name())
+	if len(entries) != 2 {
+		t.Fatalf("expected first.go AND second.go in code/; got %d: %v", len(entries), names)
+	}
+
+	// Re-uploading an EXISTING name replaces that entry only — still two
+	// files, first.go carrying the new bytes.
+	upload("first.go", "package main // first, revised")
+	got, rErr := os.ReadFile(filepath.Join(codeDir, "first.go"))
+	if rErr != nil {
+		t.Fatalf("read first.go: %v", rErr)
+	}
+	if string(got) != "package main // first, revised" {
+		t.Errorf("re-upload must replace by path: got %q", string(got))
+	}
+	if entries2, _ := os.ReadDir(codeDir); len(entries2) != 2 {
+		t.Errorf("re-upload must not grow the set: got %d files", len(entries2))
 	}
 }

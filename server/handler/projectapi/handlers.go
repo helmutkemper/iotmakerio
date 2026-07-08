@@ -745,9 +745,18 @@ func validateCodeFileSet(files []store.CodeFileEntry, languageID string) string 
 			hasContent = true
 		}
 	}
-	if isGo && len(files) > 1 {
-		return "Go projects are single-file for now (multi-file Go authoring is a future feature); keep one .go file"
-	}
+	// Multi-file Go shipped with GoMF (2026-07-08): a Go project is a Go
+	// PACKAGE — the struct in one file, methods across siblings — so the
+	// count rule is the same 1..maxCodeFiles the C side has. The Go-shaped
+	// rules (one exported struct across the set, same package name, no
+	// method redeclaration) belong to the PARSER, which sees semantics;
+	// this gate only owns paths and extensions.
+	//
+	// Português: Go multiarquivo chegou com o GoMF: projeto Go é um
+	// PACOTE Go, então a regra de contagem é a mesma do C. As regras com
+	// forma de Go (um struct exportado no conjunto, mesmo pacote, sem
+	// redeclaração) são do PARSER, que enxerga semântica; este portão só
+	// cuida de caminhos e extensões.
 	if !isGo && !hasC {
 		return "a C project needs at least one .c file (headers alone carry no definitions)"
 	}
@@ -895,28 +904,17 @@ func handleUploadCodeFile(c echo.Context) error {
 
 	return snapshotNextVersion(c, p, claims.UserID,
 		func(files []store.CodeFileEntry) ([]store.CodeFileEntry, string) {
-			// Per-language semantics, matching the save contract:
+			// One semantics for both languages since GoMF: replace by path
+			// when the file already exists (re-upload is an update, not a
+			// duplicate); append otherwise. The Go whole-set replacement of
+			// the single-file era died with that era — a Go project is a Go
+			// PACKAGE now, and "uploading helpers.go" must not silently
+			// delete device.go.
 			//
-			//   Go — single-file by declared contract, so an upload
-			//   REPLACES the whole set: "here is my new main file" is the
-			//   only meaning an upload can have. (This is also the
-			//   single-slot behaviour the pre-multi-file era pinned in its
-			//   integration test — the intent survives, now scoped to the
-			//   language where it is true.)
-			//
-			//   C — multi-file: replace by path when the file already
-			//   exists (re-upload is an update, not a duplicate); append
-			//   otherwise.
-			//
-			// Português: Semântica por linguagem, espelhando o contrato do
-			// save: Go é arquivo único declarado — upload SUBSTITUI o
-			// conjunto (único sentido possível; era o comportamento da era
-			// single-slot, preservado onde é verdade). C é multiarquivo —
-			// substitui por caminho ou anexa.
-			lang := strings.ToLower(strings.TrimSpace(p.ProgrammingLanguageID))
-			if lang == "" || lang == "go" || lang == "golang" {
-				return []store.CodeFileEntry{{Path: name, Content: string(content)}}, ""
-			}
+			// Português: Uma semântica só desde o GoMF: substitui por
+			// caminho ou anexa. A substituição-do-conjunto do Go morreu com
+			// a era single-file — subir helpers.go não pode apagar
+			// device.go em silêncio.
 			for i := range files {
 				if strings.EqualFold(files[i].Path, name) {
 					files[i].Content = string(content)

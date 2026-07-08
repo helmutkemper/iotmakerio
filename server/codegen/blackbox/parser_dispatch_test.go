@@ -91,16 +91,19 @@ func TestParseForLanguageDispatch(t *testing.T) {
 		t.Fatalf("ParseForLanguageFiles(python) error = %q, want to contain 'unsupported language'", err)
 	}
 
-	// Multi-file Go is a DECLARED future slice: more than one .go file must
-	// be a loud, explicit error — never "silently parse the first tab".
+	// Multi-file Go (GoMF): the dispatch routes N > 1 through ParseGoFiles.
+	// The smoke here is routing-only — the merge semantics live in
+	// parser_go_files_test.go. Two copies of the same struct is the
+	// two-structs error (one device family per project), which proves the
+	// multi-file walker ran instead of the old "not supported" rejection.
 	multiGo := []FileEntry{
 		{Path: "a.go", Content: goSrcForDispatch},
 		{Path: "b.go", Content: goSrcForDispatch},
 	}
 	if def, err := ParseForLanguageFiles("go", multiGo, limits); def != nil || err == nil {
-		t.Fatalf("ParseForLanguageFiles(go, 2 files) = (%v, %v), want (nil, error)", def, err)
-	} else if !strings.Contains(err.Error(), "multi-file Go") {
-		t.Fatalf("multi-file Go error = %q, want it to name the limitation", err)
+		t.Fatalf("ParseForLanguageFiles(go, 2 structs) = (%v, %v), want (nil, error)", def, err)
+	} else if !strings.Contains(err.Error(), "ONE device family") {
+		t.Fatalf("two-structs error = %q, want the one-family rule", err)
 	}
 
 	// Empty set mirrors Parse(nil): an empty def, no error — the "new

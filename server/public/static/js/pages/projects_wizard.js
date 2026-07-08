@@ -2278,10 +2278,26 @@ if (typeof window !== 'undefined') {
 }
 
 function _fileForEdit(edit, files) {
-    const m = /^function\.([A-Za-z_][A-Za-z0-9_]*)/.exec(edit?.path || '');
+    const path = edit?.path || '';
+    // C99 device functions: function.<name>.…
+    let m = /^function\.([A-Za-z_][A-Za-z0-9_]*)/.exec(path);
     if (m && Array.isArray(_state.parsed?.functions)) {
         const fn = _state.parsed.functions.find(f => f.name === m[1]);
         if (fn?.sourceFile) return fn.sourceFile;
+    }
+    // Go methods (GoMF): method.<name>.… — same provenance lookup on
+    // the methods list. Init has no SourceFile slot by design (it is a
+    // bare FuncDef); its edits fall through to the first-file fallback,
+    // and a wrong guess is the engine's clean "not found", never
+    // corruption.
+    //
+    // Português: Métodos Go: method.<nome> — mesma consulta de
+    // proveniência na lista de methods. Init não tem SourceFile por
+    // design; cai no fallback, e palpite errado é erro limpo do engine.
+    m = /^method\.([A-Za-z_][A-Za-z0-9_]*)/.exec(path);
+    if (m && Array.isArray(_state.parsed?.methods)) {
+        const md = _state.parsed.methods.find(x => x.name === m[1]);
+        if (md?.sourceFile) return md.sourceFile;
     }
     return files[0]?.path || '';
 }

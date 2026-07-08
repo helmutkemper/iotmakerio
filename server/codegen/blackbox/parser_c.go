@@ -258,6 +258,23 @@ func ParseC(src []byte, limits ParserLimits) (*BlackBoxDef, error) {
 	// types nor handlers, so this is a no-op there.
 	def.CallbackTypes = functionPointerTypedefs(stripped)
 	if len(def.CallbackTypes) > 0 {
+		// Visual identity (§12.3): icon/label/doc from the leading comment
+		// above each typedef — the same trio, read the same way, as the
+		// enum-level identity in Phase 9.5 (collectLeadingComments +
+		// extractDocDirectives). The card the wizard renders for a callback
+		// type edits exactly these.
+		//
+		// Português: Identidade visual do §12.3 — o mesmo trio, lido do
+		// mesmo jeito que o enum na Phase 9.5.
+		for ci := range def.CallbackTypes {
+			ct := &def.CallbackTypes[ci]
+			if leadingDoc := collectLeadingComments(s, ct.DeclStart, blockComments); leadingDoc != "" {
+				cleaned, _, icon, label, _, _, _ := extractDocDirectives(leadingDoc)
+				ct.Icon = icon
+				ct.Label = label
+				ct.Doc = strings.TrimSpace(cleaned)
+			}
+		}
 		isCallbackType := make(map[string]bool, len(def.CallbackTypes))
 		for _, c := range def.CallbackTypes {
 			isCallbackType[c.Name] = true
@@ -288,6 +305,27 @@ func ParseC(src []byte, limits ParserLimits) (*BlackBoxDef, error) {
 				}
 			}
 			def.Functions[fi].CompatibleCallbacks = compat
+		}
+
+		// §12.3's trigger rule: a callback type earns its wizard card only
+		// when some public function CONSUMES it as a parameter — i.e. an
+		// INPUT port carries it. Handler-reference OUTPUTS (the synthetic
+		// `callback` pin of a `// callback:<type>.` device) do not count:
+		// they PROVIDE the contract, they don't consume it.
+		//
+		// Português: Gatilho do §12.3: o card só nasce quando alguma função
+		// pública CONSOME o typedef como parâmetro (porta de ENTRADA).
+		// Saídas de referência de handler PROVEEM o contrato, não consomem.
+		usedAsParam := make(map[string]bool, len(def.CallbackTypes))
+		for fi := range def.Functions {
+			for _, in := range def.Functions[fi].Inputs {
+				if in.CallbackType != "" {
+					usedAsParam[in.CallbackType] = true
+				}
+			}
+		}
+		for ci := range def.CallbackTypes {
+			def.CallbackTypes[ci].UsedAsParameter = usedAsParam[def.CallbackTypes[ci].Name]
 		}
 	}
 
@@ -810,7 +848,7 @@ func functionPointerTypedefs(stripped string) []CallbackTypeDef {
 			}
 		}
 		if !dup {
-			out = append(out, CallbackTypeDef{Name: name, ReturnType: ret, Params: params})
+			out = append(out, CallbackTypeDef{Name: name, ReturnType: ret, Params: params, DeclStart: p})
 		}
 	}
 	return out
