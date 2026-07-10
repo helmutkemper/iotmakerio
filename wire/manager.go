@@ -1631,8 +1631,26 @@ func (m *Manager) Draw() {
 //	[CAMERA-FIX] Coordenadas de tela são convertidas para mundo.
 //	[DENSITY-FIX] Tolerância é escalada por densidade.
 func (m *Manager) HitTest(canvasX float64, canvasY float64) *Wire {
+	return m.hitTestTol(canvasX, canvasY, 1)
+}
+
+// HitTestFat is the "invisible thicker layer" over every wire: identical
+// geometry, but a 3× tolerance corridor, so the line is comfortable to
+// click even at thin stroke widths. Used by the stage click interceptor,
+// which gives wires priority over elements — this is what makes a wire
+// selectable/deletable when it crosses a container (loop) body.
+// Português: A "camada invisível mais grossa" sobre cada wire: mesma
+// geometria, corredor de tolerância 3×, confortável de clicar mesmo com
+// traço fino. Usado pelo interceptador de clique do stage, que dá
+// prioridade aos wires sobre elements — é o que torna um wire selecionável
+// ou apagável quando cruza o corpo de um container (loop).
+func (m *Manager) HitTestFat(canvasX float64, canvasY float64) *Wire {
+	return m.hitTestTol(canvasX, canvasY, 3)
+}
+
+func (m *Manager) hitTestTol(canvasX, canvasY, toleranceMult float64) *Wire {
 	d := rulesDensity.GetDensity()
-	tolerance := m.hitTolerance * d
+	tolerance := m.hitTolerance * d * toleranceMult
 
 	// [CAMERA-FIX] Convert screen → world.
 	// screenX = (worldX - offsetX) * zoom  →  worldX = screenX/zoom + offsetX

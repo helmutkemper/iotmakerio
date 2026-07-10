@@ -148,6 +148,20 @@ const (
 	// a CAIXA (borda + tag do header); pinos, fios e o label de tipo sempre
 	// ficam na cor do próprio tipo.
 	KColorFamilyDebug = "#E8590C"
+
+	// KColorWireSelected — a wire SELECTED by click, i.e. armed for
+	// deletion (the next click deletes it). Deliberately loud and shared
+	// by every wire type: the lightened per-type color used before was too
+	// discreet to read as "about to be deleted". Vivid warning red-pink,
+	// distinct from the conflict-rectangle red and from every type color
+	// in the palette.
+	// Português: Wire SELECIONADO por clique, ou seja, armado para
+	// exclusão (o próximo clique apaga). Deliberadamente chamativo e
+	// compartilhado por todos os tipos: a cor clareada por tipo usada
+	// antes era discreta demais para ler como "prestes a ser apagado".
+	// Vermelho-rosa vívido de alerta, distinto do vermelho dos retângulos
+	// de conflito e de todas as cores de tipo da paleta.
+	KColorWireSelected = "#FF2D55"
 )
 
 // ─── Device background colors ─────────────────────────────────────────────────

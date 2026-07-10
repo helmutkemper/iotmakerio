@@ -98,8 +98,8 @@ func scalarStyle(colorHex string) WireStyle {
 	return WireStyle{
 		StrokeColor:   colorHex,
 		StrokeWidth:   2.0,
-		SelectedColor: rulesDevice.LightenHex(colorHex, 0.45),
-		SelectedWidth: 4.0,
+		SelectedColor: rulesDevice.KColorWireSelected,
+		SelectedWidth: 5.0,
 		CornerRadius:  6.0,
 	}
 }
@@ -210,8 +210,8 @@ var DefaultTypeStyles = map[string]WireStyle{
 	"struct": {
 		StrokeColor:   rulesDevice.KColorTypeStruct,
 		StrokeWidth:   2.5,
-		SelectedColor: rulesDevice.LightenHex(rulesDevice.KColorTypeStruct, 0.45),
-		SelectedWidth: 4.5,
+		SelectedColor: rulesDevice.KColorWireSelected,
+		SelectedWidth: 5.5,
 		CornerRadius:  6.0,
 	},
 }
@@ -279,8 +279,8 @@ var DefaultUnknownStyle = WireStyle{
 	StrokeColor:   "#9E9E9E", // grey | cinza
 	StrokeWidth:   2.0,
 	DashPattern:   []float64{4, 4},
-	SelectedColor: "#E0E0E0",
-	SelectedWidth: 4.0,
+	SelectedColor: rulesDevice.KColorWireSelected,
+	SelectedWidth: 5.0,
 	CornerRadius:  6.0,
 }
 

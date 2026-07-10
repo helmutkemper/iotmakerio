@@ -802,7 +802,19 @@ func (e *stage) handleClickDetection(domEvent js.Value, cx float64, cy float64) 
 	} else {
 		// Fire single click.
 		// Português: Dispara click simples.
-		if elem != nil && elem.onClick != nil {
+		// [WIRE-PRIORITY] The click interceptor runs BEFORE element
+		// routing: consumers (the workspace's wire hit) can claim the
+		// click even when an element — typically a container body —
+		// sits under the pointer. Single click only; drags and double
+		// clicks are untouched.
+		// Português: O interceptador roda ANTES do roteamento por
+		// element: consumidores (o hit de wire do workspace) podem
+		// reivindicar o clique mesmo com um element — tipicamente o
+		// corpo de um container — sob o ponteiro. Só clique simples;
+		// drags e duplo-clique intactos.
+		if e.clickInterceptor != nil && e.clickInterceptor(pe) {
+			// consumed / consumido
+		} else if elem != nil && elem.onClick != nil {
 			elem.onClick(pe)
 		} else if elem == nil && e.onClickStage != nil {
 			e.onClickStage(pe)

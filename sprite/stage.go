@@ -307,6 +307,16 @@ type Stage interface {
 	//  Passe nil para remover.
 	SetOnClickStage(fn func(event PointerEvent))
 
+	// SetClickInterceptor
+	//
+	// English: Installs a pre-routing click hook (single click). Returning
+	// true consumes the click before any element or stage handler fires.
+	//
+	// Português: Instala um gancho de clique pré-roteamento (clique
+	// simples). Retornar true consome o clique antes de qualquer handler
+	// de element ou do stage.
+	SetClickInterceptor(fn func(event PointerEvent) bool)
+
 	// SetOnDoubleClickStage
 	//
 	// English:

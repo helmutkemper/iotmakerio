@@ -665,21 +665,46 @@ func (w *Workspace) Init(cfg Config) error {
 		}
 	}
 
+	// [WIRE-PRIORITY] The interceptor is the wires' "invisible thicker
+	// layer": it runs before element routing, so a wire crossing a loop
+	// body is still clickable — first click selects, second deletes, the
+	// same contract the stage-background path always had. HitTestFat gives
+	// the 3× corridor. Returning false hands the click back to the normal
+	// element/stage routing.
+	// Português: O interceptador é a "camada invisível mais grossa" dos
+	// wires: roda antes do roteamento por element, então um wire cruzando
+	// o corpo de um loop continua clicável — primeiro clique seleciona, o
+	// segundo apaga, o mesmo contrato de sempre do clique de fundo. O
+	// HitTestFat dá o corredor 3×. Retornar false devolve o clique ao
+	// roteamento normal.
+	w.Stage.SetClickInterceptor(func(event sprite.PointerEvent) bool {
+		if w.WireMgr.IsConnecting() {
+			return false
+		}
+		wr := w.WireMgr.HitTestFat(event.CanvasX, event.CanvasY)
+		if wr == nil {
+			return false
+		}
+		w.tipGen++
+		connectorTip.Hide()
+		if wr.Selected {
+			w.WireMgr.DeleteWire(wr.ID)
+		} else {
+			w.WireMgr.SelectWire(wr.ID)
+		}
+		return true
+	})
+
 	w.Stage.SetOnClickStage(func(event sprite.PointerEvent) {
 		w.tipGen++
 		connectorTip.Hide()
 		if w.WireMgr.IsConnecting() {
 			return
 		}
-		wr := w.WireMgr.HitTest(event.CanvasX, event.CanvasY)
-		if wr != nil {
-			if wr.Selected {
-				w.WireMgr.DeleteWire(wr.ID)
-			} else {
-				w.WireMgr.SelectWire(wr.ID)
-			}
-			return
-		}
+		// Wire hits are consumed by the interceptor above; a click that
+		// reaches here is empty stage — clear the wire selection.
+		// Português: Hits de wire são consumidos pelo interceptador; um
+		// clique que chega aqui é stage vazio — limpa a seleção de wires.
 		w.WireMgr.DeselectAll()
 	})
 

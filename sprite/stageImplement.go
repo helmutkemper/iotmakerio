@@ -121,6 +121,7 @@ type stage struct {
 	// Stage-level callbacks
 	// Português: Callbacks de nível do stage
 	onClickStage       func(PointerEvent)
+	clickInterceptor   func(event PointerEvent) bool
 	onDoubleClickStage func(PointerEvent)
 	onPointerMoveStage func(PointerEvent)
 
@@ -627,6 +628,21 @@ func (e *stage) startRenderLoop() {
 // Português:
 //
 //	Registra um callback invocado quando o canvas é clicado mas nenhum elemento é atingido.
+//
+// SetClickInterceptor installs a hook that runs BEFORE element click
+// routing (single click only). Returning true consumes the click: neither
+// the element under the pointer nor the stage handler fires. The workspace
+// uses it to give wires an "invisible thicker layer" with priority over
+// container bodies.
+// Português: Instala um gancho que roda ANTES do roteamento de clique por
+// element (só clique simples). Retornar true consome o clique: nem o
+// element sob o ponteiro nem o handler do stage disparam. O workspace usa
+// para dar aos wires uma "camada invisível mais grossa" com prioridade
+// sobre corpos de container.
+func (e *stage) SetClickInterceptor(fn func(event PointerEvent) bool) {
+	e.clickInterceptor = fn
+}
+
 func (e *stage) SetOnClickStage(fn func(event PointerEvent)) {
 	e.onClickStage = fn
 }
