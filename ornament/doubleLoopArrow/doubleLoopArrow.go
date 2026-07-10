@@ -240,9 +240,31 @@ func (e *DoubleLoopArrow) Update(x, y, width, height rulesDensity.Density) (err 
 	}
 	e.stopButtonBorder.D(stopButtonBorderPath)
 
-	e.stopButtonConnection.D(rulesConnection.GetPathDraw(width-rulesDensity.Density(57), height-rulesDensity.Density(42)))
-	e.stopButtonConnectionArea.GetSvgPath().D(rulesConnection.GetPathAreaDraw(width-rulesDensity.Density(57), height-rulesDensity.Density(42)))
-	e.stopButtonConnectionArea.SetXY(x+width-rulesDensity.Density(57), y+height-rulesDensity.Density(42))
+	// [PIN] the stop input is an INTERIOR connection: unlike edge pins, it
+	// receives its wire from devices INSIDE the loop (the stop button is a
+	// sub-element — the industrial panic button drawing). The standard pin
+	// faces LEFT, attached to the button, with its OUTER TIP at the
+	// historical anchor (width-57, height-42) — the wire attachment the
+	// project always used. The helpers take the BODY-SIDE point
+	// (tip + KWidth), so the tip lands exactly on that coordinate and the
+	// wire now meets the pin's CENTERED tip (the old GetPathDraw anchored
+	// at the pin's top-left corner — the centering bug).
+	// Português: A entrada de stop é uma conexão INTERNA: diferente dos
+	// pinos de borda, ela recebe o fio de devices DENTRO do loop (a
+	// botoeira é um sub-elemento — o desenho do botão de pânico
+	// industrial). O pino padrão aponta para a ESQUERDA, encostado na
+	// botoeira, com a PONTA EXTERNA no anchor histórico (width-57,
+	// height-42) — o ponto de fixação que o projeto sempre usou. Os
+	// helpers recebem o ponto do LADO DO CORPO (ponta + KWidth), então a
+	// ponta cai exatamente nessa coordenada e o fio agora encontra a ponta
+	// CENTRADA do pino (o GetPathDraw antigo ancorava no canto
+	// superior-esquerdo — o bug de centralização).
+	stopEdgeX := width - rulesDensity.Density(57) + rulesDensity.Density(rulesConnection.KWidth)
+	stopEdgeY := height - rulesDensity.Density(42)
+	e.stopButtonConnection.D(rulesConnection.PinPathDraw(rulesConnection.PinSideLeft, stopEdgeX, stopEdgeY))
+	e.stopButtonConnectionArea.GetSvgPath().D(rulesConnection.PinPathAreaDraw(rulesConnection.PinSideLeft, stopEdgeX, stopEdgeY))
+	sx, sy := rulesConnection.PinAnchorD(rulesConnection.PinSideLeft, stopEdgeX, stopEdgeY)
+	e.stopButtonConnectionArea.SetXY(x+sx, y+sy)
 
 	return
 }

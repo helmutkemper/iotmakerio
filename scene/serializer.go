@@ -310,9 +310,41 @@ func (s *Serializer) SetCodegenDiagnosticDevices(ids []string) {
 //  Device registration (forwarded to the graph)
 // =====================================================================
 
+// DeviceByID returns the registered device with the given ID, or nil when
+// unknown. The device hover tooltip uses it to reach the device under the
+// pointer — element IDs equal device IDs by construction (every device
+// creates its sprite element with ID: e.id).
+// Português: Retorna o device registrado com o ID dado, ou nil. O tooltip de
+// hover do device usa isto para alcançar o device sob o ponteiro — IDs de
+// element são iguais aos de device por construção (todo device cria seu
+// element com ID: e.id).
+func (s *Serializer) DeviceByID(id string) SceneDevice {
+	if r, ok := s.refs[id]; ok {
+		return r.dev
+	}
+	return nil
+}
+
 // Register adds a device to the scene. The Serializer wraps it in a
 // DeviceRef adapter and hands the adapter to the graph.
 func (s *Serializer) Register(dev SceneDevice) {
+	// Self-inject into devices that accept a scene manager, so EVERY
+	// registered device can report drag ends. Graph.EndDrag is the single
+	// hook that refreshes geometry, recomputes the device's own conflicts
+	// AND all peers', and reassigns parenting — without it, a solo-dragged
+	// simple device leaves stale conflict rectangles at its old position
+	// and never re-parents. One assertion here replaces per-factory wiring
+	// and automatically covers future devices.
+	// Português: Auto-injeta nos devices que aceitam um scene manager, para
+	// TODO device registrado reportar fim de drag. O Graph.EndDrag é o
+	// gancho único que refresca geometria, recomputa os conflitos do device
+	// E dos peers, e reatribui parenting — sem ele, um device simples
+	// arrastado sozinho deixa retângulos de conflito órfãos na posição
+	// antiga e nunca re-parenta. Uma assertion aqui substitui a fiação por
+	// factory e cobre devices futuros automaticamente.
+	if inj, ok := dev.(interface{ SetSceneMgr(*Serializer) }); ok {
+		inj.SetSceneMgr(s)
+	}
 	id := dev.GetID()
 	if _, exists := s.refs[id]; exists {
 		return

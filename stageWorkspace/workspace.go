@@ -62,6 +62,7 @@ import (
 	"github.com/helmutkemper/iotmakerio/steganography"
 	"github.com/helmutkemper/iotmakerio/templateclient"
 	"github.com/helmutkemper/iotmakerio/translate"
+	"github.com/helmutkemper/iotmakerio/ui/connectorTip"
 	"github.com/helmutkemper/iotmakerio/ui/contextMenu"
 	"github.com/helmutkemper/iotmakerio/ui/mainMenu"
 	"github.com/helmutkemper/iotmakerio/ui/overlay"
@@ -77,6 +78,22 @@ type Workspace struct {
 	// DOM
 	CanvasEl js.Value // <canvas> DOM element
 	CanvasID string   // DOM id: "spriteCanvas_frontend"
+
+	// Connector-tooltip hover state. tipHoverKey identifies the connector
+	// under the pointer ("elementID|port"); tipGen is a generation counter
+	// that CANCELS a pending delayed show — every hover change or hide
+	// trigger bumps it, and the sleeping goroutine only shows the tip when
+	// its captured generation still matches. Motion therefore suppresses
+	// the tip for free: it only appears after ~350ms resting on ONE pin.
+	// Português: Estado do hover do tooltip de conector. tipHoverKey
+	// identifica o conector sob o ponteiro ("elementID|porta"); tipGen é um
+	// contador de geração que CANCELA uma exibição atrasada pendente — toda
+	// mudança de hover ou gatilho de esconder o incrementa, e a goroutine
+	// dormindo só exibe se a geração capturada ainda bater. Movimento
+	// suprime o tooltip de graça: ele só aparece após ~350ms parado num
+	// ÚNICO pino.
+	tipHoverKey string
+	tipGen      int
 
 	// canvasCtx is the 2D rendering context of CanvasEl, cached at setup
 	// time. Used by the conflict-highlight pass which draws directly
@@ -649,6 +666,8 @@ func (w *Workspace) Init(cfg Config) error {
 	}
 
 	w.Stage.SetOnClickStage(func(event sprite.PointerEvent) {
+		w.tipGen++
+		connectorTip.Hide()
 		if w.WireMgr.IsConnecting() {
 			return
 		}
@@ -670,14 +689,23 @@ func (w *Workspace) Init(cfg Config) error {
 		// Português: Modo de mover túnel: desliza o túnel pela borda sob o
 		// ponteiro (o manager prende ao eixo da borda travada).
 		if w.WireMgr.IsMovingTunnel() {
+			w.tipGen++
+			connectorTip.Hide()
 			worldX, worldY := w.screenToWorld(event.CanvasX, event.CanvasY)
 			w.WireMgr.UpdateMoveTunnel(worldX, worldY)
 			w.CanvasEl.Get("style").Set("cursor", "move")
 			return
 		}
 		if !w.WireMgr.IsConnecting() {
+			// Hover mode: no draft in progress — offer the connector
+			// tooltip (label · type · direction) after a short rest.
+			// Português: Modo hover: sem draft em andamento — oferece o
+			// tooltip do conector (label · tipo · direção) após uma pausa.
+			w.updateConnectorTip(event)
 			return
 		}
+		w.tipGen++
+		connectorTip.Hide()
 		worldX, worldY := w.screenToWorld(event.CanvasX, event.CanvasY)
 		w.WireMgr.SetDraftEndpoint(worldX, worldY)
 		hit := w.WireMgr.HitTestConnector(worldX, worldY)
@@ -687,6 +715,21 @@ func (w *Workspace) Init(cfg Config) error {
 			w.CanvasEl.Get("style").Set("cursor", "crosshair")
 		}
 	})
+
+	// The pointer leaving the canvas fires no further stage move events, so
+	// a visible connector tip would linger — hide it on mouseleave. The
+	// js.FuncOf callback is intentionally never released: one per workspace,
+	// alive for the workspace's whole lifetime.
+	// Português: O ponteiro saindo do canvas não dispara mais eventos de
+	// movimento do stage, então um tip visível ficaria pendurado — esconde
+	// no mouseleave. O callback js.FuncOf é de propósito nunca liberado: um
+	// por workspace, vivo pela vida inteira do workspace.
+	tipLeave := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		w.tipGen++
+		connectorTip.Hide()
+		return nil
+	})
+	w.CanvasEl.Call("addEventListener", "mouseleave", tipLeave)
 
 	w.connectInterceptFn = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		isConnecting := w.WireMgr.IsConnecting()
@@ -1549,6 +1592,125 @@ func (w *Workspace) openTunnelMenu(feeder wire.ConnectorID, containerID string, 
 		},
 	}
 	w.CtxMenu.OpenAtWorld(items, worldX, worldY)
+}
+
+// updateConnectorTip drives the connector hover tooltip. Called on every
+// stage pointer move while NO wire draft is in progress:
+//
+//   - pointer over no pin  → bump the generation (cancelling any pending
+//     show) and hide;
+//   - pointer over the SAME pin as before → do nothing (the pending timer
+//     keeps counting, or the tip stays shown);
+//   - pointer over a NEW pin → remember it, bump the generation and start a
+//     ~350ms delayed show; the goroutine only shows if its captured
+//     generation still matches, so any movement or hide trigger in the
+//     meantime cancels it.
+//
+// The generation counter is read from the goroutine without a lock: under
+// GOARCH=wasm the Go scheduler is single-threaded, so the int access is
+// benign — noted here so a future non-wasm reuse adds the sync.
+//
+// Português: Dirige o tooltip de hover dos conectores. Chamado a cada
+// movimento do ponteiro no stage SEM draft de fio em andamento: sem pino →
+// incrementa a geração (cancelando exibição pendente) e esconde; MESMO pino
+// → nada (o timer pendente continua, ou o tip permanece); pino NOVO →
+// registra, incrementa a geração e agenda exibição em ~350ms; a goroutine
+// só exibe se a geração capturada ainda bater, então qualquer movimento ou
+// gatilho de esconder cancela. O contador é lido sem lock: em GOARCH=wasm o
+// scheduler é single-thread, acesso benigno — anotado para um reuso futuro
+// fora do wasm adicionar o sync.
+func (w *Workspace) updateConnectorTip(event sprite.PointerEvent) {
+	worldX, worldY := w.screenToWorld(event.CanvasX, event.CanvasY)
+	hit := w.WireMgr.HitTestAnyConnector(worldX, worldY)
+	if hit == nil {
+		// No pin under the pointer — fall back to the DEVICE BODY: if the
+		// element under the cursor belongs to a device with a non-empty
+		// comment, show it (multi-line) after the same rest delay.
+		// Português: Sem pino sob o ponteiro — cai para o CORPO do device:
+		// se o element sob o cursor pertence a um device com comentário
+		// não-vazio, mostra (multi-linha) após a mesma pausa.
+		w.updateBodyTip(event)
+		return
+	}
+
+	key := hit.ID.ElementID + "|" + hit.ID.PortName
+	if key == w.tipHoverKey {
+		return
+	}
+	w.tipHoverKey = key
+	w.tipGen++
+	gen := w.tipGen
+
+	label := hit.Label
+	if label == "" {
+		label = hit.ID.PortName
+	}
+	typ := ""
+	if len(hit.AllowedTypes) > 0 {
+		typ = hit.AllowedTypes[0]
+	}
+	dir := "in"
+	if hit.IsOutput {
+		dir = "out"
+	}
+	canvasX, canvasY := event.CanvasX, event.CanvasY
+
+	go func() {
+		time.Sleep(350 * time.Millisecond)
+		if gen != w.tipGen {
+			return
+		}
+		rect := w.CanvasEl.Call("getBoundingClientRect")
+		connectorTip.Show(label, typ, dir,
+			rect.Get("left").Float()+canvasX+14,
+			rect.Get("top").Float()+canvasY+14)
+	}()
+}
+
+// updateBodyTip is the second stage of the hover machine: with no PIN under
+// the pointer, it checks the ELEMENT under the pointer. Devices that carry a
+// user comment (GetComment, added by the comment feature) show it as a
+// multi-line tip after the same ~350ms rest; everything else hides. The same
+// generation counter arbitrates both stages, so pin tips and body tips can
+// never fight — whichever hover state is current wins.
+// Português: Segundo estágio da máquina de hover: sem PINO sob o ponteiro,
+// verifica o ELEMENT sob o ponteiro. Devices com comentário (GetComment, da
+// feature de comentário) o mostram multi-linha após a mesma pausa de ~350ms;
+// o resto esconde. O mesmo contador de geração arbitra os dois estágios —
+// tip de pino e de corpo nunca brigam.
+func (w *Workspace) updateBodyTip(event sprite.PointerEvent) {
+	if elem, found := w.Stage.GetElementAt(event.CanvasX, event.CanvasY); found {
+		if dev := w.SceneMgr.DeviceByID(elem.GetID()); dev != nil {
+			if c, ok := dev.(interface{ GetComment() string }); ok {
+				if txt := strings.TrimSpace(c.GetComment()); txt != "" {
+					key := "body|" + elem.GetID()
+					if key == w.tipHoverKey {
+						return
+					}
+					w.tipHoverKey = key
+					w.tipGen++
+					gen := w.tipGen
+					canvasX, canvasY := event.CanvasX, event.CanvasY
+					go func() {
+						time.Sleep(350 * time.Millisecond)
+						if gen != w.tipGen {
+							return
+						}
+						rect := w.CanvasEl.Call("getBoundingClientRect")
+						connectorTip.ShowComment(txt,
+							rect.Get("left").Float()+canvasX+14,
+							rect.Get("top").Float()+canvasY+14)
+					}()
+					return
+				}
+			}
+		}
+	}
+	if w.tipHoverKey != "" {
+		w.tipGen++
+		w.tipHoverKey = ""
+		connectorTip.Hide()
+	}
 }
 
 func (w *Workspace) screenToWorld(screenX, screenY float64) (worldX, worldY float64) {

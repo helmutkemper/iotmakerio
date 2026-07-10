@@ -989,26 +989,32 @@ func TestEmit_Sleep_InsideLoop(t *testing.T) {
 // runtime symbol, it must set the same flag (the field's doc
 // comment in cEmitter spells this out).
 //
+// The Makefile is NOT part of that gating: it ships in every mode
+// since 2026-07 (owner request), so both sub-cases expect it.
+//
 // Two sub-cases:
 //
-//   - Empty IR (no Sleep) — the project is a single self-contained
-//     main.c the maker can build with `gcc main.c`. No header, no
-//     stub, no dead dependency.
+//   - Empty IR (no Sleep) — the project is a self-contained main.c
+//     the maker can build with `gcc main.c`, plus the convenience
+//     Makefile. No header, no stub, no dead dependency.
 //
 //   - IR with OpSleep — header and stub ride along so the project
-//     builds end-to-end on a POSIX host with `gcc *.c`. The maker
-//     swaps the stub for a target-specific implementation when
-//     deploying to embedded.
+//     builds end-to-end on a POSIX host with `gcc *.c` or `make`.
+//     The maker swaps the stub for a target-specific implementation
+//     when deploying to embedded.
 //
 // Splitting the test into named sub-tests makes a future failure
 // point at exactly one case rather than at a generic "Emit returned
 // the wrong files" line.
 func TestEmit_RuntimeFiles_ConditionalOnSleep(t *testing.T) {
-	t.Run("empty IR — main.c alone, no runtime files", func(t *testing.T) {
+	t.Run("empty IR — main.c + Makefile, no runtime files", func(t *testing.T) {
 		files := Emit(&ir.Program{}, ProfileArduinoUno, blackbox.Naming{})
 
 		if _, ok := files["main.c"]; !ok {
 			t.Error("expected main.c in Files")
+		}
+		if _, ok := files["Makefile"]; !ok {
+			t.Error("expected Makefile in Files (ships in every mode)")
 		}
 		if _, ok := files["iotmaker_runtime.h"]; ok {
 			t.Error("did not expect iotmaker_runtime.h for a scene without Sleep")
@@ -1016,12 +1022,12 @@ func TestEmit_RuntimeFiles_ConditionalOnSleep(t *testing.T) {
 		if _, ok := files["iotmaker_runtime_stub.c"]; ok {
 			t.Error("did not expect iotmaker_runtime_stub.c for a scene without Sleep")
 		}
-		if len(files) != 1 {
-			t.Errorf("expected exactly 1 file (main.c); got %d", len(files))
+		if len(files) != 2 {
+			t.Errorf("expected exactly 2 files (main.c, Makefile); got %d", len(files))
 		}
 	})
 
-	t.Run("IR with OpSleep — main.c + header + stub", func(t *testing.T) {
+	t.Run("IR with OpSleep — main.c + Makefile + header + stub", func(t *testing.T) {
 		prog := &ir.Program{}
 		prog.Append(ir.Instruction{
 			Op:   ir.OpSleep,
@@ -1032,14 +1038,17 @@ func TestEmit_RuntimeFiles_ConditionalOnSleep(t *testing.T) {
 		if _, ok := files["main.c"]; !ok {
 			t.Error("expected main.c in Files")
 		}
+		if _, ok := files["Makefile"]; !ok {
+			t.Error("expected Makefile in Files (ships in every mode)")
+		}
 		if _, ok := files["iotmaker_runtime.h"]; !ok {
 			t.Error("expected iotmaker_runtime.h in Files when Sleep is used")
 		}
 		if _, ok := files["iotmaker_runtime_stub.c"]; !ok {
 			t.Error("expected iotmaker_runtime_stub.c in Files when Sleep is used")
 		}
-		if len(files) != 3 {
-			t.Errorf("expected exactly 3 files; got %d", len(files))
+		if len(files) != 4 {
+			t.Errorf("expected exactly 4 files; got %d", len(files))
 		}
 	})
 }
@@ -1097,6 +1106,31 @@ func TestEmit_RuntimeStub_Contents(t *testing.T) {
 	assertContains(t, stub, "#include <time.h>")
 	assertContains(t, stub, "void iotmaker_sleep_ns(int64_t ns)")
 	assertContains(t, stub, "nanosleep(&ts, NULL);")
+
+	// nanosleep/timespec are POSIX.1b, hidden by libc under strict
+	// -std=c99 (the generated Makefile's default CFLAGS) unless the
+	// feature-test macro asks first — and feature-test macros only work
+	// when they precede EVERY system header, so pin the ORDER, not just
+	// the presence. Regression: `make run` on a sleep scene, 2026-07.
+	//
+	// Português: nanosleep/timespec são POSIX.1b, escondidos pela libc
+	// sob -std=c99 estrito (o CFLAGS default do Makefile gerado) sem a
+	// macro de feature-test — que só funciona antes de TODO header de
+	// sistema; por isso o teste pina a ORDEM, não só a presença.
+	// Regressão: `make run` numa cena com sleep, 2026-07.
+	assertContains(t, stub, "#define _POSIX_C_SOURCE 199309L")
+	// Column-0 anchors ("\n#…"): the stub's doc comment shows an Arduino
+	// replacement example containing indented "#include" lines, which the
+	// preprocessor ignores — only line-starting directives count.
+	// Português: Âncoras em coluna 0 ("\n#…"): o comentário do stub mostra
+	// um exemplo Arduino com "#include" indentado, que o preprocessor
+	// ignora — só diretiva no início da linha conta.
+	macroAt := strings.Index(stub, "\n#define _POSIX_C_SOURCE")
+	includeAt := strings.Index(stub, "\n#include")
+	if macroAt == -1 || includeAt == -1 || macroAt > includeAt {
+		t.Errorf("_POSIX_C_SOURCE must be defined BEFORE the first #include (macro at %d, first include at %d):\n%s",
+			macroAt, includeAt, stub)
+	}
 }
 
 // =====================================================================

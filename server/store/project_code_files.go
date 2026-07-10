@@ -62,6 +62,25 @@ type CodeFileEntry struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
 	Sort    int    `json:"sort,omitempty"`
+
+	// Encoding says how Content's bytes are represented: "" (plain text,
+	// the overwhelmingly common case — source files and text assets) or
+	// "base64" (binary assets: gif/png/jpg). The snapshot travels as JSON,
+	// and raw binary breaks UTF-8 in transport and storage — base64 is the
+	// bridge that lets ONE model carry both without a parallel blob store.
+	// The HTTP gate (validateCodeFileSet) owns the rules: binary-class
+	// extensions REQUIRE base64, everything else forbids it, and base64
+	// content must decode. Consumers that need real bytes (disk mirror,
+	// export builder) decode at their edge; the parser never sees assets
+	// (the dispatch filters by extension).
+	//
+	// Português: Como os bytes do Content estão representados: "" (texto —
+	// fontes e assets de texto) ou "base64" (assets binários). O snapshot
+	// viaja como JSON e binário cru quebra UTF-8 — base64 é a ponte que
+	// mantém UM modelo só, sem blob store paralelo. O portão HTTP é dono
+	// das regras; quem precisa de bytes reais (espelho, export) decodifica
+	// na sua borda; o parser nunca vê assets (dispatch filtra).
+	Encoding string `json:"encoding,omitempty"`
 }
 
 // MigrateProjectCodeFiles creates the snapshot-content table. Idempotent
@@ -79,6 +98,10 @@ func MigrateProjectCodeFiles() error {
 			path       TEXT NOT NULL,
 			content    TEXT NOT NULL DEFAULT '',
 			sort       INTEGER NOT NULL DEFAULT 0,
+			-- '' = plain text; 'base64' = binary asset (see CodeFileEntry.Encoding).
+			-- Added with the unified asset model (2026-07-08); per the db.go
+			-- doctrine there is no ALTER migration — reset the DB file.
+			encoding   TEXT NOT NULL DEFAULT '',
 			PRIMARY KEY (version_id, path)
 		)`)
 	return err
@@ -95,9 +118,9 @@ func MigrateProjectCodeFiles() error {
 func insertCodeFilesTx(tx txExecer, versionID string, files []CodeFileEntry) error {
 	for i, f := range files {
 		if _, err := tx.Exec(`
-			INSERT INTO project_code_files (version_id, path, content, sort)
-			VALUES (?, ?, ?, ?)`,
-			versionID, f.Path, f.Content, i,
+			INSERT INTO project_code_files (version_id, path, content, sort, encoding)
+			VALUES (?, ?, ?, ?, ?)`,
+			versionID, f.Path, f.Content, i, f.Encoding,
 		); err != nil {
 			return err
 		}
@@ -121,7 +144,7 @@ type txExecer interface {
 // Retorna slice vazio (nunca nil) para versão sem linhas.
 func loadCodeFiles(versionID string) ([]CodeFileEntry, error) {
 	rows, err := DB.Query(`
-		SELECT path, content, sort
+		SELECT path, content, sort, encoding
 		FROM project_code_files
 		WHERE version_id = ?
 		ORDER BY sort ASC, path ASC`, versionID)
@@ -133,7 +156,7 @@ func loadCodeFiles(versionID string) ([]CodeFileEntry, error) {
 	files := []CodeFileEntry{}
 	for rows.Next() {
 		var f CodeFileEntry
-		if err := rows.Scan(&f.Path, &f.Content, &f.Sort); err != nil {
+		if err := rows.Scan(&f.Path, &f.Content, &f.Sort, &f.Encoding); err != nil {
 			return nil, err
 		}
 		files = append(files, f)

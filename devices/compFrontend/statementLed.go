@@ -16,6 +16,7 @@ import (
 	"github.com/helmutkemper/iotmakerio/browser/html"
 	"github.com/helmutkemper/iotmakerio/devices/block"
 	"github.com/helmutkemper/iotmakerio/grid"
+	"github.com/helmutkemper/iotmakerio/rulesConnection"
 	"github.com/helmutkemper/iotmakerio/rulesDensity"
 	"github.com/helmutkemper/iotmakerio/rulesDevice"
 	"github.com/helmutkemper/iotmakerio/rulesIcon"
@@ -90,7 +91,16 @@ type StatementLED struct {
 	backendCtxMenu *contextMenu.Controller
 	wireMgr        *wire.Manager // always the BACKEND wire manager
 
-	label    string
+	label string
+	// [COMMENT] user comment — shown in the device's hover tooltip and kept
+	// in the scene. Dashboard widgets emit no code statement, so unlike the
+	// backend devices this never reaches the generated source — it is stage
+	// documentation.
+	// Português: Comentário do usuário — exibido no tooltip de hover e
+	// gravado na cena. Widgets de dashboard não emitem statement, então
+	// diferente dos devices de backend isto nunca chega ao código gerado —
+	// é documentação do stage.
+	comment  string
 	canvasEl js.Value
 
 	// state is the current boolean value of the LED.
@@ -111,7 +121,16 @@ type StatementLED struct {
 	gridAdjust  grid.Adjust
 	iconStatus  int
 	sceneNotify func()
-	onRemove    func(id string)
+	// [SCENEGRAPH] injected by scene.Serializer.Register (self-injection by
+	// interface assertion). DragEnd reports through it so the scenegraph
+	// refreshes geometry, recomputes conflicts (own + peers) and reassigns
+	// parenting — the same EndDrag hook the containers use.
+	// Português: Injetado pelo scene.Serializer.Register (auto-injeção por
+	// assertion). O DragEnd reporta por ele para o scenegraph refrescar
+	// geometria, recomputar conflitos (próprios + peers) e reatribuir
+	// parenting — o mesmo gancho EndDrag dos containers.
+	sceneMgr *scene.Serializer
+	onRemove func(id string)
 
 	// SendFunc is the callback for sending values to external hardware via
 	// the live WebSocket connection. Set by the factory after initialization.
@@ -254,15 +273,20 @@ func (e *StatementLED) renderBackendSVG() string {
 	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d">`, int(w), int(totalH))
 
 	// Outer rectangle
+	// [PIN] the body is inset on the LEFT by the pin length: the standard
+	// connector pins live in the freed margin, protruding from the border
+	// with the wires anchored at their outer tips — the element's left edge.
+	// Português: O corpo recua à ESQUERDA o comprimento do pino: os pinos
+	// padrão vivem na margem liberada, saindo da borda com os fios ancorados
+	// nas pontas externas — a borda esquerda do element.
+	pin := rulesConnection.PinBodyInset()
 	svg += fmt.Sprintf(`<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="%.0f" ry="%.0f" fill="%s" stroke="%s" stroke-width="%.1f"/>`,
-		bw/2, bw/2, w-bw, boxH-bw,
+		pin+bw/2, bw/2, w-pin-bw, boxH-bw,
 		rulesDevice.KDeviceCornerRadius, rulesDevice.KDeviceCornerRadius,
 		rulesDevice.KColorDeviceBg, borderColor, bw)
 
 	// Input connector circle (left side, vertically centered)
-	svg += fmt.Sprintf(`<circle cx="%.0f" cy="%.1f" r="%.0f" fill="%s" stroke="%s" stroke-width="1"/>`,
-		rulesDevice.KConnectorOffsetLeft, connY,
-		rulesDevice.KConnectorRadius, borderColor, rulesDevice.KColorConnectorStroke)
+	svg += rulesConnection.PinSVGFragment(rulesConnection.PinSideLeft, pin, connY, borderColor)
 
 	// Type tag "LED" (left, after connector)
 	svg += fmt.Sprintf(`<text x="18" y="%.1f" font-family="%s" font-size="%d" fill="%s" dominant-baseline="central" font-weight="bold">LED</text>`,
@@ -464,9 +488,9 @@ func (e *StatementLED) wireBackendEvents() {
 		}
 
 		// Hit-test the input connector
-		dx := event.LocalX - rulesDevice.KConnectorOffsetLeft
-		dy := event.LocalY - connY
-		if dx*dx+dy*dy <= rulesDevice.KConnectorHitRadius*rulesDevice.KConnectorHitRadius {
+		if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+			rulesConnection.PinBodyInset(), connY,
+			event.LocalX, event.LocalY) {
 			go e.backendCtxMenu.OpenAtWorld(mainMenu.ConnectorMenu(e.wireMgr, e.id, "current"), menuX, menuY)
 			return
 		}
@@ -490,6 +514,13 @@ func (e *StatementLED) wireBackendEvents() {
 		if e.wireMgr != nil {
 			e.wireMgr.RecalculateForElement(e.id)
 		}
+		// [SCENEGRAPH] dx/dy=0: they only move container descendants (this
+		// device has none); geometry is re-read live by refreshGeometry.
+		// Português: dx/dy=0: eles só movem descendentes de container (este
+		// device não tem); a geometria é relida ao vivo pelo refreshGeometry.
+		if e.sceneMgr != nil {
+			e.sceneMgr.EndDrag(e.id, 0, 0)
+		}
 		if e.sceneNotify != nil {
 			e.sceneNotify()
 		}
@@ -504,9 +535,8 @@ func (e *StatementLED) wireBackendEvents() {
 			return ""
 		}
 
-		dx := lx - rulesDevice.KConnectorOffsetLeft
-		dy := ly - connY
-		if dx*dx+dy*dy <= rulesDevice.KConnectorHitRadius*rulesDevice.KConnectorHitRadius {
+		if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+			rulesConnection.PinBodyInset(), connY, lx, ly) {
 			return sprite.CursorPointer
 		}
 		return ""
@@ -614,6 +644,14 @@ func (e *StatementLED) GetInspectConfig() interface{} {
 						Value: e.label,
 					},
 					{
+						Key:         "comment",
+						Label:       translate.T("propComment", "Comment"),
+						Type:        overlay.FieldTextarea,
+						Value:       e.comment,
+						Placeholder: translate.T("propCommentPlaceholder", "Comment shown on hover..."),
+						Rows:        3,
+					},
+					{
 						Key:   "current",
 						Label: translate.T("propState", "State"),
 						Type:  overlay.FieldCheckbox,
@@ -652,6 +690,9 @@ func (e *StatementLED) GetInspectConfig() interface{} {
 }
 
 func (e *StatementLED) ApplyProperties(values map[string]string) {
+	if v, ok := values["comment"]; ok {
+		e.comment = v
+	}
 	changed := false
 
 	// ── ID change ──
@@ -874,7 +915,9 @@ func (e *StatementLED) RegisterConnectors() {
 			ex, ey := e.backendElem.GetPosition()
 			_, h := e.backendElem.GetSize()
 			boxH := h - float64(backendLEDLabelHeight)
-			return ex + rulesDevice.KConnectorOffsetLeft, ey + boxH/2
+			ax, ay := rulesConnection.PinAnchor(rulesConnection.PinSideLeft,
+				rulesConnection.PinBodyInset(), boxH/2)
+			return ex + ax, ey + ay
 		},
 	})
 }
@@ -1019,7 +1062,7 @@ func (e *StatementLED) getIcon(data rulesIcon.Data) js.Value {
 
 	// Filled circle icon symbol — represents the LED
 	iconLabel := factoryBrowser.NewTagSvgText().
-		FontFamily("Arial,sans-serif").FontWeight("bold").FontSize(rulesIcon.Width.GetInt() / 4).
+		FontFamily(rulesDevice.KDeviceFontFamily).FontWeight("bold").FontSize(rulesIcon.Width.GetInt() / 4).
 		Text("●").Fill(data.ColorIcon).
 		X((rulesIcon.Width / 2).GetInt() - 6).Y((rulesIcon.Height / 2).GetInt() + 5)
 
@@ -1075,12 +1118,31 @@ func (e *StatementLED) MoveBy(dx, dy float64) {
 //
 // These values are saved in the scene JSON and restored via ApplyProperties
 // when the stage is imported.
+
+// GetComment returns the user comment shown in the device's hover tooltip.
+// Português: Retorna o comentário exibido no tooltip de hover do device.
+func (e *StatementLED) GetComment() string { return e.comment }
+
+// SetComment sets the user comment.
+// Português: Define o comentário do usuário.
+func (e *StatementLED) SetComment(c string) { e.comment = c }
+
 func (e *StatementLED) GetProperties() map[string]interface{} {
-	return map[string]interface{}{
+	props := map[string]interface{}{
 		"label":             e.label,
 		"current":           e.state,
 		"onColor":           e.onColor,
 		"offColor":          e.offColor,
 		"interactionLocked": e.interactionLocked,
 	}
+	if e.comment != "" {
+		props["comment"] = e.comment
+	}
+	return props
 }
+
+// SetSceneMgr receives the scene serializer — called by
+// scene.Serializer.Register via interface assertion at registration time.
+// Português: Recebe o serializer de cena — chamado pelo
+// scene.Serializer.Register por assertion no registro.
+func (e *StatementLED) SetSceneMgr(mgr *scene.Serializer) { e.sceneMgr = mgr }

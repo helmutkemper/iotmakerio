@@ -123,6 +123,29 @@ func (sqliteAllocator) CodeNumberFor(fullID string) (int64, bool, error) {
 // escritores; o teste de contrato exercita concorrência mesmo assim, porque
 // a propriedade deve valer em QUALQUER motor.
 func AllocateCodeNumber(fullID, kind string) (int64, error) {
+	// Fast path FIRST, and not only for speed: an INSERT … ON CONFLICT DO
+	// NOTHING against an AUTOINCREMENT column BURNS a sequence step on the
+	// conflicting attempt (SQLite reserves the rowid before the conflict
+	// clause ignores the row — TestCodeNumbers_IdempotentPerID caught it:
+	// a no-op re-allocation advanced the counter). Reading first makes the
+	// idempotent path WRITE-FREE, so re-allocation can never move the
+	// sequence. Two racing FIRST allocations of the same brand-new id can
+	// still burn one step when the loser's insert conflicts — harmless:
+	// numbers stay unique and increasing, and gaps are already a fact of
+	// life (deletes leave them; the contract never promises density).
+	//
+	// Português: SELECT primeiro, e não só por velocidade: INSERT com ON
+	// CONFLICT DO NOTHING contra AUTOINCREMENT QUEIMA um passo da
+	// sequência na tentativa conflitante (o teste pegou: re-alocação
+	// no-op avançava o contador). Ler primeiro torna o caminho
+	// idempotente livre de escrita. Corrida entre duas PRIMEIRAS
+	// alocações do mesmo id pode queimar um passo — inofensivo: números
+	// seguem únicos e crescentes, e buracos já existem (deletes).
+	if n, found, err := CodeNumberFor(fullID); err != nil {
+		return 0, err
+	} else if found {
+		return n, nil
+	}
 	_, err := DB.Exec(`
 		INSERT INTO code_numbers (full_id, kind, created_at)
 		VALUES (?, ?, ?)

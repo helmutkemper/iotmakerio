@@ -224,7 +224,13 @@ export function showConfirm(message, confirmLabel = 'Confirmar', cancelLabel = '
         function finish(v) { backdrop.remove(); resolve(v); }
         document.getElementById('_pc-cancel').addEventListener('click', () => finish(false));
         document.getElementById('_pc-ok').addEventListener('click',     () => finish(true));
-        backdrop.addEventListener('click', (e) => { if (e.target === backdrop) finish(false); });
+        // Same phantom-cancel guard as showPrompt (see the note there):
+        // the gesture must START on the backdrop too.
+        let pressOnBackdrop = false;
+        backdrop.addEventListener('mousedown', (e) => { pressOnBackdrop = (e.target === backdrop); });
+        backdrop.addEventListener('click', (e) => {
+            if (e.target === backdrop && pressOnBackdrop) finish(false);
+        });
     });
 }
 
@@ -340,8 +346,11 @@ export function showUnsavedConfirm(message, opts = {}) {
         backdrop.querySelector('[data-discard]').onclick    = () => finish('discard');
         backdrop.querySelectorAll('[data-cancel]').forEach(b => b.onclick = () => finish('cancel'));
 
+        // Same phantom-cancel guard as showPrompt (see the note there).
+        let pressOnBackdrop = false;
+        backdrop.addEventListener('mousedown', (e) => { pressOnBackdrop = (e.target === backdrop); });
         backdrop.addEventListener('click', (e) => {
-            if (e.target === backdrop) finish('cancel');
+            if (e.target === backdrop && pressOnBackdrop) finish('cancel');
         });
 
         // Enter → Save (safe action). Escape → Cancel.
@@ -411,7 +420,24 @@ export function showPrompt(message, defaultValue = '') {
             if (e.key === 'Enter')  finish(input.value);
             if (e.key === 'Escape') finish(null);
         });
-        backdrop.addEventListener('click', (e) => { if (e.target === backdrop) finish(null); });
+        // Backdrop-cancel only when the WHOLE gesture happened on the
+        // backdrop: a `click` fires on the common ancestor of mousedown
+        // and mouseup, so starting a text selection inside the input and
+        // releasing outside the dialog used to close it as a PHANTOM
+        // cancel — the popup vanished with no warning (field report,
+        // 2026-07-08, while typing templates/portal.html over the
+        // preselected suggestion). Track where the press started.
+        //
+        // Português: Cancelar pelo backdrop só quando o gesto INTEIRO
+        // aconteceu nele: `click` dispara no ancestral comum de
+        // mousedown/mouseup — começar seleção no input e soltar fora
+        // fechava o modal como cancelamento FANTASMA (relato de campo,
+        // digitando um caminho sobre a sugestão pré-selecionada).
+        let pressOnBackdrop = false;
+        backdrop.addEventListener('mousedown', (e) => { pressOnBackdrop = (e.target === backdrop); });
+        backdrop.addEventListener('click', (e) => {
+            if (e.target === backdrop && pressOnBackdrop) finish(null);
+        });
     });
 }
 

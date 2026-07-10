@@ -5,11 +5,6 @@
 
 package rulesConnection
 
-import (
-	"fmt"
-	"github.com/helmutkemper/iotmakerio/rulesDensity"
-)
-
 const (
 	// KWidth Connection width
 	KWidth = 6
@@ -30,22 +25,16 @@ const (
 	KConnectionPrefix = "connection"
 )
 
-func GetPathDraw(x, y rulesDensity.Density) (path []string) {
-	return []string{
-		fmt.Sprintf("M %v %v", x, y),
-		fmt.Sprintf("l %v 0", rulesDensity.Density(KWidth)),
-		fmt.Sprintf("l 0 %v", rulesDensity.Density(KHeight)),
-		fmt.Sprintf("l -%v 0", rulesDensity.Density(KWidth)),
-		fmt.Sprintf("l 0 -%v", rulesDensity.Density(KHeight)),
-	}
-}
-
-func GetPathAreaDraw(x, y rulesDensity.Density) (path []string) {
-	return []string{
-		fmt.Sprintf("M %v %v", x-rulesDensity.Density(KWidthArea-KWidth)/2, y-rulesDensity.Density(KHeightArea-KHeight)/2),
-		fmt.Sprintf("l %v 0", rulesDensity.Density(KWidthArea)),
-		fmt.Sprintf("l 0 %v", rulesDensity.Density(KHeightArea)),
-		fmt.Sprintf("l -%v 0", rulesDensity.Density(KWidthArea)),
-		fmt.Sprintf("l 0 -%v", rulesDensity.Density(KHeightArea)),
-	}
-}
+// The top-left-corner path helpers (GetPathDraw / GetPathAreaDraw) were
+// REMOVED in the wave-2 connector standardization: their last callers — the
+// container ornaments (loop, if/else, case) — now use the side-aware
+// PinPathDraw / PinPathAreaDraw (pin.go), which take the EDGE POINT and
+// share their convention with PinAnchor and PinHit. No legacy, per project
+// rule.
+//
+// Português: Os helpers de canto superior esquerdo (GetPathDraw /
+// GetPathAreaDraw) foram REMOVIDOS na onda 2 da padronização: seus últimos
+// chamadores — os ornaments de container (loop, if/else, case) — agora usam
+// os PinPathDraw / PinPathAreaDraw com lado (pin.go), que recebem o EDGE
+// POINT e compartilham a convenção com PinAnchor e PinHit. Sem legado,
+// regra do projeto.

@@ -10,7 +10,7 @@ import (
 	"image/color"
 	"strings"
 
-	"github.com/helmutkemper/iotmakerio/platform/factoryColor"
+	"github.com/helmutkemper/iotmakerio/rulesDevice"
 )
 
 // golangManagerTypeConversion implements RulesDataType for the Go language.
@@ -193,6 +193,29 @@ func (e *golangManagerTypeConversion) Verify(dataType string) (err error) {
 //	  - Tipos desconhecidos que passaram em Verify() ainda recebem uma cor
 //	    determinística (violeta para tipos complexos).
 func (e *golangManagerTypeConversion) TypeToColor(dataType string) (c color.RGBA) {
+	// ── Palette unification ───────────────────────────────────────────────
+	// Every color below is DERIVED from rulesDevice/palette.go — the single
+	// type→color source of truth. This function keeps only the PATTERN
+	// routing (pointer, package-qualified, slice); the hues themselves live
+	// in one place, so the connector pin, the device border and the wire
+	// stroke of the same type can never diverge again.
+	//
+	// Visible changes from the pre-unification palette (intentional):
+	//   bool:   green   → orange (was mismatching the orange bool wire)
+	//   string: turquoise → amber (the device accent color)
+	//   float:  yellow-green → green/teal family
+	//   slices: dark magenta → the ELEMENT type's color (matches the wire
+	//           rule: a collection wire is the base color, drawn thicker)
+	//
+	// Português: Toda cor abaixo é DERIVADA de rulesDevice/palette.go — a
+	// fonte única de tipo→cor. Esta função mantém só o roteamento por PADRÃO
+	// (ponteiro, qualificado por pacote, slice); os matizes vivem em um
+	// lugar, então pino, borda do device e fio do mesmo tipo nunca mais
+	// divergem. Mudanças visíveis (intencionais): bool verde→laranja, string
+	// turquesa→âmbar, float amarelo-esverdeado→família verde/teal, slices
+	// magenta→cor do tipo do ELEMENTO (regra do fio: coleção usa a cor base,
+	// mais grossa).
+
 	// ── IDE semantic types — must be checked BEFORE pattern checks ───────
 	// time.Duration contains a dot but needs its own dedicated colour (cyan),
 	// not the generic violet assigned to package-qualified types.
@@ -200,59 +223,65 @@ func (e *golangManagerTypeConversion) TypeToColor(dataType string) (c color.RGBA
 	// Português: time.Duration contém um ponto mas precisa de cor dedicada
 	// (ciano), não o violeta genérico de tipos qualificados por pacote.
 	if dataType == "time.Duration" {
-		return color.RGBA{R: 0, G: 204, B: 204, A: 255} // cyan #00CCCC
+		return rulesDevice.HexToRGBA(rulesDevice.KColorTypeDuration)
 	}
 
-	// ── Pointer types → violet ───────────────────────────────────────────
-	// Communicates "structured hardware data" and matches the violet wire style
-	// in wire/registry.go DefaultTypeStyles["struct"].
-	// Português: Comunica "dados de hardware estruturados" e combina com o estilo
-	// de fio violeta em wire/registry.go.
-	if strings.HasPrefix(dataType, "*") {
-		return factoryColor.NewViolet()
+	// ── Pointer and package-qualified types → struct violet ──────────────
+	// Communicates "structured hardware data"; same constant the wire
+	// system's "struct" fallback uses.
+	// Português: Comunica "dados de hardware estruturados"; mesma constante
+	// do fallback "struct" do sistema de fios.
+	if strings.HasPrefix(dataType, "*") || strings.Contains(dataType, ".") {
+		return rulesDevice.HexToRGBA(rulesDevice.KColorTypeStruct)
 	}
 
-	// ── Package-qualified types → violet ─────────────────────────────────
-	if strings.Contains(dataType, ".") {
-		return factoryColor.NewViolet()
-	}
-
-	// ── Slice types → dark magenta ────────────────────────────────────────
+	// ── Slice types → the ELEMENT type's color ────────────────────────────
+	// A collection pin shares the scalar family's hue (the wire renderer
+	// already distinguishes collections by stroke width, not by hue), so a
+	// []float pin visually matches the float pin next to it.
+	// Português: Um pino de coleção compartilha o matiz da família escalar
+	// (o renderer de fios já diferencia coleções pela ESPESSURA, não pelo
+	// matiz), então um pino []float casa visualmente com o pino float.
 	if strings.HasPrefix(dataType, "[]") {
-		return factoryColor.NewDarkMagenta()
+		return e.TypeToColor(dataType[2:])
 	}
 
 	switch dataType {
-	case "bool":
-		return factoryColor.NewGreen()
-	case "int", "int8", "int16", "int32", "int64":
-		return factoryColor.NewBlue()
-	case "uint", "uint8", "uint16", "uint32", "uint64", "uintptr":
-		return factoryColor.NewBlueViolet()
-	case "float32", "float64":
-		return factoryColor.NewYellowGreen()
-	case "byte", "rune":
-		return factoryColor.NewBlueViolet()
+	case "bool",
+		"int", "int8", "int16", "int32", "int64",
+		"uint", "uint8", "uint16", "uint32", "uint64",
+		"float", "float32", "float64",
+		"byte", "string", "error":
+		// Directly mapped by the canonical palette.
+		// Português: Mapeados diretamente pela paleta canônica.
+		return rulesDevice.TypeColorRGBA(dataType)
+	case "uintptr", "rune":
+		// Valid Go primitives without a dedicated palette entry: uintptr
+		// joins the unsigned family, rune (alias of int32) joins int32.
+		// Português: Primitivos Go válidos sem entrada dedicada: uintptr
+		// entra na família sem sinal, rune (alias de int32) entra no int32.
+		if dataType == "rune" {
+			return rulesDevice.HexToRGBA(rulesDevice.KColorTypeInt32)
+		}
+		return rulesDevice.HexToRGBA(rulesDevice.KColorTypeUint)
 	case "slice":
-		return factoryColor.NewDarkMagenta()
-	case "string":
-		return factoryColor.NewMediumTurquoise()
+		// IDE meta-type for an untyped slice connector: no element type to
+		// derive from, so it reads as generic structured data.
+		// Português: Meta-tipo da IDE para conector de slice sem tipo: sem
+		// elemento para derivar, lê como dado estruturado genérico.
+		return rulesDevice.HexToRGBA(rulesDevice.KColorTypeStruct)
 	case "struct":
-		return factoryColor.NewViolet()
-	case "error":
-		// Error is the ONLY type that legitimately uses red.
-		// Português: Error é o ÚNICO tipo que usa vermelho legitimamente.
-		return factoryColor.NewRed()
+		return rulesDevice.HexToRGBA(rulesDevice.KColorTypeStruct)
 	default:
 		// Any type that reached here passed Verify() through one of the
-		// pattern rules but has no explicit colour. Use violet (struct family)
-		// as the safest generic "complex type" colour. Red is intentionally
-		// avoided here because it would alarm the user for a type that is
-		// actually valid — just not individually colour-mapped.
+		// pattern rules but has no explicit colour. Use the struct violet as
+		// the safest generic "complex type" colour. Red is intentionally
+		// avoided because it would alarm the user for a type that is valid —
+		// just not individually colour-mapped.
 		//
-		// Português: Qualquer tipo que chegou aqui passou em Verify() por uma
-		// das regras de padrão mas não tem cor explícita. Usa violeta como cor
-		// genérica segura para "tipo complexo".
-		return factoryColor.NewViolet()
+		// Português: Qualquer tipo que chegou aqui passou em Verify() mas não
+		// tem cor explícita. Usa o violeta de struct como cor genérica
+		// segura. Vermelho é evitado de propósito.
+		return rulesDevice.HexToRGBA(rulesDevice.KColorTypeStruct)
 	}
 }

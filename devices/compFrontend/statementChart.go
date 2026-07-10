@@ -19,6 +19,7 @@ import (
 	"github.com/helmutkemper/iotmakerio/devices"
 	"github.com/helmutkemper/iotmakerio/devices/block"
 	"github.com/helmutkemper/iotmakerio/grid"
+	"github.com/helmutkemper/iotmakerio/rulesConnection"
 	"github.com/helmutkemper/iotmakerio/rulesDensity"
 	"github.com/helmutkemper/iotmakerio/rulesDevice"
 	"github.com/helmutkemper/iotmakerio/rulesIcon"
@@ -102,7 +103,16 @@ type StatementChart struct {
 	frontendCtxMenu *contextMenu.Controller
 	wireMgr         *wire.Manager
 
-	label    string
+	label string
+	// [COMMENT] user comment — shown in the device's hover tooltip and kept
+	// in the scene. Dashboard widgets emit no code statement, so unlike the
+	// backend devices this never reaches the generated source — it is stage
+	// documentation.
+	// Português: Comentário do usuário — exibido no tooltip de hover e
+	// gravado na cena. Widgets de dashboard não emitem statement, então
+	// diferente dos devices de backend isto nunca chega ao código gerado —
+	// é documentação do stage.
+	comment  string
 	canvasEl js.Value
 
 	// Circular data buffer
@@ -147,7 +157,16 @@ type StatementChart struct {
 	gridAdjust  grid.Adjust
 	iconStatus  int
 	sceneNotify func()
-	onRemove    func(id string)
+	// [SCENEGRAPH] injected by scene.Serializer.Register (self-injection by
+	// interface assertion). DragEnd reports through it so the scenegraph
+	// refreshes geometry, recomputes conflicts (own + peers) and reassigns
+	// parenting — the same EndDrag hook the containers use.
+	// Português: Injetado pelo scene.Serializer.Register (auto-injeção por
+	// assertion). O DragEnd reporta por ele para o scenegraph refrescar
+	// geometria, recomputar conflitos (próprios + peers) e reatribuir
+	// parenting — o mesmo gancho EndDrag dos containers.
+	sceneMgr *scene.Serializer
+	onRemove func(id string)
 
 	SendFunc func(deviceID, port string, value interface{})
 }
@@ -294,11 +313,17 @@ func (e *StatementChart) renderBackendSVG() string {
 	borderColor := rulesDevice.KColorTypeInt
 
 	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d">`, int(w), int(totalH))
+	// [PIN] the body is inset on the LEFT by the pin length: the standard
+	// connector pins live in the freed margin, protruding from the border
+	// with the wires anchored at their outer tips — the element's left edge.
+	// Português: O corpo recua à ESQUERDA o comprimento do pino: os pinos
+	// padrão vivem na margem liberada, saindo da borda com os fios ancorados
+	// nas pontas externas — a borda esquerda do element.
+	pin := rulesConnection.PinBodyInset()
 	svg += fmt.Sprintf(`<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="%.0f" ry="%.0f" fill="%s" stroke="%s" stroke-width="%.1f"/>`,
-		bw/2, bw/2, w-bw, boxH-bw, rulesDevice.KDeviceCornerRadius, rulesDevice.KDeviceCornerRadius,
+		pin+bw/2, bw/2, w-pin-bw, boxH-bw, rulesDevice.KDeviceCornerRadius, rulesDevice.KDeviceCornerRadius,
 		rulesDevice.KColorDeviceBg, borderColor, bw)
-	svg += fmt.Sprintf(`<circle cx="%.0f" cy="%.1f" r="%.0f" fill="%s" stroke="%s" stroke-width="1"/>`,
-		rulesDevice.KConnectorOffsetLeft, connY, rulesDevice.KConnectorRadius, borderColor, rulesDevice.KColorConnectorStroke)
+	svg += rulesConnection.PinSVGFragment(rulesConnection.PinSideLeft, pin, connY, borderColor)
 
 	tag := strings.ToUpper(e.mode)
 	if tag == "" {
@@ -461,7 +486,7 @@ func (e *StatementChart) renderFrontendSVG() string {
 				y := padT + chartH*float64(i)/4
 				val := maxY - (maxY-minY)*float64(i)/4
 				lbl := strconv.FormatFloat(val, 'f', 0, 64)
-				svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="monospace" font-size="22" fill="#aaa" text-anchor="end" dominant-baseline="central">%s</text>`, padL-10, y, lbl)
+				svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamilyMono+`" font-size="22" fill="#aaa" text-anchor="end" dominant-baseline="central">%s</text>`, padL-10, y, lbl)
 			}
 		}
 	}
@@ -569,7 +594,7 @@ func (e *StatementChart) renderFrontendSVG() string {
 			}
 			avgV := sumV / float64(n)
 			statsText := fmt.Sprintf("Min: %.1f   Avg: %.1f   Max: %.1f", minV, avgV, maxV)
-			svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="monospace" font-size="20" fill="#999">%s</text>`,
+			svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamilyMono+`" font-size="20" fill="#999">%s</text>`,
 				padL+4, bottomY, statsText)
 		}
 
@@ -577,7 +602,7 @@ func (e *StatementChart) renderFrontendSVG() string {
 		if e.showTimestamp && e.lastUpdateTs > 0 {
 			ts := time.Unix(e.lastUpdateTs, 0)
 			timeStr := fmt.Sprintf("%02d:%02d:%02d", ts.Hour(), ts.Minute(), ts.Second())
-			svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="monospace" font-size="18" fill="#888" text-anchor="end">Last: %s</text>`,
+			svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamilyMono+`" font-size="18" fill="#888" text-anchor="end">Last: %s</text>`,
 				w-padR-4, bottomY, timeStr)
 		}
 
@@ -652,7 +677,7 @@ func (e *StatementChart) renderFrontendSVG() string {
 
 		svg += fmt.Sprintf(`<rect x="%.1f" y="%.1f" width="%.0f" height="26" rx="4" fill="#1e1e2eee" stroke="%s" stroke-width="1.5"/>`,
 			badgeX, badgeY, badgeW, lineColor)
-		svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="monospace" font-size="18" fill="#fff" text-anchor="middle" dominant-baseline="central">%s</text>`,
+		svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamilyMono+`" font-size="18" fill="#fff" text-anchor="middle" dominant-baseline="central">%s</text>`,
 			badgeX+badgeW/2, badgeY+13, valStr)
 	}
 
@@ -800,9 +825,9 @@ func (e *StatementChart) wireBackendEvents() {
 			return
 		}
 
-		dx := event.LocalX - rulesDevice.KConnectorOffsetLeft
-		dy := event.LocalY - connY
-		if dx*dx+dy*dy <= rulesDevice.KConnectorHitRadius*rulesDevice.KConnectorHitRadius {
+		if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+			rulesConnection.PinBodyInset(), connY,
+			event.LocalX, event.LocalY) {
 			go e.backendCtxMenu.OpenAtWorld(mainMenu.ConnectorMenu(e.wireMgr, e.id, "current"), menuX, menuY)
 			return
 		}
@@ -825,6 +850,13 @@ func (e *StatementChart) wireBackendEvents() {
 		if e.wireMgr != nil {
 			e.wireMgr.RecalculateForElement(e.id)
 		}
+		// [SCENEGRAPH] dx/dy=0: they only move container descendants (this
+		// device has none); geometry is re-read live by refreshGeometry.
+		// Português: dx/dy=0: eles só movem descendentes de container (este
+		// device não tem); a geometria é relida ao vivo pelo refreshGeometry.
+		if e.sceneMgr != nil {
+			e.sceneMgr.EndDrag(e.id, 0, 0)
+		}
 		if e.sceneNotify != nil {
 			e.sceneNotify()
 		}
@@ -837,9 +869,8 @@ func (e *StatementChart) wireBackendEvents() {
 		if ly > boxH {
 			return ""
 		}
-		dx := lx - rulesDevice.KConnectorOffsetLeft
-		dy := ly - connY
-		if dx*dx+dy*dy <= rulesDevice.KConnectorHitRadius*rulesDevice.KConnectorHitRadius {
+		if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+			rulesConnection.PinBodyInset(), connY, lx, ly) {
 			return sprite.CursorPointer
 		}
 		return ""
@@ -864,6 +895,13 @@ func (e *StatementChart) wireFrontendEvents() {
 		x, y := e.frontendElem.GetPositionD()
 		nx, ny := e.gridAdjust.AdjustCenterD(x, y)
 		e.frontendElem.SetPositionD(nx, ny)
+		// [SCENEGRAPH] dx/dy=0: they only move container descendants (this
+		// device has none); geometry is re-read live by refreshGeometry.
+		// Português: dx/dy=0: eles só movem descendentes de container (este
+		// device não tem); a geometria é relida ao vivo pelo refreshGeometry.
+		if e.sceneMgr != nil {
+			e.sceneMgr.EndDrag(e.id, 0, 0)
+		}
 		if e.sceneNotify != nil {
 			e.sceneNotify()
 		}
@@ -1132,6 +1170,14 @@ func (e *StatementChart) GetInspectConfig() interface{} {
 				Fields: []overlay.Field{
 					{Key: "id", Label: "ID", Type: overlay.FieldText, Value: e.id},
 					{Key: "label", Label: translate.T("propLabel", "Label"), Type: overlay.FieldText, Value: e.label},
+					{
+						Key:         "comment",
+						Label:       translate.T("propComment", "Comment"),
+						Type:        overlay.FieldTextarea,
+						Value:       e.comment,
+						Placeholder: translate.T("propCommentPlaceholder", "Comment shown on hover..."),
+						Rows:        3,
+					},
 					{Key: "chartTitle", Label: translate.T("propChartTitle", "Title"), Type: overlay.FieldText, Value: e.chartTitle, Placeholder: "Temperature"},
 					{Key: "chartUnit", Label: translate.T("propChartUnit", "Unit"), Type: overlay.FieldText, Value: e.chartUnit, Placeholder: "°C"},
 					{Key: "mode", Label: translate.T("propMode", "Mode"), Type: overlay.FieldSelect, Value: e.mode, Options: []overlay.Option{
@@ -1171,6 +1217,9 @@ func (e *StatementChart) GetInspectConfig() interface{} {
 }
 
 func (e *StatementChart) ApplyProperties(values map[string]string) {
+	if v, ok := values["comment"]; ok {
+		e.comment = v
+	}
 	changed := false
 
 	if v, ok := values["id"]; ok && v != "" && v != e.id {
@@ -1334,7 +1383,9 @@ func (e *StatementChart) RegisterConnectors() {
 			ex, ey := e.backendElem.GetPosition()
 			_, h := e.backendElem.GetSize()
 			boxH := h - float64(backendChartLabelHeight)
-			return ex + rulesDevice.KConnectorOffsetLeft, ey + boxH/2
+			ax, ay := rulesConnection.PinAnchor(rulesConnection.PinSideLeft,
+				rulesConnection.PinBodyInset(), boxH/2)
+			return ex + ax, ey + ay
 		},
 	})
 }
@@ -1378,7 +1429,7 @@ func (e *StatementChart) SendValue(port string, value float64) {
 // =====================================================================
 
 func (e *StatementChart) GetProperties() map[string]interface{} {
-	return map[string]interface{}{
+	props := map[string]interface{}{
 		"label":             e.label,
 		"chartTitle":        e.chartTitle,
 		"chartUnit":         e.chartUnit,
@@ -1399,7 +1450,19 @@ func (e *StatementChart) GetProperties() map[string]interface{} {
 		"frontendWidth":     e.frontendWidth.GetFloat(),
 		"frontendHeight":    e.frontendHeight.GetFloat(),
 	}
+	if e.comment != "" {
+		props["comment"] = e.comment
+	}
+	return props
 }
+
+// GetComment returns the user comment shown in the device's hover tooltip.
+// Português: Retorna o comentário exibido no tooltip de hover do device.
+func (e *StatementChart) GetComment() string { return e.comment }
+
+// SetComment sets the user comment.
+// Português: Define o comentário do usuário.
+func (e *StatementChart) SetComment(c string) { e.comment = c }
 
 // =====================================================================
 //  State accessors
@@ -1503,7 +1566,7 @@ func (e *StatementChart) getIcon(data rulesIcon.Data) js.Value {
 	hexDraw := factoryBrowser.NewTagSvgPath().
 		StrokeWidth(rulesIcon.BorderWidth.GetInt()).Stroke(data.ColorBorder).Fill(data.ColorBackground).D(hexPath)
 	iconLabel := factoryBrowser.NewTagSvgText().
-		FontFamily("Arial,sans-serif").FontWeight("bold").FontSize(rulesIcon.Width.GetInt() / 4).
+		FontFamily(rulesDevice.KDeviceFontFamily).FontWeight("bold").FontSize(rulesIcon.Width.GetInt() / 4).
 		Text("〜").Fill(data.ColorIcon).
 		X((rulesIcon.Width / 2).GetInt() - 8).Y((rulesIcon.Height / 2).GetInt() + 5)
 	wl, _ := utilsText.GetTextSize(data.Label, rulesIcon.FontFamily, rulesIcon.FontWeight, rulesIcon.FontStyle, data.LabelFontSize.GetInt())
@@ -1556,3 +1619,9 @@ func (e *StatementChart) MoveBy(dx, dy float64) {
 		e.wireMgr.RecalculateForElement(e.id)
 	}
 }
+
+// SetSceneMgr receives the scene serializer — called by
+// scene.Serializer.Register via interface assertion at registration time.
+// Português: Recebe o serializer de cena — chamado pelo
+// scene.Serializer.Register por assertion no registro.
+func (e *StatementChart) SetSceneMgr(mgr *scene.Serializer) { e.sceneMgr = mgr }

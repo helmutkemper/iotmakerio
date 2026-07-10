@@ -331,19 +331,19 @@ func (m *Manager) getTypeStyle(dataType string) WireStyle {
 		return style
 	}
 
-	// styleKeyForType maps pointer types (*machine.I2C) and package-qualified
-	// types (machine.I2C) to "struct". This catches all complex Go types from
-	// black-box components and gives them the violet wire style instead of the
-	// error-signalling grey dashed line.
+	// deriveTypeStyle covers everything the table does not list verbatim:
+	// collections ("[]T" → element color, thicker stroke) and complex Go
+	// types (pointer / package-qualified → the violet "struct" entry). This
+	// is what keeps []byte, []float64 and slices of hardware types from
+	// falling through to the error-signalling grey dashed line.
 	//
-	// Português: styleKeyForType mapeia tipos ponteiro e tipos qualificados por
-	// pacote para "struct", dando a eles o estilo de fio violeta em vez da linha
-	// cinza tracejada de erro.
-	key := styleKeyForType(dataType)
-	if key != dataType {
-		if style, ok := DefaultTypeStyles[key]; ok {
-			return style
-		}
+	// Português: deriveTypeStyle cobre o que a tabela não lista literal:
+	// coleções ("[]T" → cor do elemento, traço mais grosso) e tipos
+	// complexos (ponteiro / qualificado por pacote → entry violeta
+	// "struct"). É o que impede []byte, []float64 e slices de tipos de
+	// hardware de caírem na linha cinza tracejada de erro.
+	if style, ok := deriveTypeStyle(dataType); ok {
+		return style
 	}
 
 	return DefaultUnknownStyle
@@ -897,6 +897,42 @@ func (m *Manager) HitTestConnector(worldX, worldY float64) *ConnectorID {
 				id := feeder
 				return &id
 			}
+		}
+	}
+	return nil
+}
+
+// HitTestAnyConnector reports the connector under the pointer regardless of
+// connect mode — the HOVER path (connector tooltip). Unlike HitTestConnector,
+// which only runs while picking a wire target and only scans the filtered
+// candidate set, this scans EVERY registered connector of every VISIBLE
+// element and returns the full ConnectorInfo, so the caller can present the
+// port's label and data type. Same tolerance math as the click path, so what
+// highlights on hover is exactly what would accept the click.
+//
+// Português: Informa o conector sob o ponteiro independente do modo de
+// conexão — o caminho de HOVER (tooltip de conector). Diferente do
+// HitTestConnector, que só roda escolhendo alvo de fio e só varre os
+// candidatos filtrados, este varre TODO conector registrado de elemento
+// VISÍVEL e retorna o ConnectorInfo completo, para o chamador apresentar
+// label e tipo da porta. Mesma tolerância do caminho de clique: o que
+// destaca no hover é exatamente o que aceitaria o clique.
+func (m *Manager) HitTestAnyConnector(worldX, worldY float64) *ConnectorInfo {
+	d := rulesDensity.GetDensity()
+	tolerance := m.hitTolerance * d * 1.5
+
+	for _, c := range m.connectors {
+		if c.PositionFunc == nil {
+			continue
+		}
+		if m.hiddenElements[c.ID.ElementID] {
+			continue
+		}
+		cx, cy := c.PositionFunc()
+		dx := worldX - cx
+		dy := worldY - cy
+		if dx*dx+dy*dy <= tolerance*tolerance {
+			return c
 		}
 	}
 	return nil

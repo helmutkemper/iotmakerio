@@ -324,6 +324,20 @@ type BlackBoxDef struct {
 	// separado, de propósito.
 	Files []FileEntry `json:"files,omitempty"`
 
+	// Assets are the def's non-source files (unified asset model):
+	// attached by the store loader from the SAME snapshot Files came
+	// from, after the parser dispatch filtered them out of Files —
+	// Files stays source-only (the len()==1 dispatch, the validator and
+	// the wizard depend on that invariant); Assets is the cargo lane.
+	// The maker's C emitter ships each one into the box folder and
+	// generates its companion header beside it.
+	//
+	// Português: Os não-fonte do def, anexados pelo loader do MESMO
+	// snapshot — Files segue só-fonte (invariante do dispatch); Assets
+	// é a faixa de carga. O emissor C embarca cada um na pasta da caixa
+	// e gera o header companheiro ao lado.
+	Assets []AssetEntry `json:"assets,omitempty"`
+
 	// ExternalNames lists the non-static file-scope VARIABLE names found
 	// across the authored files. Together with Functions (the parser
 	// already excludes `static` functions) it completes the box's set of
@@ -1167,4 +1181,21 @@ type ManualPage struct {
 type FileEntry struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
+}
+
+// AssetEntry is one non-source file riding a black-box def: templates,
+// images — cargo the device carries (unified asset model). Content is
+// the STORED form: plain text, or base64 when Encoding says so (the
+// def may be serialized as JSON — def_json — and raw binary breaks
+// UTF-8; the same bridge the snapshot uses). Consumers that need real
+// bytes (the ANSI C emitter) decode at their edge.
+//
+// Português: Um arquivo não-fonte viajando no def — carga do device.
+// Content é a forma ARMAZENADA (texto, ou base64 quando Encoding diz;
+// def_json é JSON e binário cru quebra UTF-8). Quem precisa de bytes
+// reais decodifica na borda.
+type AssetEntry struct {
+	Path     string `json:"path"`
+	Content  string `json:"content"`
+	Encoding string `json:"encoding,omitempty"`
 }

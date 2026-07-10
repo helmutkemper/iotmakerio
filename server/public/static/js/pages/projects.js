@@ -1225,7 +1225,9 @@ function renderSection(p, section, icon, label, fileList, singleFile) {
         ? fileList.length < CODE_MAX_FILES
         : (!singleFile || fileList.length === 0);
     const accept = section==='code'
-        ? (_projectLangById(p.id) === 'c' ? '.c,.h' : '.go')
+        ? (_projectLangById(p.id) === 'c'
+            ? '.c,.h,.html,.htm,.tmpl,.txt,.json,.csv,.svg,.md,.css,.gif,.png,.jpg,.jpeg'
+            : '.go,.html,.htm,.tmpl,.txt,.json,.csv,.svg,.md,.css,.gif,.png,.jpg,.jpeg')
         : section==='img' ? 'image/*' : '.md';
     const inputId = `finput-${p.id}-${section}`;
 
@@ -2129,9 +2131,46 @@ let _tabsSavedOrder  = [];
 // the server remains the gate.
 const _TAB_MAX_FILES = 16;
 
-function _tabLang(path) {
-    return path.toLowerCase().endsWith('.go') ? 'go' : 'c';
+// _tabModelUri builds the in-memory Monaco URI for a tab path. It MUST
+// use Uri.from({scheme, path}), never Uri.parse(`inmemory://…/${path}`):
+// parse() reads `inmemory://` as scheme+AUTHORITY and then treats the
+// rest as a URL, so a path with a slash (an asset folder like
+// `templates/portal.html`) is mis-split and model creation throws —
+// which, inside the async new-file handler, aborted the prompt silently
+// (root files worked, foldered assets did not). from() takes the path
+// as a literal, slashes and all.
+//
+// Português: Constrói a URI do Monaco. TEM que usar from({scheme,path}),
+// nunca parse(`inmemory://…/${path}`): parse lê `inmemory://` como
+// esquema+AUTORIDADE e trata o resto como URL, então um caminho com
+// barra (pasta de asset) é mal-dividido e a criação do model estoura —
+// o que, no handler assíncrono, matava o prompt em silêncio.
+function _tabModelUri(path) {
+    return monaco.Uri.from({
+        scheme: 'inmemory',
+        path: `/iotm/${_editProject?.id || 'p'}/${path}`,
+    });
 }
+
+// _tabLang picks the Monaco language by extension. Source keeps the two
+// originals; text assets get their natural highlight; anything else
+// (binary placeholder tabs) is plaintext.
+function _tabLang(path) {
+    const p = path.toLowerCase();
+    if (p.endsWith('.go')) return 'go';
+    if (p.endsWith('.c') || p.endsWith('.h')) return 'c';
+    if (p.endsWith('.html') || p.endsWith('.tmpl')) return 'html';
+    if (p.endsWith('.json')) return 'json';
+    if (p.endsWith('.css')) return 'css';
+    if (p.endsWith('.md')) return 'markdown';
+    if (p.endsWith('.svg')) return 'xml';
+    return 'plaintext';
+}
+
+// _tabIsBinary: binary assets travel base64 and render as a read-only
+// placeholder — Monaco cannot edit a gif, and pretending otherwise would
+// let a keystroke corrupt the payload.
+function _tabIsBinary(t) { return t.encoding === 'base64'; }
 
 function _tabsDisposeAll() {
     for (const t of _editorTabs) { try { t.model?.dispose(); } catch (e) {} }
@@ -2147,14 +2186,29 @@ function _tabsInit(files, activePath) {
     _tabsDisposeAll();
     const list = (files && files.length) ? files : [];
     for (const f of list) {
-        const uri = monaco.Uri.parse(
-            `inmemory://iotm/${_editProject?.id || 'p'}/${f.path}`);
+        const uri = _tabModelUri(f.path);
         // A stale model under the same URI (previous editor session that
         // skipped cleanup) must go, or createModel throws.
         try { monaco.editor.getModel(uri)?.dispose(); } catch (e) {}
-        const model = monaco.editor.createModel(
-            f.content || '', _tabLang(f.path), uri);
-        _editorTabs.push({ path: f.path, model, savedContent: f.content || '' });
+        // Binary assets (encoding base64): the MODEL holds a human
+        // placeholder — the real payload stays in rawContent and is what
+        // the collector returns. The placeholder is never saved.
+        //
+        // Português: Asset binário: o MODEL mostra um placeholder; o
+        // payload real fica em rawContent e é o que o coletor devolve.
+        const isBin = f.encoding === 'base64';
+        const shown = isBin
+            ? `[binary asset · ${Math.max(1, Math.round((f.content || '').length * 3 / 4 / 1024))} KB · uploaded file]\n`
+              + 'This file is stored as-is and shipped with your export.\n'
+              + 'Re-upload to replace it.'
+            : (f.content || '');
+        const model = monaco.editor.createModel(shown, _tabLang(f.path), uri);
+        _editorTabs.push({
+            path: f.path, model,
+            savedContent: shown,
+            encoding: f.encoding || '',
+            rawContent: isBin ? (f.content || '') : '',
+        });
     }
     _tabsSavedOrder = _editorTabs.map(t => t.path);
     let idx = 0;
@@ -2175,9 +2229,16 @@ function _tabActivate(i) {
     _defaultFilename = _editorTabs[i].path;
     if (_monacoInst) {
         _monacoInst.setModel(_editorTabs[i].model);
+        // Binary assets are read-only — the model shows a placeholder
+        // and a keystroke into it would be a lie (the payload lives in
+        // rawContent). The flag follows the ACTIVE tab.
+        _monacoInst.updateOptions({ readOnly: _tabIsBinary(_editorTabs[i]) });
         setTimeout(() => _monacoInst?.focus(), 0);
     }
     _tabsRenderStrip();
+    // The wizard's card column aligns against the ACTIVE model; tell it
+    // the model changed (no-op when the wizard isn't showing).
+    window._projWizardOnTabSwitch?.();
 }
 
 function _tabIsDirty(i) {
@@ -2205,7 +2266,12 @@ function _tabsAnyPending() {
 // snapshot order (the sort column, the merge order, "first file's doc is
 // the front page" all key off it).
 function _tabsCollectFiles() {
-    return _editorTabs.map(t => ({ path: t.path, content: t.model.getValue() }));
+    // Binary tabs return their preserved payload (the model shows a
+    // placeholder); text tabs return the model. Encoding rides along so
+    // the gate's rules hold on every save after an upload.
+    return _editorTabs.map(t => _tabIsBinary(t)
+        ? { path: t.path, content: t.rawContent, encoding: 'base64' }
+        : { path: t.path, content: t.model.getValue() });
 }
 
 // _tabsValidateName mirrors the server's per-path rules (extension by
@@ -2226,12 +2292,25 @@ function _tabsValidateName(name, ignoreIdx) {
     }
     const lang = _projectLangById(_editProject?.id);
     const lower = n.toLowerCase();
-    if (lang === 'c') {
-        if (!lower.endsWith('.c') && !lower.endsWith('.h')) {
-            return 'C projects accept .c and .h files.';
-        }
-    } else if (!lower.endsWith('.go')) {
-        return 'Go projects accept .go files.';
+    // Extension rules mirror the server's gate: SOURCE by language plus
+    // the shared TEXT-asset whitelist. Binary assets (gif/png/jpg) are
+    // upload-only — an empty tab named logo.gif would be a lie the gate
+    // rejects at Save; say "no" here instead.
+    //
+    // Português: Espelho do portão: FONTE por linguagem + whitelist de
+    // assets de TEXTO. Binário é só-upload — aba vazia chamada logo.gif
+    // seria mentira; o não vem aqui, não no Save.
+    const ext = lower.slice(lower.lastIndexOf('.'));
+    const textAsset = ['.html', '.htm', '.tmpl', '.txt', '.json', '.csv', '.svg', '.md', '.css'].includes(ext);
+    const binaryAsset = ['.gif', '.png', '.jpg', '.jpeg'].includes(ext);
+    const source = lang === 'c' ? (ext === '.c' || ext === '.h') : ext === '.go';
+    if (binaryAsset) {
+        return 'Binary assets are added by upload, not created empty.';
+    }
+    if (!source && !textAsset) {
+        return lang === 'c'
+            ? 'C projects accept .c/.h source, or text assets (html, htm, tmpl, txt, json, csv, svg, md, css).'
+            : 'Go projects accept .go source, or text assets (html, htm, tmpl, txt, json, csv, svg, md, css).';
     }
     for (let i = 0; i < _editorTabs.length; i++) {
         if (i === ignoreIdx) continue;
@@ -2249,12 +2328,20 @@ async function _tabAdd() {
     }
     const lang = _projectLangById(_editProject?.id);
     const suggestion = lang === 'c' ? 'util.c' : 'helpers.go';
-    const name = await showPrompt('New file (' + (lang === 'c' ? '.c/.h' : '.go') + '):', suggestion);
+    const name = await showPrompt('New file (' + (lang === 'c' ? '.c/.h' : '.go') + ' or text asset):', suggestion);
     if (!name) return;
     const msg = _tabsValidateName(name);
     if (msg) { showPageAlert(msg, 'warning'); return; }
     const trimmed = name.trim();
-    const uri = monaco.Uri.parse(`inmemory://iotm/${_editProject?.id || 'p'}/${trimmed}`);
+    // Anything throwing past this point used to die silently (async
+    // handler — unhandled rejection, popup already gone): the exact
+    // failure shape that cost a field investigation on 2026-07-08.
+    // Surface it instead.
+    //
+    // Português: Qualquer exceção daqui em diante morria em silêncio
+    // (popup já fechado). Agora aparece.
+    try {
+    const uri = _tabModelUri(trimmed);
     try { monaco.editor.getModel(uri)?.dispose(); } catch (e) {}
     const model = monaco.editor.createModel('', _tabLang(trimmed), uri);
     // savedContent stays '' — a brand-new tab is born dirty only once it
@@ -2264,6 +2351,9 @@ async function _tabAdd() {
     _editorTabs.push({ path: trimmed, model, savedContent: '' });
     _tabActivate(_editorTabs.length - 1);
     projScheduleBackup?.();
+    } catch (e) {
+        showPageAlert(`Could not create "${trimmed}": ${e?.message || e}`, 'error');
+    }
 }
 
 async function _tabRenameAt(i) {
@@ -5752,8 +5842,27 @@ export async function copyImageMarkdown(url, name) {
 // Each call appends a new toast — they stack vertically and each disappears
 // independently after durationMs (default 5000ms). The × button dismisses early.
 function showPageAlert(msg, type, durationMs) {
-    const stack = document.getElementById('proj-toast-stack');
-    if (!stack) return;
+    // The stack is created ON DEMAND: the old `if (!stack) return;`
+    // silently swallowed every alert on views that never rendered the
+    // container — a validation rejection with no visible feedback is
+    // indistinguishable from a bug (field report 2026-07-08: the New
+    // File prompt "just closed" — the rejection toast was no-oping).
+    // z-index sits ABOVE the modal backdrop (10000) so a rejection
+    // fired from a prompt is visible the instant the prompt closes.
+    //
+    // Português: O stack nasce SOB DEMANDA — o `return` antigo engolia
+    // alertas em views sem o container; rejeição sem feedback é
+    // indistinguível de bug (relato de campo: o prompt "só fechava").
+    // z-index acima do backdrop do modal (10000).
+    let stack = document.getElementById('proj-toast-stack');
+    if (!stack) {
+        stack = document.createElement('div');
+        stack.id = 'proj-toast-stack';
+        stack.style.cssText =
+            'position:fixed;top:16px;right:16px;z-index:10001;display:flex;' +
+            'flex-direction:column;gap:8px;max-width:380px;pointer-events:none;';
+        document.body.appendChild(stack);
+    }
 
     const ms  = durationMs || 5000;
     const id  = 'toast-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);

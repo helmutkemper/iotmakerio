@@ -38,6 +38,7 @@
 package projectapi
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -661,6 +662,32 @@ const maxCodeFiles = 16
 // digits, dot, underscore or hyphen.
 var codeFileSegment = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]*$`)
 
+// Asset extensions (the unified asset model — docs/tasks/
+// ASSETS_UNIFIED_MODEL.md): a WHITELIST, not "everything that isn't
+// source" — marketplace ZIPs must not smuggle .so/.exe (supply chain).
+// Text assets are editable tabs; binary assets travel base64 (the
+// snapshot is JSON — raw binary breaks UTF-8) and render as placeholder
+// tabs. Both classes are shared by Go and C projects alike.
+//
+// Português: Extensões de asset — WHITELIST, não "tudo que não é fonte"
+// (supply chain). Texto = aba editável; binário = base64 (snapshot é
+// JSON) com aba placeholder. As duas classes valem para Go e C.
+var textAssetExts = map[string]bool{
+	".html": true, ".htm": true, ".tmpl": true, ".txt": true, ".json": true,
+	".csv": true, ".svg": true, ".md": true, ".css": true,
+}
+var binaryAssetExts = map[string]bool{
+	".gif": true, ".png": true, ".jpg": true, ".jpeg": true,
+}
+
+// Size caps: assets live inside the SQLite snapshot — a video is not a
+// device asset. Per-asset cap is on DECODED bytes (base64 inflates 4/3);
+// the project cap sums every file's stored content.
+const (
+	maxAssetBytes    = 512 << 10 // 512 KB decoded, per asset
+	maxSnapshotBytes = 4 << 20   // 4 MB stored, whole project
+)
+
 // validateCodeFileSet enforces the snapshot contract shared by save, upload
 // and rename. Returns "" when valid, else the 400 message.
 //
@@ -675,19 +702,28 @@ var codeFileSegment = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]*$`)
 //   - paths unique CASE-INSENSITIVELY — the maker may unzip on a
 //     case-folding filesystem (Windows, macOS default), where Util.c and
 //     util.c silently become one file.
-//   - extension whitelist BY LANGUAGE: go → .go (and exactly ONE file:
-//     multi-file Go authoring is a declared future slice — the parser
-//     dispatch enforces it, and failing at save time beats failing at
-//     parse time); c → .c/.h with at least one .c (a header-only device
-//     has no definitions for the generated header to promise).
-//   - at least one file with non-blank content — the "source is required"
-//     rule of the single-file era, generalised.
+//   - extension rules: SOURCE by language (go → .go; c → .c/.h with at
+//     least one .c — a header-only device has no definitions for the
+//     generated header to promise), plus the shared ASSET whitelist
+//     (textAssetExts editable, binaryAssetExts base64-only). Anything
+//     else is rejected by name. (The GoMF-era "exactly one .go" rule is
+//     gone — this paragraph was stale after GoMF and was corrected with
+//     the asset slice, 2026-07-08.)
+//   - encoding: "" or "base64". Binary assets REQUIRE base64 (raw bytes
+//     break the JSON transport); everything else FORBIDS it (a source
+//     file arriving base64 would hide from review and diff); base64
+//     content must actually decode.
+//   - size caps: ≤512 KB decoded per asset; ≤4 MB stored per snapshot.
+//   - at least one SOURCE file with non-blank content — assets alone do
+//     not make a device.
 //
 // Português: Contrato do snapshot compartilhado por save, upload e rename.
-// Caminho relativo simples (chave de ZIP e operando de #include lá na
-// frente); unicidade case-insensitive (Windows/macOS dobram caixa);
-// extensão por linguagem (go = 1 arquivo .go — multiarquivo Go é fatia
-// futura declarada; c = .c/.h com ≥1 .c); ≥1 conteúdo não-vazio.
+// Caminho relativo simples; unicidade case-insensitive; FONTE por
+// linguagem (go = .go; c = .c/.h com ≥1 .c) + whitelist de ASSETS
+// compartilhada (texto editável; binário só-base64). Encoding: binário
+// EXIGE base64, o resto PROÍBE, e base64 tem que decodificar. Tetos:
+// ≤512 KB por asset (decodificado), ≤4 MB por snapshot. ≥1 arquivo
+// FONTE com conteúdo — assets sozinhos não fazem um device.
 func validateCodeFileSet(files []store.CodeFileEntry, languageID string) string {
 	if len(files) == 0 {
 		return "files is required (at least one file)"
@@ -700,8 +736,9 @@ func validateCodeFileSet(files []store.CodeFileEntry, languageID string) string 
 	isGo := lang == "" || lang == "go" || lang == "golang"
 
 	seen := make(map[string]bool, len(files))
-	hasContent := false
+	hasSourceContent := false
 	hasC := false
+	totalStored := 0
 	for _, f := range files {
 		if f.Path == "" {
 			return "every file needs a path"
@@ -727,23 +764,58 @@ func validateCodeFileSet(files []store.CodeFileEntry, languageID string) string 
 		}
 		seen[lower] = true
 
+		ext := strings.ToLower(filepath.Ext(lower))
+		isSource := (isGo && ext == ".go") || (!isGo && (ext == ".c" || ext == ".h"))
+		isTextAsset := textAssetExts[ext]
+		isBinaryAsset := binaryAssetExts[ext]
 		switch {
-		case isGo && strings.HasSuffix(lower, ".go"):
-			// ok
-		case !isGo && strings.HasSuffix(lower, ".c"):
-			hasC = true
-		case !isGo && strings.HasSuffix(lower, ".h"):
-			// ok
+		case isSource:
+			if !isGo && ext == ".c" {
+				hasC = true
+			}
+		case isTextAsset, isBinaryAsset:
+			// Shared asset whitelist — same for both languages.
 		default:
 			if isGo {
-				return fmt.Sprintf("invalid extension for a Go project: %q (only .go)", f.Path)
+				return fmt.Sprintf("invalid extension for a Go project: %q (.go source, or assets: html htm tmpl txt json csv svg md css gif png jpg)", f.Path)
 			}
-			return fmt.Sprintf("invalid extension for a C project: %q (only .c and .h)", f.Path)
+			return fmt.Sprintf("invalid extension for a C project: %q (.c/.h source, or assets: html htm tmpl txt json csv svg md css gif png jpg)", f.Path)
 		}
 
-		if strings.TrimSpace(f.Content) != "" {
-			hasContent = true
+		// Encoding rules (see the doc above): binary REQUIRES base64, the
+		// rest FORBIDS it, and base64 must decode — a corrupt payload dies
+		// at the gate, not inside the disk mirror or the export builder.
+		switch f.Encoding {
+		case "":
+			if isBinaryAsset {
+				return fmt.Sprintf("%q is a binary asset and must be uploaded (encoding base64), not typed", f.Path)
+			}
+			totalStored += len(f.Content)
+		case "base64":
+			if !isBinaryAsset {
+				return fmt.Sprintf("%q must be plain text (base64 is for binary assets only)", f.Path)
+			}
+			decoded, decErr := base64.StdEncoding.DecodeString(f.Content)
+			if decErr != nil {
+				return fmt.Sprintf("%q: invalid base64 content", f.Path)
+			}
+			if len(decoded) > maxAssetBytes {
+				return fmt.Sprintf("%q too large: %d KB (max %d KB per asset)", f.Path, len(decoded)>>10, maxAssetBytes>>10)
+			}
+			totalStored += len(f.Content)
+		default:
+			return fmt.Sprintf("%q: unknown encoding %q (\"\" or \"base64\")", f.Path, f.Encoding)
 		}
+		if isTextAsset && len(f.Content) > maxAssetBytes {
+			return fmt.Sprintf("%q too large: %d KB (max %d KB per asset)", f.Path, len(f.Content)>>10, maxAssetBytes>>10)
+		}
+
+		if isSource && strings.TrimSpace(f.Content) != "" {
+			hasSourceContent = true
+		}
+	}
+	if totalStored > maxSnapshotBytes {
+		return fmt.Sprintf("project too large: %d KB stored (max %d KB)", totalStored>>10, maxSnapshotBytes>>10)
 	}
 	// Multi-file Go shipped with GoMF (2026-07-08): a Go project is a Go
 	// PACKAGE — the struct in one file, methods across siblings — so the
@@ -760,8 +832,8 @@ func validateCodeFileSet(files []store.CodeFileEntry, languageID string) string 
 	if !isGo && !hasC {
 		return "a C project needs at least one .c file (headers alone carry no definitions)"
 	}
-	if !hasContent {
-		return "at least one file must have content"
+	if !hasSourceContent {
+		return "at least one source file must have content (assets alone do not make a device)"
 	}
 	return ""
 }
@@ -780,7 +852,26 @@ func mirrorCodeSnapshot(c echo.Context, codeDir string, files []store.CodeFileEn
 			c.Logger().Errorf("[projectapi] mirror mkdir %s: %v", f.Path, err)
 			continue
 		}
-		if err := os.WriteFile(full, []byte(f.Content), 0644); err != nil {
+		// The mirror holds REAL bytes — a base64 asset decodes at this
+		// edge so /static serves the actual gif/png, not its text form.
+		// The gate already proved the payload decodes; a failure here
+		// would mean the snapshot was corrupted after validation, which
+		// is worth a loud log line and a skipped file, never an abort
+		// (derived data — the database stays the truth).
+		//
+		// Português: O espelho guarda bytes REAIS — base64 decodifica
+		// nesta borda. O portão já provou que decodifica; falhar aqui é
+		// corrupção pós-validação: loga alto e pula, nunca aborta.
+		data := []byte(f.Content)
+		if f.Encoding == "base64" {
+			decoded, decErr := base64.StdEncoding.DecodeString(f.Content)
+			if decErr != nil {
+				c.Logger().Errorf("[projectapi] mirror decode %s: %v", f.Path, decErr)
+				continue
+			}
+			data = decoded
+		}
+		if err := os.WriteFile(full, data, 0644); err != nil {
 			c.Logger().Errorf("[projectapi] mirror write %s: %v", f.Path, err)
 		}
 	}
@@ -902,6 +993,24 @@ func handleUploadCodeFile(c echo.Context) error {
 	}
 	name := filepath.Base(strings.TrimSpace(fh.Filename))
 
+	// Classify by extension — the same three-way split the gate enforces.
+	// Binary assets are base64-encoded HERE (the transport and the snapshot
+	// are JSON text); text files must be valid UTF-8, otherwise the honest
+	// answer is "this is not the text file its extension claims", not a
+	// silently mangled snapshot.
+	//
+	// Português: Classifica pela extensão — o mesmo corte do portão.
+	// Binário vira base64 AQUI; texto tem que ser UTF-8 válido — senão a
+	// resposta honesta é rejeitar, não mutilar o snapshot em silêncio.
+	encoding := ""
+	stored := string(content)
+	if binaryAssetExts[strings.ToLower(filepath.Ext(name))] {
+		encoding = "base64"
+		stored = base64.StdEncoding.EncodeToString(content)
+	} else if !utf8.Valid(content) {
+		return fail(c, 400, fmt.Sprintf("%q is not valid UTF-8 text", name))
+	}
+
 	return snapshotNextVersion(c, p, claims.UserID,
 		func(files []store.CodeFileEntry) ([]store.CodeFileEntry, string) {
 			// One semantics for both languages since GoMF: replace by path
@@ -917,11 +1026,12 @@ func handleUploadCodeFile(c echo.Context) error {
 			// device.go em silêncio.
 			for i := range files {
 				if strings.EqualFold(files[i].Path, name) {
-					files[i].Content = string(content)
+					files[i].Content = stored
+					files[i].Encoding = encoding
 					return files, ""
 				}
 			}
-			return append(files, store.CodeFileEntry{Path: name, Content: string(content)}), ""
+			return append(files, store.CodeFileEntry{Path: name, Content: stored, Encoding: encoding}), ""
 		})
 }
 

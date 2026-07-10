@@ -506,6 +506,12 @@ func migrate() error {
 	if err := MigrateMenuTreeIndex(); err != nil {
 		return err
 	}
+	if err := MigrateMenuTreePrint(); err != nil {
+		return err
+	}
+	if err := MigrateMenuTreeDebugPosition(); err != nil {
+		return err
+	}
 	// Sequential code numbers for generated-code names (iotm_47_…): creates
 	// the registry and backfills every pre-existing project and black-box by
 	// creation order. Idempotent. See store/code_numbers.go for the

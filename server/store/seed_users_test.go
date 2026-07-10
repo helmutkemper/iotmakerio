@@ -2,14 +2,26 @@
 // SPDX-FileCopyrightText: 2026 Helmut Kemper
 // SPDX-License-Identifier: AGPL-3.0-only
 //
-// This test is intentionally NOT a unit test — it writes to a real SQLite file
-// so you can point the server at it and test the control panel UI with realistic
-// data. It is skipped in CI by the -short flag.
+// This is intentionally NOT a unit test — it is a DEV TOOL that writes to
+// the real SQLite file so you can point the server at it and test the
+// control panel UI with realistic data.
+//
+// It is OPT-IN: without IOTM_SEED_USERS=1 it self-skips. The original
+// guard was opt-OUT (-short), which meant a plain `go test ./store/`
+// — the natural validation command — silently seeded 48 fake users into
+// the developer's live database (2026-07-08, caught in the field). A
+// tool that mutates the live DB must require an explicit yes, not the
+// memory of a flag.
+//
+// Português: FERRAMENTA de dev, não teste — grava usuários falsos no
+// banco real para testar a UI do /control. OPT-IN via IOTM_SEED_USERS=1;
+// sem a variável, pula. O guard antigo era opt-OUT (-short) e um
+// `go test ./store/` comum semeava o banco vivo em silêncio.
 //
 // Usage:
 //
 //	cd server
-//	go test ./store/ -run TestSeedRandomUsers -v -count=1
+//	IOTM_SEED_USERS=1 go test ./store/ -run TestSeedRandomUsers -v -count=1
 //
 // The database is written to ./data/iotmaker.db (same path the server uses).
 // Run the server normally after seeding; the 50 users will appear in /control.
@@ -28,9 +40,11 @@ package store
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/brianvoe/gofakeit/v6"
 
@@ -49,6 +63,10 @@ func init() {
 }
 
 func TestSeedRandomUsers(t *testing.T) {
+	// Opt-IN gate — see the file header for why opt-out was not enough.
+	if os.Getenv("IOTM_SEED_USERS") != "1" {
+		t.Skip("dev tool, not a test — set IOTM_SEED_USERS=1 to seed the live DB")
+	}
 	if testing.Short() {
 		t.Skip("skipping seed test in -short mode")
 	}
@@ -85,7 +103,23 @@ func TestSeedRandomUsers(t *testing.T) {
 			PreferredLocale: randomLocale(),
 		}
 
-		if err := CreateUser(u); err != nil {
+		// A seeding tool that randomly drops rows is a bad tool: macOS +
+		// modernc occasionally throws SQLITE_IOERR_DELETE_NOENT (5898) on
+		// the rollback-journal delete under rapid sequential writes — a
+		// transient race, gone on retry. Three attempts with a breath
+		// between them; a persistent error still surfaces.
+		//
+		// Português: macOS + modernc às vezes solta IOERR_DELETE_NOENT
+		// (5898) na deleção do journal sob escrita rápida — transiente,
+		// some no retry. Três tentativas; erro persistente ainda aparece.
+		var err error
+		for attempt := 0; attempt < 3; attempt++ {
+			if err = CreateUser(u); err == nil || err == ErrConflict {
+				break
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+		if err != nil {
 			if err == ErrConflict {
 				// Username or email already exists — skip silently.
 				skipped++

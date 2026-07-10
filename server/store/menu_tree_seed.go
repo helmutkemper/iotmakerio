@@ -48,17 +48,36 @@ func SeedMenuTree() error {
 		return err
 	}
 
-	// Check if catalog is already populated — skip the rest if so.
+	// [FIX 2026-07] The seed RECONCILES on every boot instead of skipping
+	// when the catalog is non-empty. Every statement below is INSERT OR
+	// IGNORE (idempotent by construction — see the file header), so
+	// re-running only fills holes and never overwrites admin edits. The old
+	// all-or-nothing guard turned ONE interrupted first boot into a
+	// permanently half-seeded database: count>0 skipped the whole seed
+	// forever after, and the groups whose children exist ONLY here — the
+	// Display widgets and the Export actions, the LAST entries of the
+	// layout slice — stayed missing while the per-boot Migrate* functions
+	// healed everything else. The count now only picks the log message.
+	// Português: [FIX 2026-07] O seed RECONCILIA a cada boot em vez de
+	// pular quando o catálogo não está vazio. Todo statement abaixo é
+	// INSERT OR IGNORE (idempotente por construção — ver o cabeçalho do
+	// arquivo), então re-rodar só preenche buracos e nunca sobrescreve
+	// edições do admin. A guarda tudo-ou-nada antiga transformava UM
+	// primeiro boot interrompido em banco permanentemente meio-populado:
+	// count>0 pulava o seed inteiro para sempre, e os grupos cujos filhos
+	// só existem AQUI — os widgets do Display e as ações do Export, as
+	// ÚLTIMAS entradas do slice de layout — ficavam ausentes enquanto as
+	// Migrate* de todo boot curavam o resto. O count agora só escolhe a
+	// mensagem de log.
 	var count int
 	if err := DB.QueryRow(`SELECT COUNT(*) FROM menu_items`).Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
-		log.Printf("[menu_tree_seed] catalog already has %d items, skipping seed", count)
-		return nil
+		log.Printf("[menu_tree_seed] catalog has %d items — reconciling seed (INSERT OR IGNORE fills gaps only)", count)
+	} else {
+		log.Printf("[menu_tree_seed] seeding menu tree catalog, profile, and layout...")
 	}
-
-	log.Printf("[menu_tree_seed] seeding menu tree catalog, profile, and layout...")
 
 	now := time.Now().UTC().Format(time.RFC3339)
 
@@ -284,7 +303,7 @@ func SeedMenuTree() error {
 			return err
 		}
 	}
-	log.Printf("[menu_tree_seed] inserted %d layout entries for default profile", len(layout))
+	log.Printf("[menu_tree_seed] ensured %d layout entries for default profile", len(layout))
 
 	return nil
 }
@@ -429,7 +448,41 @@ func migrateMenuTreeLabels() error {
 		return err
 	}
 
-	return nil
+	return migrateMenuTreeItemTypes()
+}
+
+// migrateMenuTreeItemTypes reconciles item_type for the system GROUP slots on
+// databases seeded before the linear sidebar existed. In the old design,
+// SysExport and SysDisplay were direct actions (they opened an overlay on
+// click); the redesign turned every rail group into a submenu with children,
+// but INSERT OR IGNORE cannot retroactively fix a catalog row written by an
+// earlier version of the seed — the same gap migrateMenuTreeLabels closes for
+// labels. A stale 'action' here left the group's Submenu unbuilt on the
+// client, so the panel showed the group itself as its only row ("Export ›"
+// leading nowhere) — the 2026-07 sidebar bug.
+//
+// The UPDATE lists every known system group explicitly and only touches rows
+// whose type differs, so it is idempotent, runs every boot (called from
+// migrateMenuTreeLabels' tail), and never rewrites admin-created slots.
+//
+// Português: Reconcilia o item_type dos GRUPOS de sistema em bancos populados
+// antes da sidebar linear. No design antigo, SysExport e SysDisplay eram
+// ações diretas (abriam overlay); o redesign tornou todo grupo do rail um
+// submenu com filhos, mas INSERT OR IGNORE não conserta retroativamente uma
+// linha escrita por versão anterior do seed — a mesma lacuna que o
+// migrateMenuTreeLabels fecha para labels. Um 'action' velho deixava o
+// Submenu do grupo sem montar no cliente e o painel mostrava o próprio grupo
+// como única linha ("Export ›" sem destino) — o bug da sidebar de 2026-07.
+// O UPDATE lista os grupos explicitamente e só toca linhas divergentes:
+// idempotente, roda a cada boot e nunca reescreve slots criados pelo admin.
+func migrateMenuTreeItemTypes() error {
+	_, err := DB.Exec(`
+		UPDATE menu_items
+		   SET item_type = 'submenu'
+		 WHERE slot_id IN ('SysMath','SysLogic','SysLoop','SysConst','SysVar',
+		                   'SysDisplay','SysExport','SysMyItems','SysDebug')
+		   AND item_type <> 'submenu'`)
+	return err
 }
 
 // MigrateMenuTreeConstArrays inserts the three constant-collection menu
@@ -1020,5 +1073,265 @@ func MigrateMenuTreeVariables() error {
 		}
 	}
 
+	return nil
+}
+
+// MigrateMenuTreePrint inserts the SysDebug group and the six Print sink
+// devices (int, float, string, bool, byte, []byte) into databases seeded
+// before the Debug family existed. Unlike the previous migrations — which
+// added items under EXISTING groups — this one also creates the GROUP:
+// a root-level submenu row in the catalog plus one layout row per profile,
+// positioned after the last existing root item (movable later via the
+// profile editor). SeedMenuTree skips everything once the catalog is
+// populated, so new system items must arrive through an explicit,
+// idempotent migration; INSERT OR IGNORE everywhere makes every-boot
+// execution safe.
+//
+// icon_fa follows the seed's convention (FontAwesome NAME for the Control
+// Panel; the WASM builder carries its own path data): "bug" for the group,
+// "print" for the items.
+//
+// Português: Insere o grupo SysDebug e os seis devices Print (int, float,
+// string, bool, byte, []byte) em bancos populados antes da família Debug
+// existir. Diferente das migrações anteriores — que adicionavam itens em
+// grupos EXISTENTES — esta também cria o GRUPO: uma linha de submenu na
+// raiz do catálogo mais uma linha de layout por profile, posicionada após
+// o último item raiz (movível depois pelo editor de profiles). INSERT OR
+// IGNORE em tudo torna a execução a cada boot segura e idempotente.
+// icon_fa segue a convenção do seed ("bug" no grupo, "print" nos itens).
+func MigrateMenuTreePrint() error {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// ── Catalog entries ───────────────────────────────────────────────────
+	// The group first, then the six actions.
+	// Português: O grupo primeiro, depois as seis ações.
+	if _, err := DB.Exec(`
+		INSERT OR IGNORE INTO menu_items
+			(slot_id, slot_type, item_type, locked, label_key, label_fallback,
+			 icon_fa, icon_viewbox, created_at)
+		VALUES ('SysDebug', 'system', 'submenu', 1, 'menuMainDebug', 'Debug',
+		        'bug', '0 0 512 512', ?)`, now,
+	); err != nil {
+		return err
+	}
+
+	type catItem struct {
+		slotID, labelKey, fallback string
+	}
+	newItems := []catItem{
+		{"SysPrintInt", "menuMainPrintInt", "Print (int)"},
+		{"SysPrintFloat", "menuMainPrintFloat", "Print (float)"},
+		{"SysPrintString", "menuMainPrintString", "Print (string)"},
+		{"SysPrintBool", "menuMainPrintBool", "Print (bool)"},
+		{"SysPrintByte", "menuMainPrintByte", "Print (byte)"},
+		{"SysPrintByteArray", "menuMainPrintByteArray", "Print ([]byte)"},
+	}
+	for _, item := range newItems {
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO menu_items
+				(slot_id, slot_type, item_type, locked, label_key, label_fallback,
+				 icon_fa, icon_viewbox, created_at)
+			VALUES (?, 'system', 'action', 1, ?, ?, 'print', '0 0 512 512', ?)`,
+			item.slotID, item.labelKey, item.fallback, now,
+		); err != nil {
+			return err
+		}
+	}
+
+	// ── Layout entries (all existing profiles) ────────────────────────────
+	rows, err := DB.Query(`SELECT profile_id, is_default FROM menu_profiles`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type prof struct {
+		id        string
+		isDefault bool
+	}
+	var profiles []prof
+	for rows.Next() {
+		var p prof
+		var isDef int
+		if err := rows.Scan(&p.id, &isDef); err != nil {
+			return err
+		}
+		p.isDefault = isDef == 1
+		profiles = append(profiles, p)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, p := range profiles {
+		visible := 0
+		if p.isDefault {
+			visible = 1
+		}
+
+		// The group sits at the ROOT (parent_id IS NULL), after the last
+		// existing root item — position queries must use IS NULL, never
+		// = '' (the seed stores root parents as SQL NULL).
+		// Português: O grupo fica na RAIZ (parent_id IS NULL), após o
+		// último item raiz — a query de posição usa IS NULL, nunca = ''
+		// (o seed grava pai raiz como NULL SQL).
+		var maxRoot int
+		if err := DB.QueryRow(`
+			SELECT COALESCE(MAX(position), 0) FROM menu_layout
+			WHERE profile_id = ? AND parent_id IS NULL`, p.id,
+		).Scan(&maxRoot); err != nil {
+			return err
+		}
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO menu_layout
+				(profile_id, slot_id, parent_id, position, visible)
+			VALUES (?, 'SysDebug', NULL, ?, ?)`,
+			p.id, maxRoot+1, visible,
+		); err != nil {
+			return err
+		}
+
+		// The six actions, in the declared order, under the new group.
+		// Português: As seis ações, na ordem declarada, sob o grupo novo.
+		for i, item := range newItems {
+			if _, err := DB.Exec(`
+				INSERT OR IGNORE INTO menu_layout
+					(profile_id, slot_id, parent_id, position, visible)
+				VALUES (?, ?, 'SysDebug', ?, ?)`,
+				p.id, item.slotID, i+1, visible,
+			); err != nil {
+				return err
+			}
+		}
+	}
+
+	// ── i18n keys (fill-if-absent — never overwrites admin edits) ─────────
+	type i18nKey struct {
+		id, en, pt string
+	}
+	keys := []i18nKey{
+		{"menuMainDebug", "Debug", "Depuração"},
+		{"menuMainPrintInt", "Print (int)", "Imprimir (int)"},
+		{"menuMainPrintFloat", "Print (float)", "Imprimir (float)"},
+		{"menuMainPrintString", "Print (string)", "Imprimir (string)"},
+		{"menuMainPrintBool", "Print (bool)", "Imprimir (bool)"},
+		{"menuMainPrintByte", "Print (byte)", "Imprimir (byte)"},
+		{"menuMainPrintByteArray", "Print ([]byte)", "Imprimir ([]byte)"},
+	}
+	for _, loc := range []struct{ locale string }{{"en-US"}, {"pt-BR"}} {
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO i18n_bundles (locale, bundle_id, updated_at)
+			VALUES (?, ?, ?)`,
+			loc.locale, loc.locale+"-custom", now,
+		); err != nil {
+			return err
+		}
+		for _, k := range keys {
+			msg := k.en
+			if loc.locale == "pt-BR" {
+				msg = k.pt
+			}
+			if _, err := DB.Exec(`
+				INSERT OR IGNORE INTO i18n_messages
+					(locale, message_id, other, one, description)
+				VALUES (?, ?, ?, '', '')`,
+				loc.locale, k.id, msg,
+			); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// MigrateMenuTreeDebugPosition moves the SysDebug group ABOVE SysExport in
+// every profile's rail (owner request, 2026-07: "every device-category icon
+// sits above Export"). MigrateMenuTreePrint appends new groups at the rail's
+// END — the safe default for unknown layouts — which landed Debug below
+// Export/Settings/Exit; this migration performs the one repositioning that
+// default cannot know about.
+//
+// Per profile: when both SysDebug and SysExport sit at the root and Debug is
+// BELOW Export, every root item from Export downward shifts one slot down and
+// Debug takes Export's old position. The guard (debugPos > exportPos) makes
+// it idempotent — a second boot, or a rail the admin already reordered with
+// Debug above Export, is left untouched.
+//
+// Português: Move o grupo SysDebug para CIMA do SysExport no rail de todos
+// os profiles (pedido do dono, 2026-07: "toda categoria de devices fica acima
+// do Export"). O MigrateMenuTreePrint anexa grupos novos no FIM do rail — o
+// default seguro para layouts desconhecidos — o que deixou o Debug abaixo de
+// Export/Settings/Exit; esta migração faz o único reposicionamento que esse
+// default não tem como saber. Por profile: com SysDebug e SysExport na raiz
+// e Debug ABAIXO do Export, tudo do Export para baixo desce um slot e o
+// Debug assume a posição antiga do Export. A guarda (debugPos > exportPos)
+// torna tudo idempotente — segundo boot, ou rail que o admin já reordenou
+// com Debug acima, fica intocado.
+func MigrateMenuTreeDebugPosition() error {
+	rows, err := DB.Query(`SELECT profile_id FROM menu_profiles`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var profiles []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		profiles = append(profiles, id)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, profileID := range profiles {
+		var debugPos, exportPos int
+
+		err := DB.QueryRow(`
+			SELECT position FROM menu_layout
+			WHERE profile_id = ? AND slot_id = 'SysDebug' AND parent_id IS NULL`,
+			profileID,
+		).Scan(&debugPos)
+		if err != nil {
+			continue // no root Debug in this profile — nothing to move
+		}
+		err = DB.QueryRow(`
+			SELECT position FROM menu_layout
+			WHERE profile_id = ? AND slot_id = 'SysExport' AND parent_id IS NULL`,
+			profileID,
+		).Scan(&exportPos)
+		if err != nil {
+			continue // no root Export — no anchor to move above
+		}
+		if debugPos <= exportPos {
+			continue // already above (or at) Export — idempotent no-op
+		}
+
+		// Shift Export and everything below it one slot down, then drop
+		// Debug into Export's old position. The shift includes Debug's own
+		// row (harmless: it is overwritten right after), keeping this a
+		// two-statement move with no gaps and no duplicates.
+		// Português: Desce Export e tudo abaixo um slot e põe o Debug na
+		// posição antiga do Export. O shift inclui a própria linha do Debug
+		// (inofensivo: é sobrescrita logo em seguida) — dois statements,
+		// sem buracos e sem duplicatas.
+		if _, err := DB.Exec(`
+			UPDATE menu_layout SET position = position + 1
+			WHERE profile_id = ? AND parent_id IS NULL AND position >= ?`,
+			profileID, exportPos,
+		); err != nil {
+			return err
+		}
+		if _, err := DB.Exec(`
+			UPDATE menu_layout SET position = ?
+			WHERE profile_id = ? AND slot_id = 'SysDebug' AND parent_id IS NULL`,
+			exportPos, profileID,
+		); err != nil {
+			return err
+		}
+	}
 	return nil
 }

@@ -77,9 +77,7 @@ const (
 // The bool connection sits on the LEFT edge of the container, vertically centered.
 
 const (
-	// kConnOffsetX is the X offset from the container left edge for the connection dot.
-	// The dot is slightly outside the border, creating the visual "tab" effect.
-	kConnOffsetX = 5
+// The dot is slightly outside the border, creating the visual "tab" effect.
 )
 
 // IfElseBorder draws the ornament used by StatementIfElse.
@@ -308,12 +306,21 @@ func (e *IfElseBorder) Update(x, y, width, height rulesDensity.Density) (err err
 	// ── Connection dot and click area ───────────────────────────────────
 	// Positioned at the LEFT edge, vertically centered.
 	// The small tab/dash appears to the left of the border.
-	connX := rulesDensity.Density(kConnOffsetX)
+	// [PIN] the condition input uses the standard pin. The helpers take the
+	// pin's BODY-SIDE point (edgeX = KWidth here) and derive the OUTER TIP —
+	// which lands exactly at x=0, the container's left edge, where the wire
+	// anchors.
+	// Português: A entrada da condição usa o pino padrão. Os helpers recebem
+	// o ponto do LADO DO CORPO (edgeX = KWidth aqui) e derivam a PONTA
+	// EXTERNA — que cai exatamente em x=0, a borda esquerda do container,
+	// onde o fio ancora.
+	connX := rulesDensity.Density(rulesConnection.KWidth)
 	connY := height / 2
 
-	e.conditionConnection.D(rulesConnection.GetPathDraw(connX, connY))
-	e.conditionConnectionArea.GetSvgPath().D(rulesConnection.GetPathAreaDraw(connX, connY))
-	e.conditionConnectionArea.SetXY(x+connX, y+connY)
+	e.conditionConnection.D(rulesConnection.PinPathDraw(rulesConnection.PinSideLeft, connX, connY))
+	e.conditionConnectionArea.GetSvgPath().D(rulesConnection.PinPathAreaDraw(rulesConnection.PinSideLeft, connX, connY))
+	ax, ay := rulesConnection.PinAnchorD(rulesConnection.PinSideLeft, connX, connY)
+	e.conditionConnectionArea.SetXY(x+ax, y+ay)
 
 	return
 }

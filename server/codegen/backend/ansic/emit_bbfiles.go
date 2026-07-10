@@ -6,6 +6,7 @@
 package ansic
 
 import (
+	"encoding/base64"
 	"sort"
 	"strings"
 
@@ -248,6 +249,41 @@ func (e *cEmitter) bbFiles(units []*blackbox.CSurface, out map[string]string) {
 			// their bytes, .h exactly as much as .c.
 			e.authoredFiles[key] = true
 		}
+
+		// Assets (unified asset model): each non-source file ships into
+		// the box folder under its own path — DECODED (the def carries
+		// the stored form; the ZIP holds real bytes) — and grows its
+		// generated companion header beside it. `#include \"…\"` resolves
+		// relative to the INCLUDING file, so the specialist's hand-written
+		// includes (iotm_47/portal_core.c → templates/portal_html_data.h)
+		// find the header with zero Makefile changes. Corrupt base64 here
+		// means the def was damaged after the save gate validated it —
+		// skip the file loudly rather than ship mangled bytes. The asset
+		// is the AUTHOR's cargo (license exemption by identity, like the
+		// sources); the header is GENERATED and gets the standard stamp.
+		//
+		// Português: Cada asset embarca DECODIFICADO na pasta da caixa e
+		// ganha o header companheiro ao lado — include relativo resolve
+		// sem tocar o Makefile. Base64 corrupto = def danificado pós-
+		// portão: pula alto, nunca embarca bytes mutilados. Asset é carga
+		// do AUTOR (isenção por identidade); o header é GERADO.
+		for _, a := range u.Assets() {
+			if !safeRelPath(a.Path) {
+				continue
+			}
+			data := []byte(a.Content)
+			if a.Encoding == "base64" {
+				decoded, decErr := base64.StdEncoding.DecodeString(a.Content)
+				if decErr != nil {
+					continue
+				}
+				data = decoded
+			}
+			assetKey := dir + "/" + a.Path
+			out[assetKey] = string(data)
+			e.authoredFiles[assetKey] = true
+			out[dir+"/"+blackbox.AssetHeaderPath(a.Path)] = string(blackbox.RenderAssetHeader(a.Path, data))
+		}
 	}
 }
 
@@ -272,26 +308,45 @@ func safeRelPath(p string) bool {
 	return true
 }
 
-// makefile generates the project Makefile for the multi-file output. Every
-// rule is EXPLICIT — no pattern rules, no wildcards — for two reasons: the
-// emitter knows the exact file list (a wildcard could swallow stray files
-// the maker drops next to the project, breaking determinism), and explicit
-// rules are the portable core every make dialect (GNU, BSD, POSIX) agrees
-// on. Objects compile INTO the black-box folders (iotm_47/iotm_47.o) so a
-// duplicate-symbol link error names both offending black-boxes by id — the
-// loud, self-attributing tripwire the multi-file design promises for
-// symbol collisions between unrewritten sources.
+// makefile generates the project Makefile — for BOTH output modes. With
+// black-box units it is the multi-file build; with none it compiles main.c
+// (plus the runtime stub when used), so even the simplest export carries the
+// same `make` vocabulary. Every rule is EXPLICIT — no pattern rules, no
+// wildcards — for two reasons: the emitter knows the exact file list (a
+// wildcard could swallow stray files the maker drops next to the project,
+// breaking determinism), and explicit rules are the portable core every make
+// dialect (GNU, BSD, POSIX) agrees on. Objects compile INTO the black-box
+// folders (iotm_47/iotm_47.o) so a duplicate-symbol link error names both
+// offending black-boxes by id — the loud, self-attributing tripwire the
+// multi-file design promises for symbol collisions between unrewritten
+// sources.
+//
+// Convenience targets (owner request, 2026-07): `build` (alias of the
+// default), `run` (executes the binary, building it first when stale —
+// standard make dependency semantics, so a beginner never sees "No such
+// file") and `buildandrun` (the explicit two-step spelling of the same
+// graph). `all` stays the first target so a bare `make` keeps meaning
+// "build".
 //
 // CC/CFLAGS/TARGET use ?= so the maker can override from the environment
 // without editing the file. -I. lets every unit resolve project-root
 // includes the same way regardless of the compiler's working directory.
 //
-// Português: Makefile com regras EXPLÍCITAS — sem pattern rules nem
-// wildcard: o emitter conhece a lista exata (wildcard engoliria arquivos
-// estranhos) e regra explícita é o núcleo portátil de qualquer make. Objetos
-// compilam DENTRO das pastas (iotm_47/iotm_47.o) para o erro de símbolo
-// duplicado nomear as duas black-boxes culpadas pelo id. ?= permite override
-// por ambiente.
+// Português: Makefile do projeto — para os DOIS modos de saída. Com units de
+// black-box é o build multiarquivo; sem nenhuma, compila main.c (+ stub do
+// runtime quando usado), então até o export mais simples carrega o mesmo
+// vocabulário de `make`. Regras EXPLÍCITAS — sem pattern rules nem wildcard:
+// o emitter conhece a lista exata (wildcard engoliria arquivos estranhos) e
+// regra explícita é o núcleo portátil de qualquer make. Objetos compilam
+// DENTRO das pastas (iotm_47/iotm_47.o) para o erro de símbolo duplicado
+// nomear as duas black-boxes culpadas pelo id.
+//
+// Alvos de conveniência (pedido do dono, 2026-07): `build` (apelido do
+// default), `run` (executa o binário, compilando antes se estiver
+// desatualizado — semântica padrão do make, iniciante nunca vê "No such
+// file") e `buildandrun` (a grafia explícita em dois passos do mesmo grafo).
+// `all` continua primeiro para `make` puro seguir significando "build".
+// ?= permite override por ambiente.
 func (e *cEmitter) makefile(units []*blackbox.CSurface) string {
 	type src struct{ c, o, extraDep, includeDir string }
 	srcs := []src{{c: "main.c", o: "main.o"}}
@@ -367,7 +422,21 @@ func (e *cEmitter) makefile(units []*blackbox.CSurface) string {
 	sb.WriteString("CFLAGS  ?= -std=c99 -Wall -Wextra -O2\n")
 	sb.WriteString("TARGET  ?= app\n\n")
 	sb.WriteString("OBJS = " + strings.Join(objs, " \\\n       ") + "\n\n")
-	sb.WriteString("all: $(TARGET)\n\n")
+	// `all` stays first so a bare `make` keeps meaning "build". The three
+	// convenience targets share one dependency graph: `run` depends on the
+	// binary, so it (and therefore `buildandrun`) stays correct even under
+	// parallel make (-j), where prerequisite order is not guaranteed.
+	//
+	// Português: `all` continua primeiro para `make` puro significar
+	// "build". Os três alvos compartilham um grafo só: `run` depende do
+	// binário, então ele (e portanto `buildandrun`) continua correto até
+	// com make paralelo (-j), onde a ordem dos pré-requisitos não é
+	// garantida.
+	sb.WriteString("all: build\n\n")
+	sb.WriteString("build: $(TARGET)\n\n")
+	sb.WriteString("run: $(TARGET)\n")
+	sb.WriteString("\t./$(TARGET)\n\n")
+	sb.WriteString("buildandrun: build run\n\n")
 	sb.WriteString("$(TARGET): $(OBJS)\n")
 	sb.WriteString("\t$(CC) $(CFLAGS) -o $(TARGET) $(OBJS)\n\n")
 	for _, s := range srcs {
@@ -387,6 +456,6 @@ func (e *cEmitter) makefile(units []*blackbox.CSurface) string {
 	}
 	sb.WriteString("clean:\n")
 	sb.WriteString("\trm -f $(TARGET) $(OBJS)\n\n")
-	sb.WriteString(".PHONY: all clean\n")
+	sb.WriteString(".PHONY: all build run buildandrun clean\n")
 	return sb.String()
 }

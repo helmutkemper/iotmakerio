@@ -156,6 +156,9 @@ func handleZip(c echo.Context) error {
 		OwnerName:   owner.Username,
 		Locale:      owner.PreferredLocale,
 		Now:         now,
+		// Routes the C99 asset-header emission (see projectexport/
+		// asset_headers.go); the row is already in hand.
+		Language: proj.ProgrammingLanguageID,
 	}); buildErr != nil {
 		// Headers are already on the wire — we can't change them.
 		// Best we can do is log and bail; the client will see a

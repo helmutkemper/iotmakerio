@@ -17,6 +17,7 @@ import (
 	"github.com/helmutkemper/iotmakerio/browser/html"
 	"github.com/helmutkemper/iotmakerio/devices/block"
 	"github.com/helmutkemper/iotmakerio/grid"
+	"github.com/helmutkemper/iotmakerio/rulesConnection"
 	"github.com/helmutkemper/iotmakerio/rulesDensity"
 	"github.com/helmutkemper/iotmakerio/rulesDevice"
 	"github.com/helmutkemper/iotmakerio/rulesIcon"
@@ -82,7 +83,16 @@ type StatementGauge struct {
 	//
 	// Português: Label editável exibido abaixo do elemento backend.
 	// Padrão é o id do device. Editado via duplo-clique.
-	label    string
+	label string
+	// [COMMENT] user comment — shown in the device's hover tooltip and kept
+	// in the scene. Dashboard widgets emit no code statement, so unlike the
+	// backend devices this never reaches the generated source — it is stage
+	// documentation.
+	// Português: Comentário do usuário — exibido no tooltip de hover e
+	// gravado na cena. Widgets de dashboard não emitem statement, então
+	// diferente dos devices de backend isto nunca chega ao código gerado —
+	// é documentação do stage.
+	comment  string
 	canvasEl js.Value // <canvas> DOM element for positioning the input overlay
 
 	// Values
@@ -110,7 +120,16 @@ type StatementGauge struct {
 	gridAdjust  grid.Adjust
 	iconStatus  int
 	sceneNotify func()
-	onRemove    func(id string)
+	// [SCENEGRAPH] injected by scene.Serializer.Register (self-injection by
+	// interface assertion). DragEnd reports through it so the scenegraph
+	// refreshes geometry, recomputes conflicts (own + peers) and reassigns
+	// parenting — the same EndDrag hook the containers use.
+	// Português: Injetado pelo scene.Serializer.Register (auto-injeção por
+	// assertion). O DragEnd reporta por ele para o scenegraph refrescar
+	// geometria, recomputar conflitos (próprios + peers) e reatribuir
+	// parenting — o mesmo gancho EndDrag dos containers.
+	sceneMgr *scene.Serializer
+	onRemove func(id string)
 
 	// SendFunc is the callback for sending values to external hardware via
 	// the live WebSocket connection. Set by the factory after initialization.
@@ -247,8 +266,16 @@ func (e *StatementGauge) renderBackendSVG() string {
 
 	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d">`, int(w), int(totalH))
 
+	// [PIN] the body is inset on the LEFT by the pin length: the three
+	// standard pins (max/current/min rows) live in the freed margin, wires
+	// anchored at their outer tips — the element's left edge.
+	// Português: O corpo recua à ESQUERDA o comprimento do pino: os três
+	// pinos padrão (linhas max/current/min) vivem na margem liberada, fios
+	// ancorados nas pontas externas — a borda esquerda do element.
+	pin := rulesConnection.PinBodyInset()
+
 	// Outer rectangle (box only, not including label area)
-	svg += fmt.Sprintf(`<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="4" ry="4" fill="#2a3040" stroke="#88AACC" stroke-width="%.1f"/>`, bw/2, bw/2, w-bw, boxH-bw, bw)
+	svg += fmt.Sprintf(`<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="4" ry="4" fill="#2a3040" stroke="#88AACC" stroke-width="%.1f"/>`, pin+bw/2, bw/2, w-pin-bw, boxH-bw, bw)
 
 	// Horizontal divider lines
 	svg += fmt.Sprintf(`<line x1="2" y1="%.1f" x2="%.1f" y2="%.1f" stroke="#555" stroke-width="0.5"/>`, rowH, w-2, rowH)
@@ -266,12 +293,13 @@ func (e *StatementGauge) renderBackendSVG() string {
 	}
 
 	for _, r := range rows {
-		// Input connector circle
-		svg += fmt.Sprintf(`<circle cx="8" cy="%.1f" r="5" fill="#4488CC" stroke="#FFFFFF" stroke-width="1"/>`, r.y)
+		// [PIN] standard connector pin per row, gauge accent fill.
+		// Português: Pino padrão por linha, na cor de destaque do gauge.
+		svg += rulesConnection.PinSVGFragment(rulesConnection.PinSideLeft, pin, r.y, "#4488CC")
 		// Label
-		svg += fmt.Sprintf(`<text x="18" y="%.1f" font-family="Arial,sans-serif" font-size="10" fill="#AAAAAA" dominant-baseline="central">%s</text>`, r.y, r.label)
+		svg += fmt.Sprintf(`<text x="18" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamily+`" font-size="10" fill="#AAAAAA" dominant-baseline="central">%s</text>`, r.y, r.label)
 		// Value
-		svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="Arial,sans-serif" font-size="12" fill="#FFFFFF" text-anchor="end" dominant-baseline="central" font-weight="bold">%d</text>`, w-12, r.y, r.value)
+		svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamily+`" font-size="12" fill="#FFFFFF" text-anchor="end" dominant-baseline="central" font-weight="bold">%d</text>`, w-12, r.y, r.value)
 	}
 
 	// Lock icon indicator — when interaction is locked, show a small lock
@@ -281,7 +309,7 @@ func (e *StatementGauge) renderBackendSVG() string {
 	// Português: Indicador de cadeado — quando a interação está bloqueada,
 	// mostra um símbolo de cadeado no canto superior direito da caixa.
 	if e.interactionLocked {
-		svg += fmt.Sprintf(`<text x="%.1f" y="12" font-family="Arial,sans-serif" font-size="10" fill="#FF8833" text-anchor="end">🔒</text>`, w-4)
+		svg += fmt.Sprintf(`<text x="%.1f" y="12" font-family="`+rulesDevice.KDeviceFontFamily+`" font-size="10" fill="#FF8833" text-anchor="end">🔒</text>`, w-4)
 	}
 
 	// Editable label below the box (left-aligned)
@@ -358,7 +386,7 @@ func (e *StatementGauge) renderFrontendSVG() string {
 	svg += fmt.Sprintf(`<rect width="%d" height="%d" rx="12" ry="12" fill="#1a1a2e"/>`, int(w), int(h))
 
 	// Label
-	svg += fmt.Sprintf(`<text x="%.1f" y="36" font-family="Arial,sans-serif" font-size="28" fill="#88AACC" text-anchor="middle">GAUGE</text>`, cx)
+	svg += fmt.Sprintf(`<text x="%.1f" y="36" font-family="`+rulesDevice.KDeviceFontFamily+`" font-size="28" fill="#88AACC" text-anchor="middle">GAUGE</text>`, cx)
 
 	// Background arc (gray) — full semicircle from left to right
 	svg += fmt.Sprintf(`<path d="M %.2f %.2f A %.2f %.2f 0 0 1 %.2f %.2f" fill="none" stroke="#333333" stroke-width="%.1f" stroke-linecap="round"/>`,
@@ -371,11 +399,11 @@ func (e *StatementGauge) renderFrontendSVG() string {
 	}
 
 	// Current value text
-	svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="Arial,sans-serif" font-size="60" fill="#FFFFFF" text-anchor="middle" font-weight="bold">%d</text>`, cx, cy-8, e.currentValue)
+	svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamily+`" font-size="60" fill="#FFFFFF" text-anchor="middle" font-weight="bold">%d</text>`, cx, cy-8, e.currentValue)
 
 	// Min / Max labels
-	svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="Arial,sans-serif" font-size="24" fill="#666666">%d</text>`, bgStartX-4, cy+40, e.minValue)
-	svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="Arial,sans-serif" font-size="24" fill="#666666" text-anchor="end">%d</text>`, bgEndX+4, cy+40, e.maxValue)
+	svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamily+`" font-size="24" fill="#666666">%d</text>`, bgStartX-4, cy+40, e.minValue)
+	svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamily+`" font-size="24" fill="#666666" text-anchor="end">%d</text>`, bgEndX+4, cy+40, e.maxValue)
 
 	// Lock indicator on the frontend gauge — subtle lock icon at top-right
 	// so the end-user knows the gauge is read-only and won't respond to clicks.
@@ -383,7 +411,7 @@ func (e *StatementGauge) renderFrontendSVG() string {
 	// Português: Indicador de cadeado no gauge frontend — ícone sutil no
 	// canto superior direito para que o usuário saiba que o gauge é somente leitura.
 	if e.interactionLocked {
-		svg += fmt.Sprintf(`<text x="%.1f" y="36" font-family="Arial,sans-serif" font-size="22" fill="#FF8833" text-anchor="end">🔒</text>`, w-12)
+		svg += fmt.Sprintf(`<text x="%.1f" y="36" font-family="`+rulesDevice.KDeviceFontFamily+`" font-size="22" fill="#FF8833" text-anchor="end">🔒</text>`, w-12)
 	}
 
 	svg += `</svg>`
@@ -475,7 +503,6 @@ func (e *StatementGauge) wireBackendEvents() {
 		}
 
 		_, h := e.backendElem.GetSize()
-		connRadius := 10.0
 		boxH := h - backendLabelHeight
 		rowH := boxH / 3.0
 		elemX, elemY := e.backendElem.GetPosition()
@@ -491,13 +518,16 @@ func (e *StatementGauge) wireBackendEvents() {
 			return
 		}
 
-		// Hit-test 3 connectors at (8, rowH/2), (8, rowH+rowH/2), (8, 2*rowH+rowH/2)
+		// [PIN] hit-test the 3 standard pins — same edge points the renderer
+		// draws and the wire anchors use.
+		// Português: Testa os 3 pinos padrão — mesmos edge points que o
+		// renderer desenha e os fios ancoram.
 		ports := []string{"max", "current", "min"}
 		centers := []float64{rowH / 2, rowH + rowH/2, 2*rowH + rowH/2}
 		for i, cy := range centers {
-			dx := event.LocalX - 8
-			dy := event.LocalY - cy
-			if dx*dx+dy*dy <= connRadius*connRadius {
+			if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+				rulesConnection.PinBodyInset(), cy,
+				event.LocalX, event.LocalY) {
 				go e.backendCtxMenu.OpenAtWorld(mainMenu.ConnectorMenu(e.wireMgr, e.id, ports[i]), menuX, menuY)
 				return
 			}
@@ -522,6 +552,13 @@ func (e *StatementGauge) wireBackendEvents() {
 		if e.wireMgr != nil {
 			e.wireMgr.RecalculateForElement(e.id)
 		}
+		// [SCENEGRAPH] dx/dy=0: they only move container descendants (this
+		// device has none); geometry is re-read live by refreshGeometry.
+		// Português: dx/dy=0: eles só movem descendentes de container (este
+		// device não tem); a geometria é relida ao vivo pelo refreshGeometry.
+		if e.sceneMgr != nil {
+			e.sceneMgr.EndDrag(e.id, 0, 0)
+		}
 		if e.sceneNotify != nil {
 			e.sceneNotify()
 		}
@@ -538,9 +575,8 @@ func (e *StatementGauge) wireBackendEvents() {
 
 		centers := []float64{rowH / 2, rowH + rowH/2, 2*rowH + rowH/2}
 		for _, cy := range centers {
-			dx := lx - 8
-			dy := ly - cy
-			if dx*dx+dy*dy <= 100 {
+			if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+				rulesConnection.PinBodyInset(), cy, lx, ly) {
 				return sprite.CursorPointer
 			}
 		}
@@ -808,7 +844,7 @@ func (e *StatementGauge) createLabelInput() {
 	style.Set("color", "#AABBCC")
 	style.Set("border", "1px solid #4488CC")
 	style.Set("borderRadius", "2px")
-	style.Set("fontFamily", "Arial, sans-serif")
+	style.Set("fontFamily", rulesDevice.KDeviceFontFamily)
 	style.Set("fontSize", "11px")
 	style.Set("padding", "0 4px")
 	style.Set("outline", "none")
@@ -932,6 +968,14 @@ func (e *StatementGauge) GetInspectConfig() interface{} {
 						Value: e.label,
 					},
 					{
+						Key:         "comment",
+						Label:       translate.T("propComment", "Comment"),
+						Type:        overlay.FieldTextarea,
+						Value:       e.comment,
+						Placeholder: translate.T("propCommentPlaceholder", "Comment shown on hover..."),
+						Rows:        3,
+					},
+					{
 						Key:         "min",
 						Label:       "Min",
 						Type:        overlay.FieldNumber,
@@ -974,6 +1018,9 @@ func (e *StatementGauge) GetInspectConfig() interface{} {
 
 // ApplyProperties applies the values from the inspect form to this device.
 func (e *StatementGauge) ApplyProperties(values map[string]string) {
+	if v, ok := values["comment"]; ok {
+		e.comment = v
+	}
 	changed := false
 
 	// ── ID change ──
@@ -1071,7 +1118,9 @@ func (e *StatementGauge) RegisterConnectors() {
 				ex, ey := e.backendElem.GetPosition()
 				_, h := e.backendElem.GetSize()
 				rowH := h / 3.0
-				return ex + 8, ey + pp.rowIdx*rowH + rowH/2
+				ax, ay := rulesConnection.PinAnchor(rulesConnection.PinSideLeft,
+					rulesConnection.PinBodyInset(), pp.rowIdx*rowH+rowH/2)
+				return ex + ax, ey + ay
 			},
 		})
 	}
@@ -1214,7 +1263,7 @@ func (e *StatementGauge) getIcon(data rulesIcon.Data) js.Value {
 		StrokeWidth(rulesIcon.BorderWidth.GetInt()).Stroke(data.ColorBorder).Fill(data.ColorBackground).D(hexPath)
 
 	iconLabel := factoryBrowser.NewTagSvgText().
-		FontFamily("Arial,sans-serif").FontWeight("bold").FontSize(rulesIcon.Width.GetInt() / 4).
+		FontFamily(rulesDevice.KDeviceFontFamily).FontWeight("bold").FontSize(rulesIcon.Width.GetInt() / 4).
 		Text("◔").Fill(data.ColorIcon).
 		X((rulesIcon.Width / 2).GetInt() - 8).Y((rulesIcon.Height / 2).GetInt() + 5)
 
@@ -1270,12 +1319,31 @@ func (e *StatementGauge) MoveBy(dx, dy float64) {
 //
 // These values are saved in the scene JSON and restored via ApplyProperties
 // when the stage is imported.
+
+// GetComment returns the user comment shown in the device's hover tooltip.
+// Português: Retorna o comentário exibido no tooltip de hover do device.
+func (e *StatementGauge) GetComment() string { return e.comment }
+
+// SetComment sets the user comment.
+// Português: Define o comentário do usuário.
+func (e *StatementGauge) SetComment(c string) { e.comment = c }
+
 func (e *StatementGauge) GetProperties() map[string]interface{} {
-	return map[string]interface{}{
+	props := map[string]interface{}{
 		"label":             e.label,
 		"min":               e.minValue,
 		"max":               e.maxValue,
 		"current":           e.currentValue,
 		"interactionLocked": e.interactionLocked,
 	}
+	if e.comment != "" {
+		props["comment"] = e.comment
+	}
+	return props
 }
+
+// SetSceneMgr receives the scene serializer — called by
+// scene.Serializer.Register via interface assertion at registration time.
+// Português: Recebe o serializer de cena — chamado pelo
+// scene.Serializer.Register por assertion no registro.
+func (e *StatementGauge) SetSceneMgr(mgr *scene.Serializer) { e.sceneMgr = mgr }

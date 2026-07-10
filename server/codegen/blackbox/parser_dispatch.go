@@ -62,11 +62,27 @@ import (
 // Português: Roteia o CONJUNTO de arquivos autorais para o parser da
 // linguagem. É a única forma de entrada — chamador de fonte única passa uma
 // entrada; não existe irmã string para divergir (decisão pré-release: sem
-// legado). Go é um arquivo por enquanto (multiarquivo Go = parsing de
-// pacote, fatia própria futura; mais de um .go é erro explícito). C caminha
-// todos e funde. Token desconhecido é erro.
+// legado). Go multiarquivo roteia pelo ParseGoFiles (GoMF); um arquivo
+// segue no Parse original. C caminha todos e funde. Token desconhecido é
+// erro. Assets (extensões fora do conjunto-fonte da linguagem) são
+// filtrados AQUI, antes dos walkers — ponto único de estrangulamento.
 func ParseForLanguageFiles(language string, files []FileEntry, limits ParserLimits) (*BlackBoxDef, error) {
-	switch strings.ToLower(strings.TrimSpace(language)) {
+	lang := strings.ToLower(strings.TrimSpace(language))
+	// Assets never reach the walkers: the unified asset model (see
+	// docs/tasks/ASSETS_UNIFIED_MODEL.md) lets a project carry non-source
+	// files (templates, images); the parser's world stays SOURCE-ONLY, so
+	// every downstream rule — len()==1 ⇒ single-file path, the one-struct
+	// gate, the C merge — keeps meaning "source files" without edits. This
+	// is the single choke point: filter here and nobody else needs to know
+	// assets exist.
+	//
+	// Português: Assets nunca chegam aos walkers — o mundo do parser é
+	// SÓ-FONTE, então toda regra a jusante (len()==1, um-struct, merge C)
+	// continua significando "arquivos-fonte" sem edições. Ponto único de
+	// estrangulamento: filtra aqui e ninguém mais precisa saber que assets
+	// existem.
+	files = sourceFilesOnly(lang, files)
+	switch lang {
 	case "", "go", "golang":
 		switch len(files) {
 		case 0:
@@ -107,4 +123,34 @@ func ParseForLanguageFiles(language string, files []FileEntry, limits ParserLimi
 	default:
 		return nil, fmt.Errorf("unsupported language: %s", language)
 	}
+}
+
+// sourceFilesOnly keeps the entries the LANGUAGE's parser understands —
+// .go for Go, .c/.h for C — and drops everything else (assets). Order is
+// preserved (tab order is semantic). An unknown language token filters
+// nothing: the dispatch's default case rejects it anyway, and an
+// unfiltered set makes that error honest about what was sent.
+//
+// Português: Mantém só o que o parser da LINGUAGEM entende (.go; .c/.h)
+// e derruba o resto (assets), preservando a ordem. Token desconhecido não
+// filtra: o default do dispatch rejeita de qualquer forma.
+func sourceFilesOnly(lang string, files []FileEntry) []FileEntry {
+	var keep func(lower string) bool
+	switch lang {
+	case "", "go", "golang":
+		keep = func(lower string) bool { return strings.HasSuffix(lower, ".go") }
+	case "c", "c99":
+		keep = func(lower string) bool {
+			return strings.HasSuffix(lower, ".c") || strings.HasSuffix(lower, ".h")
+		}
+	default:
+		return files
+	}
+	out := make([]FileEntry, 0, len(files))
+	for _, f := range files {
+		if keep(strings.ToLower(f.Path)) {
+			out = append(out, f)
+		}
+	}
+	return out
 }

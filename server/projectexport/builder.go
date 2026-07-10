@@ -32,7 +32,9 @@ package projectexport
 
 import (
 	"archive/zip"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"path"
 	"strings"
@@ -73,6 +75,17 @@ type BuildOptions struct {
 	// (not hardcoded as time.Now()) so tests can produce
 	// reproducible archives.
 	Now time.Time
+
+	// Language is the project's programming_language_id ("golang" or
+	// "c"), passed by the caller who already holds the project row. It
+	// routes the asset-header emission (C only — Go's embedding idiom is
+	// //go:embed, a maker-side slice); empty defaults to Go, mirroring
+	// the parser dispatch's stance.
+	//
+	// Português: O programming_language_id do projeto, passado pelo
+	// chamador que já tem a linha. Roteia a emissão dos headers de
+	// asset (só C); vazio = Go, espelhando o dispatch.
+	Language string
 }
 
 // Build streams a complete project export ZIP into `w`.
@@ -174,10 +187,52 @@ func Build(w io.Writer, opt BuildOptions) error {
 	//
 	//    Português: O snapshot na raiz — cada arquivo autoral no seu
 	//    caminho relativo, na ordem das abas.
+	isC := strings.EqualFold(strings.TrimSpace(opt.Language), "c")
 	for _, f := range latest.Files {
-		if err := writeFile(f.Path, []byte(f.Content)); err != nil {
+		// Binary assets are stored base64 (the snapshot is JSON — see
+		// store.CodeFileEntry.Encoding); the ZIP holds REAL bytes, so
+		// this is the decoding edge. The gate proved the payload decodes
+		// at save time; a failure here means post-validation corruption
+		// — worth aborting the export loudly rather than shipping a
+		// text-mangled gif.
+		//
+		// Português: Asset binário é base64 no snapshot; o ZIP carrega
+		// bytes REAIS — esta é a borda de decode. O portão já provou que
+		// decodifica; falhar aqui é corrupção pós-validação — melhor
+		// abortar alto que embarcar um gif mutilado.
+		data := []byte(f.Content)
+		if f.Encoding == "base64" {
+			decoded, decErr := base64.StdEncoding.DecodeString(f.Content)
+			if decErr != nil {
+				firstErr = fmt.Errorf("asset %s: corrupt base64 in snapshot: %w", f.Path, decErr)
+				return firstErr
+			}
+			data = decoded
+		}
+		if err := writeFile(f.Path, data); err != nil {
 			firstErr = err
 			return firstErr
+		}
+
+		// Use 1 of the asset model, C99 half: every asset grows its
+		// generated companion header (see asset_headers.go for the
+		// naming contract and why emission is unconditional). "Asset"
+		// here = any non-source file — the save gate already enforced
+		// the whitelist, so the builder needs no extension list of its
+		// own to drift out of sync.
+		//
+		// Português: Uso 1, metade C99: todo asset ganha seu header
+		// gerado (contrato de nomes em asset_headers.go). "Asset" =
+		// qualquer não-fonte — o portão já impôs a whitelist no save,
+		// então o builder não precisa de lista própria para dessincronizar.
+		if isC {
+			lower := strings.ToLower(f.Path)
+			if !strings.HasSuffix(lower, ".c") && !strings.HasSuffix(lower, ".h") {
+				if err := writeFile(AssetHeaderPath(f.Path), RenderAssetHeader(f.Path, data)); err != nil {
+					firstErr = err
+					return firstErr
+				}
+			}
 		}
 	}
 

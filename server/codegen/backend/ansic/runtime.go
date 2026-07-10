@@ -133,6 +133,18 @@ const RuntimeStub = `/* iotmaker_runtime_stub.c — POSIX implementation of the 
  *       delay((unsigned long)(ns / 1000000LL));  // ms granularity
  *   }
  */
+
+/* nanosleep and struct timespec are POSIX.1b, not ISO C. Under a strict
+ * -std=c99 build (the generated Makefile's default CFLAGS) libc headers
+ * hide them unless a feature-test macro asks first — and it must appear
+ * before ANY system header is included. 199309L is exactly POSIX.1b.
+ *
+ * Português: nanosleep e struct timespec são POSIX.1b, não ISO C. Num
+ * build -std=c99 estrito (o CFLAGS default do Makefile gerado) a libc os
+ * esconde sem esta macro de feature-test — que precisa vir antes de
+ * QUALQUER header de sistema. 199309L é exatamente o POSIX.1b. */
+#define _POSIX_C_SOURCE 199309L
+
 #include "iotmaker_runtime.h"
 #include <time.h>
 

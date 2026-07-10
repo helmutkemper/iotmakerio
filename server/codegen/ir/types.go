@@ -186,6 +186,36 @@ const (
 	OpOutput Op = "OUTPUT" // OUTPUT %source "channelName"
 	OpReturn Op = "RETURN" // RETURN %source
 
+	// OpPrint emits a debug print of ONE value to standard output — the
+	// StatementPrint{Int,Float,String,Bool,Byte,ByteArray} sink devices.
+	// Args[0] is the source register; Type carries the value type so the
+	// backend picks the right format verb; Meta carries the maker's choices:
+	//
+	//	Meta["prefix"] — free text printed before the value (may be empty)
+	//	Meta["format"] — per-type variant:
+	//	    int    → "decimal" | "hex"
+	//	    float  → "float"   | "trunc"     (trunc = integer part, truncated,
+	//	                                      never rounded — int64(v) in Go,
+	//	                                      (long)v in C)
+	//	    bool   → "truefalse" | "onezero"
+	//	    byte   → "hex" | "decimal"
+	//	    []byte → "hex" | "text"          (hex = space-separated pairs;
+	//	                                      text = the bytes as UTF-8)
+	//	    string → ""                       (no variant)
+	//
+	// Unlike OpOutput — an IDE display channel — OpPrint ALWAYS lands in the
+	// generated program: fmt.Printf in Go, printf in C99 (which flips the
+	// C emitter's usesStdio so <stdio.h> ships).
+	//
+	// Português: Emite um print de depuração de UM valor no stdout — os
+	// devices sink StatementPrint{...}. Args[0] é o registrador fonte; Type
+	// leva o tipo do valor para o backend escolher o verbo; Meta leva as
+	// escolhas do maker (prefix = texto livre antes do valor; format = a
+	// variante por tipo, tabela acima — trunc é parte inteira TRUNCADA,
+	// nunca arredondada). Diferente do OpOutput (canal de display da IDE),
+	// o OpPrint SEMPRE vira código: fmt.Printf no Go, printf no C99.
+	OpPrint Op = "PRINT" // PRINT %source   Type: value type   Meta: prefix, format
+
 	// Black-box devices
 	//
 	// BB_DECL declares a struct variable for a black-box instance.

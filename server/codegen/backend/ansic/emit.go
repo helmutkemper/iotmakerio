@@ -163,21 +163,25 @@ func Emit(prog *ir.Program, profile TargetProfile, naming blackbox.Naming) map[s
 	}
 
 	// Multi-file black-boxes: one folder per box (generated header + the
-	// authored source under its rename preamble), plus the project Makefile.
-	// The Makefile only exists in multi-file mode — a scene with no
-	// folder-shipped boxes keeps today's contract of a main.c compilable
-	// with a bare `gcc main.c`, no build system required. Keys are ZIP-entry
-	// paths (forward slashes); the download side creates the folders.
+	// authored source under its rename preamble). Keys are ZIP-entry paths
+	// (forward slashes); the download side creates the folders.
+	//
+	// The project Makefile ships in BOTH modes since 2026-07 (owner request:
+	// the single-file zip must also carry build/run targets). Single-file
+	// main.c REMAINS compilable with a bare `gcc main.c` — the Makefile is a
+	// convenience layer on top of that contract, never a new requirement.
 	//
 	// Português: Black-boxes multiarquivo — uma pasta por caixa (header
-	// gerado + fonte autoral com preâmbulo) e o Makefile do projeto. O
-	// Makefile só existe no modo multiarquivo: cena sem caixa em pasta
-	// mantém o contrato do main.c compilável com `gcc main.c` puro.
+	// gerado + fonte autoral com preâmbulo). O Makefile do projeto viaja nos
+	// DOIS modos desde 2026-07 (pedido do dono: o zip single-file também
+	// precisa de alvos build/run). O main.c single-file CONTINUA compilável
+	// com `gcc main.c` puro — o Makefile é conveniência em cima desse
+	// contrato, nunca uma exigência nova.
 	units := e.bbUnits()
 	if len(units) > 0 {
 		e.bbFiles(units, out)
-		out["Makefile"] = e.makefile(units)
 	}
+	out["Makefile"] = e.makefile(units)
 
 	// Stamp the Generated Code Exception header on every GENERATED file so a
 	// license scanner reading any single generated file can tell it is released
@@ -439,6 +443,17 @@ type cEmitter struct {
 //	aqui por enquanto.
 func (e *cEmitter) emit() {
 	for _, inst := range e.prog.Instructions {
+		// [COMMENT] the maker's device comment (stamped by the IR on the
+		// node's first instruction) prefixes it as `// ` lines, one per
+		// comment line, at the current indentation.
+		// Português: O comentário do device (carimbado pelo IR na primeira
+		// instrução do node) o prefixa como linhas `// `, uma por linha do
+		// comentário, na indentação corrente.
+		if c := inst.Meta["comment"]; c != "" {
+			for _, line := range strings.Split(c, "\n") {
+				e.writef("// %s\n", strings.TrimRight(line, " \t"))
+			}
+		}
 		switch inst.Op {
 		case ir.OpConst:
 			e.emitConst(inst)
@@ -486,6 +501,8 @@ func (e *cEmitter) emit() {
 			e.emitCondEnd(inst)
 		case ir.OpSleep:
 			e.emitSleep(inst)
+		case ir.OpPrint:
+			e.emitPrint(inst)
 		case ir.OpBBCall:
 			// C99 standalone function-device call. The Go struct black-box
 			// opcodes below are still Phase 2 (Go scenes don't reach the C
@@ -1484,6 +1501,130 @@ func (e *cEmitter) emitSleep(inst ir.Instruction) {
 
 	src := cOperand(inst.Args[0])
 	e.writef("iotmaker_sleep_ns(%s);\n", src)
+}
+
+// =====================================================================
+//  Print emitter (OpPrint)
+// =====================================================================
+
+// emitPrint translates OpPrint into printf calls. The printed line is
+// "<prefix> <value>\n" — the prefix (and its separating space) is omitted
+// when empty. Sets usesStdio so wrapMain ships <stdio.h>.
+//
+// The C statement is assembled by STRING CONCATENATION and pushed through a
+// bare `writef("%s\n", line)`: the maker's prefix may legitimately contain
+// "%" (escaped to "%%" for printf by cPrintfText), and letting that string
+// ride inside writef's own format argument would make Go's Fprintf interpret
+// it a second time.
+//
+// Per-type rendering (see OpPrint's table in ir/types.go). Every numeric
+// argument is CAST at the call site so the format length modifier is correct
+// on every profile — the IR's abstract int may be int32_t on arduino_uno and
+// int64_t elsewhere, and printf has no way to know:
+//
+//	int    → %ld (long)v, or 0x%lX (unsigned long)v for "hex"
+//	float  → %g (double)v (variadic promotion makes the cast a no-op for
+//	         double, and explicit for float), or %ld (long)v for "trunc"
+//	         (truncated toward zero, never rounded)
+//	string → %s (the profile's string type is const char*)
+//	bool   → %s + the ternary v ? "true" : "false", or %d + v ? 1 : 0
+//	byte   → 0x%02X (unsigned)v, or %u (unsigned)v for "decimal"
+//	[]byte → hex: a one-line for over the collection's `<src>_len`
+//	         companion (the OpConstArray convention), space-separated
+//	         pairs; text: %.*s with (int)<src>_len — length-bounded, so
+//	         the buffer needs NO NUL terminator.
+//
+// AVR CAVEAT (arduino_uno): avr-libc's printf ships without float support
+// unless linked with -Wl,-u,vfprintf -lprintf_flt — %g prints "?" there.
+// That is a LINKER property, not a code-shape one, so the emitter stays
+// uniform and the device's help text carries the warning instead.
+//
+// Português: Traduz OpPrint para printf. A linha é "<prefix> <valor>\n" —
+// prefixo (e espaço separador) somem quando vazio. Seta usesStdio. A
+// instrução C é montada por CONCATENAÇÃO e sai por writef("%s\n", line):
+// o prefixo do maker pode conter "%" (vira "%%" via cPrintfText) e, dentro
+// do formato do writef, o Fprintf do Go interpretaria de novo. Todo
+// argumento numérico é CASTEADO para o modificador de tamanho bater em
+// qualquer profile (o int abstrato pode ser int32_t no arduino_uno e
+// int64_t nos demais). Tabela por tipo acima — []byte hex usa o companheiro
+// `<src>_len` (convenção do OpConstArray); text usa %.*s limitado pelo
+// comprimento, sem exigir NUL. CAVEAT AVR: o printf do avr-libc não imprime
+// float sem -Wl,-u,vfprintf -lprintf_flt — %g sai "?"; é propriedade do
+// LINKER, então o emitter fica uniforme e o help do device avisa.
+func (e *cEmitter) emitPrint(inst ir.Instruction) {
+	if len(inst.Args) == 0 {
+		return
+	}
+	e.usesStdio = true
+	src := cOperand(inst.Args[0])
+
+	lead := ""
+	if p := inst.Meta["prefix"]; p != "" {
+		lead = cPrintfText(p) + " "
+	}
+
+	var line string
+	switch inst.Type {
+	case "float":
+		if inst.Meta["format"] == "trunc" {
+			line = `printf("` + lead + `%ld\n", (long)` + src + `);`
+		} else {
+			line = `printf("` + lead + `%g\n", (double)` + src + `);`
+		}
+	case "string":
+		line = `printf("` + lead + `%s\n", ` + src + `);`
+	case "bool":
+		if inst.Meta["format"] == "onezero" {
+			line = `printf("` + lead + `%d\n", ` + src + ` ? 1 : 0);`
+		} else {
+			line = `printf("` + lead + `%s\n", ` + src + ` ? "true" : "false");`
+		}
+	case "byte":
+		if inst.Meta["format"] == "decimal" {
+			line = `printf("` + lead + `%u\n", (unsigned)` + src + `);`
+		} else {
+			line = `printf("` + lead + `0x%02X\n", (unsigned)` + src + `);`
+		}
+	case "[]byte":
+		e.usesStddef = true // the loop counter compares against a size_t
+		if inst.Meta["format"] == "text" {
+			line = `printf("` + lead + `%.*s\n", (int)` + src + `_len, (const char *)` + src + `);`
+		} else {
+			if lead != "" {
+				e.writef("%s\n", `printf("`+lead+`");`)
+			}
+			e.writef("%s\n", `for (size_t i = 0; i < `+src+`_len; i++) { printf(i ? " %02X" : "%02X", (unsigned)`+src+`[i]); }`)
+			line = `printf("\n");`
+		}
+	default:
+		// "int" and any stray numeric register share the widened-cast path.
+		// Português: "int" e qualquer registrador numérico avulso usam o
+		// caminho do cast alargado.
+		if inst.Meta["format"] == "hex" {
+			line = `printf("` + lead + `0x%lX\n", (unsigned long)` + src + `);`
+		} else {
+			line = `printf("` + lead + `%ld\n", (long)` + src + `);`
+		}
+	}
+	e.writef("%s\n", line)
+}
+
+// cPrintfText escapes maker-typed free text for use INSIDE a C printf format
+// string: backslashes and double quotes for the C string literal, "%" doubled
+// for printf, and a raw newline becomes the two-character escape so the
+// output stays a single line. Order matters — backslash first, or the later
+// escapes would be double-escaped.
+//
+// Português: Escapa texto livre do maker para DENTRO de um formato printf C:
+// barra e aspas para o literal C, "%" dobrado para o printf, e newline cru
+// vira o escape de dois caracteres. A ordem importa — barra primeiro, senão
+// os escapes seguintes seriam re-escapados.
+func cPrintfText(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+	s = strings.ReplaceAll(s, "%", "%%")
+	s = strings.ReplaceAll(s, "\n", "\\n")
+	return s
 }
 
 // =====================================================================

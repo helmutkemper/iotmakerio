@@ -567,6 +567,27 @@ func LoadBlackBoxDefsForScene(sceneJSON []byte) (map[string]*bbparser.BlackBoxDe
 			// sequencial quando o registro tem (iotm_47_…), senão "" —
 			// CodeIdent cai no id completo (nomes longos, porém corretos).
 			def.CodeID = codeNumberString(def.ID)
+			// Cargo lane (unified asset model): the parser dispatch
+			// filtered non-source files OUT of def.Files (source-only
+			// invariant); attach them here as Assets — same snapshot,
+			// stored form (base64 stays base64; the emitter decodes at
+			// its edge). The C emitter ships them into the box folder
+			// with generated companion headers, so the specialist's
+			// hand-written #includes resolve in the maker's build.
+			//
+			// Português: Faixa de carga: o dispatch filtrou os não-fonte
+			// de def.Files; anexa-os aqui como Assets, na forma
+			// armazenada. O emissor C os embarca na pasta da caixa com os
+			// headers companheiros.
+			for _, f := range pv.Files {
+				lower := strings.ToLower(f.Path)
+				if strings.HasSuffix(lower, ".go") || strings.HasSuffix(lower, ".c") || strings.HasSuffix(lower, ".h") {
+					continue
+				}
+				def.Assets = append(def.Assets, bbparser.AssetEntry{
+					Path: f.Path, Content: f.Content, Encoding: f.Encoding,
+				})
+			}
 			if def.Name != "" {
 				// Go struct device (def.Name is the struct name).
 				if needed[def.Name] {

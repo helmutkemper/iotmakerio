@@ -3029,6 +3029,19 @@ func mainFileRank(name string) int {
 // one-line change here when a future backend lands.
 func detectFileLanguage(filename string) string {
 	switch {
+	// Extension-less "Makefile" (and the .mk variant) — must come before the
+	// suffix cases so the C99 export's Makefile tab is not colored as C
+	// (the default language of a C99 result). Monaco ships a "makefile"
+	// grammar in its basic-languages bundle; if a build ever lacks it,
+	// Monaco degrades to plaintext instead of erroring.
+	// Português: "Makefile" sem extensão (e a variante .mk) — antes dos
+	// casos por sufixo para a aba do Makefile do export C99 não sair
+	// colorida como C (a linguagem default de um resultado C99). O Monaco
+	// traz a gramática "makefile" no bundle básico; se faltar, degrada para
+	// texto puro sem erro.
+	case filename == "Makefile", strings.HasSuffix(filename, "/Makefile"),
+		strings.HasSuffix(filename, ".mk"):
+		return "makefile"
 	case strings.HasSuffix(filename, ".c"), strings.HasSuffix(filename, ".h"):
 		return "c"
 	case strings.HasSuffix(filename, ".cpp"), strings.HasSuffix(filename, ".hpp"), strings.HasSuffix(filename, ".cc"):

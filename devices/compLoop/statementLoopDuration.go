@@ -51,6 +51,7 @@ import (
 	"github.com/helmutkemper/iotmakerio/grid"
 	"github.com/helmutkemper/iotmakerio/hexagon"
 	"github.com/helmutkemper/iotmakerio/ornament/doubleLoopArrowHourglass"
+	"github.com/helmutkemper/iotmakerio/rulesConnection"
 	"github.com/helmutkemper/iotmakerio/rulesContainer"
 	"github.com/helmutkemper/iotmakerio/rulesDensity"
 	"github.com/helmutkemper/iotmakerio/rulesIcon"
@@ -61,6 +62,7 @@ import (
 	"github.com/helmutkemper/iotmakerio/translate"
 	"github.com/helmutkemper/iotmakerio/ui/contextMenu"
 	"github.com/helmutkemper/iotmakerio/ui/mainMenu"
+	"github.com/helmutkemper/iotmakerio/ui/overlay"
 	"github.com/helmutkemper/iotmakerio/utilsDraw"
 	"github.com/helmutkemper/iotmakerio/utilsText"
 	"github.com/helmutkemper/iotmakerio/wire"
@@ -79,8 +81,13 @@ type StatementLoopDuration struct {
 	dragEnabled  bool
 	dragLocked   bool
 	resizeLocked bool
-	width        rulesDensity.Density
-	height       rulesDensity.Density
+	// [COMMENT] user comment — appears as `// ` lines above this container's
+	// statement in the generated code and in the container's hover tooltip.
+	// Português: Comentário do usuário — vira linhas `// ` acima do
+	// statement deste container no código gerado e no tooltip de hover.
+	comment string
+	width   rulesDensity.Density
+	height  rulesDensity.Density
 
 	// Pending state applied at the end of Init() --------------------
 	pendingResizeEnable *bool
@@ -616,8 +623,7 @@ func (e *StatementLoopDuration) getBodyMenuItems() []contextMenu.Item {
 			e.Remove()
 		}),
 		mainMenu.InspectItem(func() {
-			log.Printf("[LoopDuration] inspect: id=%v size=(%.0f,%.0f)",
-				e.id, e.width.GetFloat(), e.height.GetFloat())
+			go e.showInspectOverlay()
 		}),
 		{
 			ID:              "resize",
@@ -742,12 +748,16 @@ func (e *StatementLoopDuration) wireEvents() {
 	// -----------------------------------------------------------------
 	e.elem.SetOnClick(func(event sprite.PointerEvent) {
 		w, h := e.elem.GetSize()
-		stopX := w - 57
+		// [PIN] standard pin hit box on the INTERIOR stop-button pin — the
+		// left-facing pin whose outer tip sits at the historical anchor
+		// (w-57, h-42); the body-side point is tip + PinLength.
+		// Português: Caixa de clique do pino INTERNO da botoeira — o pino
+		// voltado para a esquerda com a ponta externa no anchor histórico
+		// (w-57, h-42); o ponto do lado do corpo é ponta + PinLength.
 		stopY := h - 42
-		stopRadius := 15.0
-		dx := event.LocalX - stopX
-		dy := event.LocalY - stopY
-		if dx*dx+dy*dy <= stopRadius*stopRadius {
+		if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+			w-57+rulesConnection.PinLength(), stopY,
+			event.LocalX, event.LocalY) {
 			if e.ctxMenu != nil && e.wireMgr != nil {
 				elemX, elemY := e.elem.GetPosition()
 				menuX, menuY := elemX+event.LocalX, elemY+event.LocalY
@@ -924,12 +934,9 @@ func (e *StatementLoopDuration) wireEvents() {
 	// cursor everywhere else (drag is the default).
 	e.elem.SetCursorHitTest(func(localX, localY float64) sprite.CursorStyle {
 		w, h := e.elem.GetSize()
-		stopX := w - 57
 		stopY := h - 42
-		stopRadius := 15.0
-		dx := localX - stopX
-		dy := localY - stopY
-		if dx*dx+dy*dy <= stopRadius*stopRadius {
+		if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+			w-57+rulesConnection.PinLength(), stopY, localX, localY) {
 			return sprite.CursorPointer
 		}
 		return ""
@@ -1029,7 +1036,13 @@ func (e *StatementLoopDuration) RegisterConnectors() {
 			ex, ey := e.elem.GetPosition()
 			w, h := e.elem.GetSize()
 			// Interval button position matches DoubleLoopArrow.Update().
-			return ex + w - 57, ey + h - 42
+			// The wire anchors at the interior pin's outer tip — exactly
+			// the historical (w-57, h-42) the project always used.
+			// Português: O fio ancora na ponta externa do pino interno —
+			// exatamente o (w-57, h-42) histórico do projeto.
+			ax, ay := rulesConnection.PinAnchor(rulesConnection.PinSideLeft,
+				w-57+rulesConnection.PinLength(), h-42)
+			return ex + ax, ey + ay
 		},
 	})
 
@@ -1061,3 +1074,74 @@ func (e *StatementLoopDuration) RegisterConnectors() {
 		return ex + m, ey + m, ew - 2*m, eh - 2*m
 	})
 }
+
+// showInspectOverlay opens the container's Inspect: a Properties tab whose
+// only editable datum is the universal COMMENT (containers have no other
+// form-editable state — membership and geometry live on the stage).
+// Português: Abre o Inspect do container: aba Properties cujo único dado
+// editável é o COMENTÁRIO universal (containers não têm outro estado
+// editável por formulário — membros e geometria vivem no stage).
+func (e *StatementLoopDuration) showInspectOverlay() { overlay.Show(e.inspectConfig()) }
+
+func (e *StatementLoopDuration) inspectConfig() overlay.Config {
+	return overlay.Config{
+		Title: e.id,
+		Width: "480px",
+		Tabs: []overlay.Tab{
+			{
+				Label: translate.T("tabProperties", "Properties"),
+				Type:  overlay.TabForm,
+				Fields: []overlay.Field{
+					{
+						Key:         "comment",
+						Label:       translate.T("propComment", "Comment"),
+						Type:        overlay.FieldTextarea,
+						Value:       e.comment,
+						Placeholder: translate.T("propCommentPlaceholder", "Comment shown in generated code..."),
+						Rows:        3,
+					},
+					{Key: "id", Label: "ID", Type: overlay.FieldText, Value: e.id, ReadOnly: true},
+				},
+			},
+		},
+		OnSave: func(values map[string]string) {
+			e.ApplyProperties(values)
+		},
+	}
+}
+
+// ApplyProperties restores the comment — the container's only form-editable
+// datum. Membership and size are restored by the scene import machinery.
+// Português: Restaura o comentário — único dado editável por formulário do
+// container. Membros e tamanho são restaurados pelo import da cena.
+func (e *StatementLoopDuration) ApplyProperties(values map[string]string) {
+	if v, ok := values["comment"]; ok {
+		e.comment = v
+	}
+}
+
+// GetProperties exports the container's scene properties. Until the comment
+// existed, loops exported none — which is why this function is new: the
+// serializer collects it via interface assertion, so its presence alone
+// makes the comment flow scene → graph → IR (the LOOP_BEGIN stamp).
+// Português: Exporta as properties de cena do container. Até o comentário
+// existir, loops não exportavam nenhuma — por isso esta função é nova: o
+// serializer a coleta por assertion, então a presença dela já faz o
+// comentário fluir cena → graph → IR (o carimbo do LOOP_BEGIN).
+func (e *StatementLoopDuration) GetProperties() map[string]interface{} {
+	props := map[string]interface{}{}
+	if e.comment != "" {
+		props["comment"] = e.comment
+	}
+	return props
+}
+
+// GetComment returns the user comment shown in generated code and in the
+// container's hover tooltip.
+// Português: Retorna o comentário do usuário exibido no código gerado e
+// no tooltip de hover do container.
+func (e *StatementLoopDuration) GetComment() string { return e.comment }
+
+// SetComment sets the user comment.
+// Português: Define o comentário do usuário.
+func (e *StatementLoopDuration) SetComment(c string) { e.comment = c }

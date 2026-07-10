@@ -55,6 +55,7 @@ import (
 	"github.com/helmutkemper/iotmakerio/grid"
 	"github.com/helmutkemper/iotmakerio/hexagon"
 	"github.com/helmutkemper/iotmakerio/ornament/caseBorder"
+	"github.com/helmutkemper/iotmakerio/rulesConnection"
 	"github.com/helmutkemper/iotmakerio/rulesContainer"
 	"github.com/helmutkemper/iotmakerio/rulesDensity"
 	"github.com/helmutkemper/iotmakerio/rulesIcon"
@@ -146,7 +147,12 @@ type StatementCase struct {
 	dragStartX, dragStartY float64
 
 	// Case management
-	selectorType  string      // "int" for v1; "bool" lowers to if/else
+	selectorType string // "int" for v1; "bool" lowers to if/else
+	// [COMMENT] user comment — appears as `// ` lines above this container's
+	// statement in the generated code and in the container's hover tooltip.
+	// Português: Comentário do usuário — vira linhas `// ` acima do
+	// statement deste container no código gerado e no tooltip de hover.
+	comment       string
 	selectedCase  string      // id of the case currently shown/edited
 	cases         []caseEntry // ordered cases
 	defaultCaseID string      // id of the default case ("" = none)
@@ -788,12 +794,15 @@ func (e *StatementCase) wireEvents() {
 			return
 		}
 
-		connX := 5.0
+		// [PIN] standard pin hit box at the container's LEFT edge — same
+		// edge point the border ornament draws and the wire anchors to.
+		// Português: Caixa de clique do pino padrão na borda ESQUERDA do
+		// container — mesmo edge point que o ornamento desenha e o fio
+		// ancora.
 		connY := h / 2
-		connRadius := 12.0
-		dx := event.LocalX - connX
-		dy := event.LocalY - connY
-		if dx*dx+dy*dy <= connRadius*connRadius {
+		if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+			rulesConnection.PinBodyInset(), connY,
+			event.LocalX, event.LocalY) {
 			if e.ctxMenu != nil && e.wireMgr != nil {
 				elemX, elemY := e.elem.GetPosition()
 				menuX, menuY := elemX+event.LocalX, elemY+event.LocalY
@@ -944,11 +953,9 @@ func (e *StatementCase) wireEvents() {
 			localY >= caseBorder.KPillY && localY <= caseBorder.KPillY+caseBorder.KPillH {
 			return sprite.CursorPointer
 		}
-		connX := 5.0
 		connY := h / 2
-		dx := localX - connX
-		dy := localY - connY
-		if dx*dx+dy*dy <= 12.0*12.0 {
+		if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+			rulesConnection.PinBodyInset(), connY, localX, localY) {
 			return sprite.CursorPointer
 		}
 		return ""
@@ -1011,7 +1018,9 @@ func (e *StatementCase) RegisterConnectors() {
 		PositionFunc: func() (float64, float64) {
 			ex, ey := e.elem.GetPosition()
 			_, h := e.elem.GetSize()
-			return ex + 5, ey + h/2
+			ax, ay := rulesConnection.PinAnchor(rulesConnection.PinSideLeft,
+				rulesConnection.PinBodyInset(), h/2)
+			return ex + ax, ey + ay
 		},
 	})
 
@@ -1125,13 +1134,27 @@ func (e *StatementCase) GetProperties() map[string]interface{} {
 		})
 	}
 
-	return map[string]interface{}{
+	props := map[string]interface{}{
 		"selectorType":  e.selectorType,
 		"selectedCase":  e.selectedCase,
 		"cases":         cases,
 		"defaultCaseId": e.defaultCaseID,
 	}
+	if e.comment != "" {
+		props["comment"] = e.comment
+	}
+	return props
 }
+
+// GetComment returns the user comment shown in generated code and in the
+// container's hover tooltip.
+// Português: Retorna o comentário do usuário exibido no código gerado e
+// no tooltip de hover do container.
+func (e *StatementCase) GetComment() string { return e.comment }
+
+// SetComment sets the user comment.
+// Português: Define o comentário do usuário.
+func (e *StatementCase) SetComment(c string) { e.comment = c }
 
 // ApplyProperties restores the simple string properties (selectorType,
 // selectedCase). The cases array carries []string members and import ID
@@ -1142,6 +1165,9 @@ func (e *StatementCase) GetProperties() map[string]interface{} {
 // Português: Restaura as properties simples (selectorType, selectedCase). O
 // array de cases é restaurado via RestoreCaseState (igual ao if/else).
 func (e *StatementCase) ApplyProperties(values map[string]string) {
+	if v, ok := values["comment"]; ok {
+		e.comment = v
+	}
 	if t, ok := values["selectorType"]; ok && t != "" {
 		e.selectorType = t
 	}
@@ -1451,6 +1477,14 @@ func (e *StatementCase) GetInspectConfig() interface{} {
 				Label: translate.T("tabProperties", "Properties"),
 				Type:  overlay.TabForm,
 				Fields: []overlay.Field{
+					{
+						Key:         "comment",
+						Label:       translate.T("propComment", "Comment"),
+						Type:        overlay.FieldTextarea,
+						Value:       e.comment,
+						Placeholder: translate.T("propCommentPlaceholder", "Comment shown in generated code..."),
+						Rows:        3,
+					},
 					{
 						Key:       "cases",
 						Label:     translate.T("propCases", "Cases"),

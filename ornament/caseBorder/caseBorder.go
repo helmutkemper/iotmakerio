@@ -77,10 +77,7 @@ const (
 // ── Connection position constants ───────────────────────────────────────────
 // The selector connection sits on the LEFT edge of the container, centered.
 
-const (
-	// kConnOffsetX is the X offset from the container left edge for the dot.
-	kConnOffsetX = 5
-)
+const ()
 
 // CaseBorder draws the ornament used by StatementCase.
 type CaseBorder struct {
@@ -315,11 +312,19 @@ func (e *CaseBorder) Update(x, y, width, height rulesDensity.Density) (err error
 	}
 	e.pillCaret.D(caretPath)
 
-	// ── Connection dot and click area (LEFT edge, vertically centered) ──
-	connX := rulesDensity.Density(kConnOffsetX)
+	// ── Connection pin and click area (LEFT edge, vertically centered) ──
+	// [PIN] the selector input uses the standard pin. The helpers take the
+	// pin's BODY-SIDE point (edgeX = KWidth here), draw the body toward the
+	// border and derive the OUTER TIP — which lands exactly at x=0, the
+	// container's left edge, where the wire anchors.
+	// Português: A entrada do seletor usa o pino padrão. Os helpers recebem
+	// o ponto do LADO DO CORPO (edgeX = KWidth aqui), desenham o corpo em
+	// direção à borda e derivam a PONTA EXTERNA — que cai exatamente em
+	// x=0, a borda esquerda do container, onde o fio ancora.
+	connX := rulesDensity.Density(rulesConnection.KWidth)
 	connY := height / 2
 
-	e.selectorConnection.D(rulesConnection.GetPathDraw(connX, connY))
+	e.selectorConnection.D(rulesConnection.PinPathDraw(rulesConnection.PinSideLeft, connX, connY))
 	// Recolour the dot to the CURRENT selector type. Init colours it once via
 	// NewConnection, so without re-applying the fill on every Update the dot
 	// keeps the old colour after a selector-type change (e.g. int→bool from
@@ -330,8 +335,9 @@ func (e *CaseBorder) Update(x, y, width, height rulesDensity.Density) (err error
 	// cor antiga após troca de tipo (ex.: int→bool pela inferência) ou ao
 	// carregar um Case bool/string salvo.
 	e.selectorConnection.Fill(rulesConnection.TypeToColor(e.selectorType))
-	e.selectorConnectionArea.GetSvgPath().D(rulesConnection.GetPathAreaDraw(connX, connY))
-	e.selectorConnectionArea.SetXY(x+connX, y+connY)
+	e.selectorConnectionArea.GetSvgPath().D(rulesConnection.PinPathAreaDraw(rulesConnection.PinSideLeft, connX, connY))
+	ax, ay := rulesConnection.PinAnchorD(rulesConnection.PinSideLeft, connX, connY)
+	e.selectorConnectionArea.SetXY(x+ax, y+ay)
 
 	return
 }

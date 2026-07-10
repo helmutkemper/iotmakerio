@@ -5,7 +5,11 @@
 
 package wire
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/helmutkemper/iotmakerio/rulesDevice"
+)
 
 // registry.go — Compatibility matrix, type styles and compatibility resolution.
 //
@@ -82,131 +86,106 @@ import "strings"
 //	O entry "struct" é o catch-all para tipos complexos (ponteiros, structs
 //	nomeados). getTypeStyle() cai para este entry ao encontrar tipos com
 //	prefixo "*" ou com ponto (tipo qualificado por pacote).
-var DefaultTypeStyles = map[string]WireStyle{
-	// ── Primitive scalar types ──────────────────────────────────────────
-	"int": {
-		StrokeColor:   "#2196F3", // blue | azul
+//
+// scalarStyle builds the WireStyle for a scalar type from its canonical
+// palette color. The selected highlight is DERIVED (blend toward white) so
+// the palette never needs a hand-maintained parallel table of light colors.
+//
+// Português: Monta o WireStyle de um tipo escalar a partir da cor canônica da
+// paleta. O destaque "selected" é DERIVADO (mistura com branco), então a
+// paleta nunca precisa de uma tabela paralela de cores claras mantida à mão.
+func scalarStyle(colorHex string) WireStyle {
+	return WireStyle{
+		StrokeColor:   colorHex,
 		StrokeWidth:   2.0,
-		SelectedColor: "#90CAF9",
+		SelectedColor: rulesDevice.LightenHex(colorHex, 0.45),
 		SelectedWidth: 4.0,
 		CornerRadius:  6.0,
-	},
-	"int64": {
-		StrokeColor:   "#1565C0", // dark blue | azul escuro
-		StrokeWidth:   2.0,
-		SelectedColor: "#90CAF9",
-		SelectedWidth: 4.0,
-		CornerRadius:  6.0,
-	},
-	"uint": {
-		StrokeColor:   "#5E35B1", // deep purple | roxo profundo
-		StrokeWidth:   2.0,
-		SelectedColor: "#CE93D8",
-		SelectedWidth: 4.0,
-		CornerRadius:  6.0,
-	},
-	"uint8": {
-		StrokeColor:   "#5E35B1",
-		StrokeWidth:   2.0,
-		SelectedColor: "#CE93D8",
-		SelectedWidth: 4.0,
-		CornerRadius:  6.0,
-	},
-	"uint16": {
-		StrokeColor:   "#5E35B1",
-		StrokeWidth:   2.0,
-		SelectedColor: "#CE93D8",
-		SelectedWidth: 4.0,
-		CornerRadius:  6.0,
-	},
-	"uint32": {
-		StrokeColor:   "#5E35B1",
-		StrokeWidth:   2.0,
-		SelectedColor: "#CE93D8",
-		SelectedWidth: 4.0,
-		CornerRadius:  6.0,
-	},
-	"uint64": {
-		StrokeColor:   "#4527A0", // darkest purple | roxo mais escuro
-		StrokeWidth:   2.0,
-		SelectedColor: "#CE93D8",
-		SelectedWidth: 4.0,
-		CornerRadius:  6.0,
-	},
-	"float": {
-		// Abstract float wire — teal, matching the device badge/border accent
-		// (rulesDevice KColorTypeFloat64). It was previously "#F44336", the exact
-		// red of the "error" style, so a valid float wire looked like an error;
-		// float is now the maker-facing default type, so it gets its own clearly
-		// non-red identity. Português: fio de float abstrato — teal, igual ao
-		// badge; antes era o vermelho do erro e confundia.
-		StrokeColor:   "#55DDAA",
-		StrokeWidth:   2.0,
-		SelectedColor: "#A7EFD8",
-		SelectedWidth: 4.0,
-		CornerRadius:  6.0,
-	},
-	"float64": {
-		StrokeColor:   "#9E9D24", // yellow-green | amarelo-verde
-		StrokeWidth:   2.0,
-		SelectedColor: "#F9A825",
-		SelectedWidth: 4.0,
-		CornerRadius:  6.0,
-	},
-	"string": {
-		StrokeColor:   "#4CAF50", // green | verde
-		StrokeWidth:   2.0,
-		SelectedColor: "#A5D6A7",
-		SelectedWidth: 4.0,
-		CornerRadius:  6.0,
-	},
-	"bool": {
-		StrokeColor:   "#FF9800", // orange | laranja
-		StrokeWidth:   2.0,
-		SelectedColor: "#FFCC80",
-		SelectedWidth: 4.0,
-		CornerRadius:  6.0,
-	},
-	"error": {
-		StrokeColor:   "#F44336", // red dashed — handle me | vermelho tracejado — me trate
-		StrokeWidth:   2.0,
-		DashPattern:   []float64{6, 3},
-		SelectedColor: "#EF9A9A",
-		SelectedWidth: 4.0,
-		CornerRadius:  6.0,
-	},
+	}
+}
 
-	// ── Slice types ─────────────────────────────────────────────────────
-	"[]int": {
-		StrokeColor:   "#2196F3", // blue thick | azul grosso
-		StrokeWidth:   4.0,
-		SelectedColor: "#90CAF9",
-		SelectedWidth: 6.0,
-		CornerRadius:  6.0,
-	},
-	"[]float": {
-		// Teal thick — the collection variant of the abstract float wire, same
-		// accent as the scalar "float" above (was the error red "#F44336").
-		StrokeColor:   "#55DDAA",
-		StrokeWidth:   4.0,
-		SelectedColor: "#A7EFD8",
-		SelectedWidth: 6.0,
-		CornerRadius:  6.0,
-	},
-	"[]string": {
-		StrokeColor:   "#4CAF50", // green thick | verde grosso
-		StrokeWidth:   4.0,
-		SelectedColor: "#A5D6A7",
-		SelectedWidth: 6.0,
-		CornerRadius:  6.0,
-	},
-	"[]bool": {
-		StrokeColor:   "#FF9800", // orange thick | laranja grosso
-		StrokeWidth:   4.0,
-		SelectedColor: "#FFCC80",
-		SelectedWidth: 6.0,
-		CornerRadius:  6.0,
-	},
+// DefaultTypeStyles maps data type names to their default visual styles.
+// Users can override these by calling Manager.SetTypeStyle().
+//
+// PALETTE UNIFICATION: every stroke color here is a rulesDevice constant —
+// the single type→color source of truth shared by device accents, connector
+// pins and wires. A wire meeting a pin of the same type is now guaranteed to
+// be the same hue. Do NOT write literal hex colors in this table; add the
+// constant to rulesDevice/palette.go instead.
+//
+// Collections ([]int, []float, …) are NOT listed here anymore: the manager
+// derives them generically (see deriveTypeStyle) as "element color, thicker
+// stroke", which also covers previously unmapped slices such as []byte and
+// []float64 that used to fall through to the grey dashed unknown style.
+//
+// The "struct" entry acts as a catch-all for complex Go types (pointer types,
+// named struct types). The manager's getTypeStyle() falls back to this entry
+// when it encounters any type whose name begins with "*" or contains a dot
+// (package-qualified type name) and has no specific entry here.
+//
+// Português:
+//
+//	UNIFICAÇÃO DE PALETA: toda cor de traço aqui é uma constante de
+//	rulesDevice — a fonte única de tipo→cor compartilhada por devices, pinos
+//	e fios. Um fio encostando num pino do mesmo tipo agora é garantidamente
+//	do mesmo matiz. NÃO escreva hex literal nesta tabela; adicione a
+//	constante em rulesDevice/palette.go.
+//
+//	Coleções não são mais listadas aqui: o manager as deriva genericamente
+//	(cor do elemento, traço mais grosso) — ver deriveTypeStyle — o que também
+//	cobre slices antes não mapeadas ([]byte, []float64), que caíam no estilo
+//	cinza tracejado de desconhecido.
+//
+//	O entry "struct" é o catch-all para tipos complexos (ponteiros, structs
+//	nomeados). getTypeStyle() cai para este entry ao encontrar tipos com
+//	prefixo "*" ou com ponto (tipo qualificado por pacote).
+var DefaultTypeStyles = map[string]WireStyle{
+	// ── Signed integer family — blues ───────────────────────────────────
+	"int":   scalarStyle(rulesDevice.KColorTypeInt),
+	"int64": scalarStyle(rulesDevice.KColorTypeInt),
+	"int32": scalarStyle(rulesDevice.KColorTypeInt32),
+	"int16": scalarStyle(rulesDevice.KColorTypeInt32),
+	"int8":  scalarStyle(rulesDevice.KColorTypeInt32),
+
+	// ── Unsigned integer family — purples ───────────────────────────────
+	// uint8 is intentionally ABSENT: in Go, byte IS uint8 (type alias), so
+	// uint8 shares the byte entry below. See rulesDevice.KColorTypeUint.
+	// Português: uint8 está AUSENTE de propósito: em Go, byte É uint8
+	// (alias), então uint8 compartilha o entry de byte abaixo.
+	"uint":   scalarStyle(rulesDevice.KColorTypeUint),
+	"uint16": scalarStyle(rulesDevice.KColorTypeUint),
+	"uint32": scalarStyle(rulesDevice.KColorTypeUint),
+	"uint64": scalarStyle(rulesDevice.KColorTypeUint64),
+
+	// ── Byte — purple, shared by the uint8 alias ────────────────────────
+	"byte":  scalarStyle(rulesDevice.KColorTypeByte),
+	"uint8": scalarStyle(rulesDevice.KColorTypeByte),
+
+	// ── Float family — greens/teals ─────────────────────────────────────
+	// "float" is the maker-facing abstract type (bit-width is decided by the
+	// target profile); it shares the full-precision float64 accent, exactly
+	// as abstract "int" shares the int64 accent above.
+	// Português: "float" é o tipo abstrato que o maker vê; compartilha a cor
+	// do float64, como o "int" abstrato compartilha a do int64.
+	"float":   scalarStyle(rulesDevice.KColorTypeFloat64),
+	"float64": scalarStyle(rulesDevice.KColorTypeFloat64),
+	"float32": scalarStyle(rulesDevice.KColorTypeFloat32),
+
+	// ── Text, boolean, temporal ─────────────────────────────────────────
+	"string":        scalarStyle(rulesDevice.KColorTypeString),
+	"bool":          scalarStyle(rulesDevice.KColorTypeBool),
+	"time.Duration": scalarStyle(rulesDevice.KColorTypeDuration),
+
+	// ── Error — red dashed: "handle me" ─────────────────────────────────
+	// The dash pattern is unique to error so an unhandled error path is
+	// impossible to miss even for colorblind users.
+	// Português: O tracejado é exclusivo do error para um caminho de erro
+	// não tratado ser impossível de ignorar, mesmo para daltônicos.
+	"error": func() WireStyle {
+		s := scalarStyle(rulesDevice.KColorTypeError)
+		s.DashPattern = []float64{6, 3}
+		return s
+	}(),
 
 	// ── Complex / struct / pointer types ────────────────────────────────
 	//
@@ -229,12 +208,64 @@ var DefaultTypeStyles = map[string]WireStyle{
 	//   ponto. Violeta foi escolhido por ser visualmente distinto de todos os
 	//   tipos primitivos e comunicar "barramento de hardware".
 	"struct": {
-		StrokeColor:   "#9C27B0", // violet | violeta — hardware bus / structured data
+		StrokeColor:   rulesDevice.KColorTypeStruct,
 		StrokeWidth:   2.5,
-		SelectedColor: "#CE93D8",
+		SelectedColor: rulesDevice.LightenHex(rulesDevice.KColorTypeStruct, 0.45),
 		SelectedWidth: 4.5,
 		CornerRadius:  6.0,
 	},
+}
+
+// deriveTypeStyle resolves the style for types that are not listed verbatim
+// in DefaultTypeStyles, in priority order:
+//
+//  1. Collections ("[]T"): the ELEMENT type's style, drawn thicker
+//     (stroke 4.0, selected 6.0). Hue stays the element's — the wire system's
+//     long-standing rule "a slice is the base color, just heavier" — so any
+//     collection of a colorable element gets a correct wire, including
+//     []byte, []float64 and slices of complex types.
+//
+//  2. Pointer / package-qualified types: the "struct" violet entry (via
+//     styleKeyForType).
+//
+// Returns ok=false when nothing applies, letting the caller fall back to
+// DefaultUnknownStyle (grey dashed).
+//
+// Português: Resolve o estilo de tipos que não estão literais na tabela:
+// (1) coleções "[]T" usam o estilo do ELEMENTO com traço mais grosso — a
+// regra antiga do sistema de fios — cobrindo []byte, []float64 e slices de
+// tipos complexos; (2) ponteiros e tipos qualificados por pacote caem no
+// entry violeta "struct". Retorna ok=false quando nada se aplica.
+func deriveTypeStyle(dataType string) (style WireStyle, ok bool) {
+	// ── Collections: element style, thicker ─────────────────────────────
+	if strings.HasPrefix(dataType, "[]") {
+		elem := dataType[2:]
+
+		base, found := DefaultTypeStyles[elem]
+		if !found {
+			// Slice of a complex element ([]machine.Pin, []*spi.Device):
+			// derive from the struct catch-all.
+			// Português: Slice de elemento complexo: deriva do catch-all.
+			if key := styleKeyForType(elem); key != elem {
+				base, found = DefaultTypeStyles[key]
+			}
+		}
+		if found {
+			base.StrokeWidth = 4.0
+			base.SelectedWidth = 6.0
+			return base, true
+		}
+		return WireStyle{}, false
+	}
+
+	// ── Pointer / package-qualified → struct violet ─────────────────────
+	if key := styleKeyForType(dataType); key != dataType {
+		if s, found := DefaultTypeStyles[key]; found {
+			return s, true
+		}
+	}
+
+	return WireStyle{}, false
 }
 
 // DefaultUnknownStyle is used when a data type has no registered style and

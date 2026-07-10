@@ -223,9 +223,18 @@ type StatementChartPro struct {
 	frontendElem  sprite.Element
 
 	// ── Identity ─────────────────────────────────────────────────────────
-	name        string
-	id          string
-	label       string
+	name  string
+	id    string
+	label string
+	// [COMMENT] user comment — shown in the device's hover tooltip and kept
+	// in the scene. Dashboard widgets emit no code statement, so unlike the
+	// backend devices this never reaches the generated source — it is stage
+	// documentation.
+	// Português: Comentário do usuário — exibido no tooltip de hover e
+	// gravado na cena. Widgets de dashboard não emitem statement, então
+	// diferente dos devices de backend isto nunca chega ao código gerado —
+	// é documentação do stage.
+	comment     string
 	initialized bool
 
 	// ── Layout state (interaction) ───────────────────────────────────────
@@ -331,8 +340,17 @@ type StatementChartPro struct {
 
 	// ── Callbacks ────────────────────────────────────────────────────────
 	sceneNotify func()
-	onRemove    func(id string)
-	iconStatus  int
+	// [SCENEGRAPH] injected by scene.Serializer.Register (self-injection by
+	// interface assertion). DragEnd reports through it so the scenegraph
+	// refreshes geometry, recomputes conflicts (own + peers) and reassigns
+	// parenting — the same EndDrag hook the containers use.
+	// Português: Injetado pelo scene.Serializer.Register (auto-injeção por
+	// assertion). O DragEnd reporta por ele para o scenegraph refrescar
+	// geometria, recomputar conflitos (próprios + peers) e reatribuir
+	// parenting — o mesmo gancho EndDrag dos containers.
+	sceneMgr   *scene.Serializer
+	onRemove   func(id string)
+	iconStatus int
 }
 
 // ─── Dependency injection ───────────────────────────────────────────────────
@@ -859,7 +877,7 @@ func (e *StatementChartPro) renderFrontendSVG() string {
 	for i := 0; i <= rulesFrontend.KGridHorizontalDivisions; i++ {
 		y := padT + chartH*float64(i)/float64(rulesFrontend.KGridHorizontalDivisions)
 		val := leftMaxY - (leftMaxY-leftMinY)*float64(i)/float64(rulesFrontend.KGridHorizontalDivisions)
-		svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="monospace" font-size="%.0f" fill="#aaa" text-anchor="end" dominant-baseline="central">%s</text>`,
+		svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamilyMono+`" font-size="%.0f" fill="#aaa" text-anchor="end" dominant-baseline="central">%s</text>`,
 			padL-10, y, rulesFrontend.KFontSizeYAxis,
 			strconv.FormatFloat(val, 'f', 0, 64))
 	}
@@ -869,7 +887,7 @@ func (e *StatementChartPro) renderFrontendSVG() string {
 		for i := 0; i <= rulesFrontend.KGridHorizontalDivisions; i++ {
 			y := padT + chartH*float64(i)/float64(rulesFrontend.KGridHorizontalDivisions)
 			val := rightMaxY - (rightMaxY-rightMinY)*float64(i)/float64(rulesFrontend.KGridHorizontalDivisions)
-			svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="monospace" font-size="%.0f" fill="#aaa" text-anchor="start" dominant-baseline="central">%s</text>`,
+			svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamilyMono+`" font-size="%.0f" fill="#aaa" text-anchor="start" dominant-baseline="central">%s</text>`,
 				w-padR+10, y, rulesFrontend.KFontSizeYAxis,
 				strconv.FormatFloat(val, 'f', 0, 64))
 		}
@@ -884,7 +902,7 @@ func (e *StatementChartPro) renderFrontendSVG() string {
 			x := padL + chartW*float64(i)/float64(rulesFrontend.KGridVerticalDivisions)
 			ts := startTs + int64(float64(i)/float64(rulesFrontend.KGridVerticalDivisions)*float64(endTs-startTs))
 			t := time.UnixMilli(ts)
-			svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="monospace" font-size="%.0f" fill="#666" text-anchor="middle">%02d:%02d:%02d</text>`,
+			svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamilyMono+`" font-size="%.0f" fill="#666" text-anchor="middle">%02d:%02d:%02d</text>`,
 				x, padT+chartH+18, rulesFrontend.KFontSizeXAxis,
 				t.Hour(), t.Minute(), t.Second())
 		}
@@ -1097,12 +1115,12 @@ func (e *StatementChartPro) renderFrontendSVG() string {
 		if gCnt > 0 {
 			gAvg = gSum / float64(gCnt)
 		}
-		svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="monospace" font-size="%.0f" fill="#999">Min: %.1f   Avg: %.1f   Max: %.1f</text>`,
+		svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamilyMono+`" font-size="%.0f" fill="#999">Min: %.1f   Avg: %.1f   Max: %.1f</text>`,
 			padL+4, bottomY, rulesFrontend.KFontSizeStats, gMin, gAvg, gMax)
 	}
 	if e.showTimestamp && e.lastUpdateTs > 0 {
 		ts := time.Unix(e.lastUpdateTs, 0)
-		svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="monospace" font-size="%.0f" fill="#888" text-anchor="end">Last: %02d:%02d:%02d</text>`,
+		svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamilyMono+`" font-size="%.0f" fill="#888" text-anchor="end">Last: %02d:%02d:%02d</text>`,
 			w-padR-4, bottomY, rulesFrontend.KFontSizeTimestamp,
 			ts.Hour(), ts.Minute(), ts.Second())
 	}
@@ -1349,7 +1367,7 @@ func (e *StatementChartPro) renderHoverOverlay(svg *string,
 		by := padT + 8 + byOff
 		*svg += fmt.Sprintf(`<rect x="%.1f" y="%.1f" width="%.0f" height="22" rx="3" fill="%s" stroke="%s" stroke-width="1"/>`,
 			bx, by, bw, rulesFrontend.KHoverTooltipBg, c)
-		*svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="monospace" font-size="%.0f" fill="#fff" text-anchor="middle" dominant-baseline="central">%s</text>`,
+		*svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamilyMono+`" font-size="%.0f" fill="#fff" text-anchor="middle" dominant-baseline="central">%s</text>`,
 			bx+bw/2, by+11, rulesFrontend.KFontSizeTooltip, vs)
 		byOff += 26
 	}
@@ -1543,6 +1561,13 @@ func (e *StatementChartPro) wireBackendEvents() {
 		if e.wireMgr != nil {
 			e.wireMgr.RecalculateForElement(e.id)
 		}
+		// [SCENEGRAPH] dx/dy=0: they only move container descendants (this
+		// device has none); geometry is re-read live by refreshGeometry.
+		// Português: dx/dy=0: eles só movem descendentes de container (este
+		// device não tem); a geometria é relida ao vivo pelo refreshGeometry.
+		if e.sceneMgr != nil {
+			e.sceneMgr.EndDrag(e.id, 0, 0)
+		}
 		if e.sceneNotify != nil {
 			e.sceneNotify()
 		}
@@ -1574,6 +1599,13 @@ func (e *StatementChartPro) wireFrontendEvents() {
 		x, y := e.frontendElem.GetPositionD()
 		nx, ny := e.gridAdjust.AdjustCenterD(x, y)
 		e.frontendElem.SetPositionD(nx, ny)
+		// [SCENEGRAPH] dx/dy=0: they only move container descendants (this
+		// device has none); geometry is re-read live by refreshGeometry.
+		// Português: dx/dy=0: eles só movem descendentes de container (este
+		// device não tem); a geometria é relida ao vivo pelo refreshGeometry.
+		if e.sceneMgr != nil {
+			e.sceneMgr.EndDrag(e.id, 0, 0)
+		}
 		if e.sceneNotify != nil {
 			e.sceneNotify()
 		}
@@ -2020,6 +2052,14 @@ func (e *StatementChartPro) GetInspectConfig() interface{} {
 	globalFields := []overlay.Field{
 		{Key: "id", Label: "ID", Type: overlay.FieldText, Value: e.id},
 		{Key: "label", Label: translate.T("propLabel", "Label"), Type: overlay.FieldText, Value: e.label},
+		{
+			Key:         "comment",
+			Label:       translate.T("propComment", "Comment"),
+			Type:        overlay.FieldTextarea,
+			Value:       e.comment,
+			Placeholder: translate.T("propCommentPlaceholder", "Comment shown on hover..."),
+			Rows:        3,
+		},
 		{Key: "chartTitle", Label: translate.T("propChartTitle", "Title"), Type: overlay.FieldText, Value: e.chartTitle, Placeholder: "Temperature"},
 		{Key: "chartUnit", Label: translate.T("propChartUnit", "Unit"), Type: overlay.FieldText, Value: e.chartUnit, Placeholder: "°C"},
 		{Key: "seriesCount", Label: translate.T("propSeriesCount", "Series Count"), Type: overlay.FieldNumber, Value: strconv.Itoa(e.seriesCount), Min: strconv.Itoa(rulesFrontend.KSeriesMin), Max: strconv.Itoa(rulesFrontend.KSeriesMax)},
@@ -2137,6 +2177,9 @@ func (e *StatementChartPro) GetInspectConfig() interface{} {
 // the overlay closes asynchronously and we want the user to see the
 // modal disappear before the chart flickers.
 func (e *StatementChartPro) ApplyProperties(v map[string]string) {
+	if val, ok := v["comment"]; ok {
+		e.comment = val
+	}
 	ch, rc := false, false
 
 	if val, ok := v["id"]; ok && val != "" && val != e.id {
@@ -2604,6 +2647,14 @@ func (e *StatementChartPro) LiveUpdate(port string, value []byte) error {
 // ApplyProperties is one-way migration. Once saved post-refactor,
 // scenes use the new schema.
 
+// GetComment returns the user comment shown in the device's hover tooltip.
+// Português: Retorna o comentário exibido no tooltip de hover do device.
+func (e *StatementChartPro) GetComment() string { return e.comment }
+
+// SetComment sets the user comment.
+// Português: Define o comentário do usuário.
+func (e *StatementChartPro) SetComment(c string) { e.comment = c }
+
 func (e *StatementChartPro) GetProperties() map[string]interface{} {
 	props := map[string]interface{}{
 		"label":          e.label,
@@ -2626,6 +2677,9 @@ func (e *StatementChartPro) GetProperties() map[string]interface{} {
 		"gapThresholdMs": e.gapThresholdMs,
 		"frontendWidth":  e.frontendWidth.GetFloat(),
 		"frontendHeight": e.frontendHeight.GetFloat(),
+	}
+	if e.comment != "" {
+		props["comment"] = e.comment
 	}
 	for i, s := range e.series {
 		p := fmt.Sprintf("series_%d_", i)
@@ -2775,7 +2829,7 @@ func (e *StatementChartPro) getIcon(data rulesIcon.Data) js.Value {
 		Fill(data.ColorBackground).
 		D(hexPath)
 	iconLabel := factoryBrowser.NewTagSvgText().
-		FontFamily("Arial,sans-serif").
+		FontFamily(rulesDevice.KDeviceFontFamily).
 		FontWeight("bold").
 		FontSize(rulesIcon.Width.GetInt() / 4).
 		Text("≋").
@@ -2842,3 +2896,9 @@ func (e *StatementChartPro) MoveBy(dx, dy float64) {
 		e.wireMgr.RecalculateForElement(e.id)
 	}
 }
+
+// SetSceneMgr receives the scene serializer — called by
+// scene.Serializer.Register via interface assertion at registration time.
+// Português: Recebe o serializer de cena — chamado pelo
+// scene.Serializer.Register por assertion no registro.
+func (e *StatementChartPro) SetSceneMgr(mgr *scene.Serializer) { e.sceneMgr = mgr }

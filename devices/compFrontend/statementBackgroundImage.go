@@ -81,8 +81,17 @@ type StatementBackgroundImage struct {
 	backendCtxMenu  *contextMenu.Controller
 	frontendCtxMenu *contextMenu.Controller
 	label           string
-	canvasEl        js.Value
-	imageData       string
+	// [COMMENT] user comment — shown in the device's hover tooltip and kept
+	// in the scene. Dashboard widgets emit no code statement, so unlike the
+	// backend devices this never reaches the generated source — it is stage
+	// documentation.
+	// Português: Comentário do usuário — exibido no tooltip de hover e
+	// gravado na cena. Widgets de dashboard não emitem statement, então
+	// diferente dos devices de backend isto nunca chega ao código gerado —
+	// é documentação do stage.
+	comment   string
+	canvasEl  js.Value
+	imageData string
 
 	// opacity controls the transparency of the frontend image.
 	// 100 = fully opaque (default), 0 = fully transparent.
@@ -93,8 +102,17 @@ type StatementBackgroundImage struct {
 	gridAdjust  grid.Adjust
 	iconStatus  int
 	sceneNotify func()
-	onRemove    func(id string)
-	SendFunc    func(deviceID, port string, value interface{})
+	// [SCENEGRAPH] injected by scene.Serializer.Register (self-injection by
+	// interface assertion). DragEnd reports through it so the scenegraph
+	// refreshes geometry, recomputes conflicts (own + peers) and reassigns
+	// parenting — the same EndDrag hook the containers use.
+	// Português: Injetado pelo scene.Serializer.Register (auto-injeção por
+	// assertion). O DragEnd reporta por ele para o scenegraph refrescar
+	// geometria, recomputar conflitos (próprios + peers) e reatribuir
+	// parenting — o mesmo gancho EndDrag dos containers.
+	sceneMgr *scene.Serializer
+	onRemove func(id string)
+	SendFunc func(deviceID, port string, value interface{})
 }
 
 // ── Dependency injection ──────────────────────────────────────────────
@@ -465,6 +483,13 @@ func (e *StatementBackgroundImage) wireBackendEvents() {
 		x, y := e.backendElem.GetPositionD()
 		nx, ny := e.gridAdjust.AdjustCenterD(x, y)
 		e.backendElem.SetPositionD(nx, ny)
+		// [SCENEGRAPH] dx/dy=0: they only move container descendants (this
+		// device has none); geometry is re-read live by refreshGeometry.
+		// Português: dx/dy=0: eles só movem descendentes de container (este
+		// device não tem); a geometria é relida ao vivo pelo refreshGeometry.
+		if e.sceneMgr != nil {
+			e.sceneMgr.EndDrag(e.id, 0, 0)
+		}
 		if e.sceneNotify != nil {
 			e.sceneNotify()
 		}
@@ -487,6 +512,13 @@ func (e *StatementBackgroundImage) wireFrontendEvents() {
 		x, y := e.frontendElem.GetPositionD()
 		nx, ny := e.gridAdjust.AdjustCenterD(x, y)
 		e.frontendElem.SetPositionD(nx, ny)
+		// [SCENEGRAPH] dx/dy=0: they only move container descendants (this
+		// device has none); geometry is re-read live by refreshGeometry.
+		// Português: dx/dy=0: eles só movem descendentes de container (este
+		// device não tem); a geometria é relida ao vivo pelo refreshGeometry.
+		if e.sceneMgr != nil {
+			e.sceneMgr.EndDrag(e.id, 0, 0)
+		}
 		if e.sceneNotify != nil {
 			e.sceneNotify()
 		}
@@ -611,6 +643,14 @@ func (e *StatementBackgroundImage) GetInspectConfig() interface{} {
 				Fields: []overlay.Field{
 					{Key: "id", Label: "ID", Type: overlay.FieldText, Value: e.id},
 					{Key: "label", Label: translate.T("propLabel", "Label"), Type: overlay.FieldText, Value: e.label},
+					{
+						Key:         "comment",
+						Label:       translate.T("propComment", "Comment"),
+						Type:        overlay.FieldTextarea,
+						Value:       e.comment,
+						Placeholder: translate.T("propCommentPlaceholder", "Comment shown on hover..."),
+						Rows:        3,
+					},
 					{Key: "imageData", Label: translate.T("propImage", "Image"), Type: overlay.FieldFile, Value: e.imageData, Accept: "image/png,image/svg+xml"},
 					{
 						Key:         "opacity",
@@ -636,6 +676,9 @@ func (e *StatementBackgroundImage) GetInspectConfig() interface{} {
 }
 
 func (e *StatementBackgroundImage) ApplyProperties(values map[string]string) {
+	if v, ok := values["comment"]; ok {
+		e.comment = v
+	}
 	changed := false
 	imageChanged := false
 
@@ -808,7 +851,7 @@ func (e *StatementBackgroundImage) getIcon(data rulesIcon.Data) js.Value {
 	hexDraw := factoryBrowser.NewTagSvgPath().
 		StrokeWidth(rulesIcon.BorderWidth.GetInt()).Stroke(data.ColorBorder).Fill(data.ColorBackground).D(hexPath)
 	iconLabel := factoryBrowser.NewTagSvgText().
-		FontFamily("Arial,sans-serif").FontWeight("bold").FontSize(rulesIcon.Width.GetInt() / 4).
+		FontFamily(rulesDevice.KDeviceFontFamily).FontWeight("bold").FontSize(rulesIcon.Width.GetInt() / 4).
 		Text("🖼").Fill(data.ColorIcon).
 		X((rulesIcon.Width / 2).GetInt() - 8).Y((rulesIcon.Height / 2).GetInt() + 5)
 	wl, _ := utilsText.GetTextSize(data.Label, rulesIcon.FontFamily, rulesIcon.FontWeight, rulesIcon.FontStyle, data.LabelFontSize.GetInt())
@@ -847,11 +890,29 @@ func (e *StatementBackgroundImage) MoveBy(dx, dy float64) {
 }
 
 func (e *StatementBackgroundImage) GetProperties() map[string]interface{} {
-	return map[string]interface{}{
+	props := map[string]interface{}{
 		"label":          e.label,
 		"imageData":      e.imageData,
 		"opacity":        e.opacity,
 		"frontendWidth":  int(e.frontendWidth),
 		"frontendHeight": int(e.frontendHeight),
 	}
+	if e.comment != "" {
+		props["comment"] = e.comment
+	}
+	return props
 }
+
+// GetComment returns the user comment shown in the device's hover tooltip.
+// Português: Retorna o comentário exibido no tooltip de hover do device.
+func (e *StatementBackgroundImage) GetComment() string { return e.comment }
+
+// SetComment sets the user comment.
+// Português: Define o comentário do usuário.
+func (e *StatementBackgroundImage) SetComment(c string) { e.comment = c }
+
+// SetSceneMgr receives the scene serializer — called by
+// scene.Serializer.Register via interface assertion at registration time.
+// Português: Recebe o serializer de cena — chamado pelo
+// scene.Serializer.Register por assertion no registro.
+func (e *StatementBackgroundImage) SetSceneMgr(mgr *scene.Serializer) { e.sceneMgr = mgr }

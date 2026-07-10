@@ -43,6 +43,7 @@ import (
 	"github.com/helmutkemper/iotmakerio/devices"
 	"github.com/helmutkemper/iotmakerio/devices/block"
 	"github.com/helmutkemper/iotmakerio/grid"
+	"github.com/helmutkemper/iotmakerio/rulesConnection"
 	"github.com/helmutkemper/iotmakerio/rulesDensity"
 	"github.com/helmutkemper/iotmakerio/rulesDevice"
 	"github.com/helmutkemper/iotmakerio/rulesFrontend"
@@ -101,10 +102,19 @@ type StatementPieChart struct {
 	// and frontend stages. Dual devices open menus on their
 	// respective stage; the factory wires both via
 	// SetBackendContextMenu and SetFrontendContextMenu.
-	backendCtxMenu    *contextMenu.Controller
-	frontendCtxMenu   *contextMenu.Controller
-	wireMgr           *wire.Manager
-	label             string
+	backendCtxMenu  *contextMenu.Controller
+	frontendCtxMenu *contextMenu.Controller
+	wireMgr         *wire.Manager
+	label           string
+	// [COMMENT] user comment — shown in the device's hover tooltip and kept
+	// in the scene. Dashboard widgets emit no code statement, so unlike the
+	// backend devices this never reaches the generated source — it is stage
+	// documentation.
+	// Português: Comentário do usuário — exibido no tooltip de hover e
+	// gravado na cena. Widgets de dashboard não emitem statement, então
+	// diferente dos devices de backend isto nunca chega ao código gerado —
+	// é documentação do stage.
+	comment           string
 	canvasEl          js.Value
 	slices            []pieSlice
 	sliceCount        int
@@ -118,8 +128,17 @@ type StatementPieChart struct {
 	gridAdjust        grid.Adjust
 	iconStatus        int
 	sceneNotify       func()
-	onRemove          func(id string)
-	SendFunc          func(deviceID, port string, value interface{})
+	// [SCENEGRAPH] injected by scene.Serializer.Register (self-injection by
+	// interface assertion). DragEnd reports through it so the scenegraph
+	// refreshes geometry, recomputes conflicts (own + peers) and reassigns
+	// parenting — the same EndDrag hook the containers use.
+	// Português: Injetado pelo scene.Serializer.Register (auto-injeção por
+	// assertion). O DragEnd reporta por ele para o scenegraph refrescar
+	// geometria, recomputar conflitos (próprios + peers) e reatribuir
+	// parenting — o mesmo gancho EndDrag dos containers.
+	sceneMgr *scene.Serializer
+	onRemove func(id string)
+	SendFunc func(deviceID, port string, value interface{})
 }
 
 // ── Dependency injection ──────────────────────────────────────────────
@@ -259,8 +278,16 @@ func (e *StatementPieChart) renderBackendSVG() string {
 	accent := e.getSliceColor(0)
 
 	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d">`, int(w), int(totalH))
+
+	// [PIN] the body is inset on the LEFT by the pin length: one standard
+	// pin per slice lives in the freed margin, wires anchored at the outer
+	// tips — the element's left edge.
+	// Português: O corpo recua à ESQUERDA o comprimento do pino: um pino
+	// padrão por fatia vive na margem liberada, fios ancorados nas pontas
+	// externas — a borda esquerda do element.
+	pin := rulesConnection.PinBodyInset()
 	svg += fmt.Sprintf(`<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="%.0f" ry="%.0f" fill="%s" stroke="%s" stroke-width="%.1f"/>`,
-		bw/2, bw/2, w-bw, bodyH-bw, rulesDevice.KDeviceCornerRadius, rulesDevice.KDeviceCornerRadius,
+		pin+bw/2, bw/2, w-pin-bw, bodyH-bw, rulesDevice.KDeviceCornerRadius, rulesDevice.KDeviceCornerRadius,
 		rulesDevice.KColorDeviceBg, accent, bw)
 	svg += fmt.Sprintf(`<text x="%.1f" y="14" font-family="%s" font-size="%d" fill="%s" text-anchor="end" font-weight="bold">PIE</text>`,
 		w-12, rulesDevice.KDeviceFontFamily, rulesDevice.KDeviceFontSizeTypeTag, rulesDevice.KColorDeviceTextMuted)
@@ -268,8 +295,7 @@ func (e *StatementPieChart) renderBackendSVG() string {
 	for i := 0; i < e.sliceCount; i++ {
 		cy := e.connectorY(i)
 		color := e.getSliceColor(i)
-		svg += fmt.Sprintf(`<circle cx="%.0f" cy="%.1f" r="%.0f" fill="%s" stroke="%s" stroke-width="1"/>`,
-			rulesDevice.KConnectorOffsetLeft, cy, rulesDevice.KConnectorRadius, color, rulesDevice.KColorConnectorStroke)
+		svg += rulesConnection.PinSVGFragment(rulesConnection.PinSideLeft, pin, cy, color)
 		lbl := piePortName(i)
 		if i < len(e.slices) && e.slices[i].Label != "" {
 			lbl = e.slices[i].Label
@@ -553,9 +579,9 @@ func (e *StatementPieChart) wireBackendEvents() {
 		}
 		for i := 0; i < e.sliceCount; i++ {
 			cy := e.connectorY(i)
-			dx := event.LocalX - rulesDevice.KConnectorOffsetLeft
-			dy := event.LocalY - cy
-			if dx*dx+dy*dy <= rulesDevice.KConnectorHitRadius*rulesDevice.KConnectorHitRadius {
+			if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+				rulesConnection.PinBodyInset(), cy,
+				event.LocalX, event.LocalY) {
 				go e.backendCtxMenu.OpenAtWorld(mainMenu.ConnectorMenu(e.wireMgr, e.id, piePortName(i)), mx, my)
 				return
 			}
@@ -580,6 +606,13 @@ func (e *StatementPieChart) wireBackendEvents() {
 		if e.wireMgr != nil {
 			e.wireMgr.RecalculateForElement(e.id)
 		}
+		// [SCENEGRAPH] dx/dy=0: they only move container descendants (this
+		// device has none); geometry is re-read live by refreshGeometry.
+		// Português: dx/dy=0: eles só movem descendentes de container (este
+		// device não tem); a geometria é relida ao vivo pelo refreshGeometry.
+		if e.sceneMgr != nil {
+			e.sceneMgr.EndDrag(e.id, 0, 0)
+		}
 		if e.sceneNotify != nil {
 			e.sceneNotify()
 		}
@@ -590,9 +623,8 @@ func (e *StatementPieChart) wireBackendEvents() {
 		}
 		for i := 0; i < e.sliceCount; i++ {
 			cy := e.connectorY(i)
-			dx := lx - rulesDevice.KConnectorOffsetLeft
-			dy := ly - cy
-			if dx*dx+dy*dy <= rulesDevice.KConnectorHitRadius*rulesDevice.KConnectorHitRadius {
+			if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+				rulesConnection.PinBodyInset(), cy, lx, ly) {
 				return sprite.CursorPointer
 			}
 		}
@@ -616,6 +648,13 @@ func (e *StatementPieChart) wireFrontendEvents() {
 		x, y := e.frontendElem.GetPositionD()
 		nx, ny := e.gridAdjust.AdjustCenterD(x, y)
 		e.frontendElem.SetPositionD(nx, ny)
+		// [SCENEGRAPH] dx/dy=0: they only move container descendants (this
+		// device has none); geometry is re-read live by refreshGeometry.
+		// Português: dx/dy=0: eles só movem descendentes de container (este
+		// device não tem); a geometria é relida ao vivo pelo refreshGeometry.
+		if e.sceneMgr != nil {
+			e.sceneMgr.EndDrag(e.id, 0, 0)
+		}
 		if e.sceneNotify != nil {
 			e.sceneNotify()
 		}
@@ -696,6 +735,14 @@ func (e *StatementPieChart) GetInspectConfig() interface{} {
 	globalFields := []overlay.Field{
 		{Key: "id", Label: "ID", Type: overlay.FieldText, Value: e.id},
 		{Key: "label", Label: translate.T("propLabel", "Label"), Type: overlay.FieldText, Value: e.label},
+		{
+			Key:         "comment",
+			Label:       translate.T("propComment", "Comment"),
+			Type:        overlay.FieldTextarea,
+			Value:       e.comment,
+			Placeholder: translate.T("propCommentPlaceholder", "Comment shown on hover..."),
+			Rows:        3,
+		},
 		{Key: "chartTitle", Label: translate.T("propChartTitle", "Title"), Type: overlay.FieldText, Value: e.chartTitle, Placeholder: "Distribution"},
 		{Key: "sliceCount", Label: translate.T("propSliceCount", "Slice Count"), Type: overlay.FieldNumber, Value: strconv.Itoa(e.sliceCount), Min: strconv.Itoa(kPieMinSlices), Max: strconv.Itoa(kPieMaxSlices)},
 		{Key: "donut", Label: translate.T("propDonut", "Donut Mode"), Type: overlay.FieldCheckbox, Value: bs(e.donut)},
@@ -729,6 +776,9 @@ func (e *StatementPieChart) GetInspectConfig() interface{} {
 }
 
 func (e *StatementPieChart) ApplyProperties(v map[string]string) {
+	if val, ok := v["comment"]; ok {
+		e.comment = val
+	}
 	ch, rc := false, false
 	if val, ok := v["id"]; ok && val != "" && val != e.id {
 		old := e.id
@@ -850,7 +900,9 @@ func (e *StatementPieChart) RegisterConnectors() {
 			AllowedTypes: []string{"int", "float64"}, AcceptNotConnected: true, MaxConnections: 1, Label: pn,
 			PositionFunc: func() (float64, float64) {
 				ex, ey := e.backendElem.GetPosition()
-				return ex + rulesDevice.KConnectorOffsetLeft, ey + e.connectorY(idx)
+				ax, ay := rulesConnection.PinAnchor(rulesConnection.PinSideLeft,
+					rulesConnection.PinBodyInset(), e.connectorY(idx))
+				return ex + ax, ey + ay
 			},
 		})
 	}
@@ -899,11 +951,22 @@ func (e *StatementPieChart) SendValue(port string, value float64) {
 
 // ── Serialization ─────────────────────────────────────────────────────
 
+// GetComment returns the user comment shown in the device's hover tooltip.
+// Português: Retorna o comentário exibido no tooltip de hover do device.
+func (e *StatementPieChart) GetComment() string { return e.comment }
+
+// SetComment sets the user comment.
+// Português: Define o comentário do usuário.
+func (e *StatementPieChart) SetComment(c string) { e.comment = c }
+
 func (e *StatementPieChart) GetProperties() map[string]interface{} {
 	props := map[string]interface{}{
 		"label": e.label, "chartTitle": e.chartTitle, "sliceCount": e.sliceCount,
 		"donut": e.donut, "showLegend": e.showLegend, "showPercent": e.showPercent,
 		"interactionLocked": e.interactionLocked, "frontendWidth": e.frontendWidth.GetFloat(), "frontendHeight": e.frontendHeight.GetFloat(),
+	}
+	if e.comment != "" {
+		props["comment"] = e.comment
 	}
 	for i, s := range e.slices {
 		p := fmt.Sprintf("slice_%d_", i)
@@ -999,7 +1062,7 @@ func (e *StatementPieChart) getIcon(data rulesIcon.Data) js.Value {
 	svgIcon := factoryBrowser.NewTagSvg().X(rulesIcon.Width.GetInt() / 2).Y(rulesIcon.Height.GetInt() / 2).Width(rulesIcon.Width.GetInt()).Height(rulesIcon.Height.GetInt())
 	hexPath := utilsDraw.PolygonPath(6, rulesIcon.Width/2, rulesIcon.Width/2, rulesIcon.Width/2, 0)
 	hexDraw := factoryBrowser.NewTagSvgPath().StrokeWidth(rulesIcon.BorderWidth.GetInt()).Stroke(data.ColorBorder).Fill(data.ColorBackground).D(hexPath)
-	iconLabel := factoryBrowser.NewTagSvgText().FontFamily("Arial,sans-serif").FontWeight("bold").FontSize(rulesIcon.Width.GetInt() / 4).Text("◔").Fill(data.ColorIcon).X((rulesIcon.Width / 2).GetInt() - 8).Y((rulesIcon.Height / 2).GetInt() + 5)
+	iconLabel := factoryBrowser.NewTagSvgText().FontFamily(rulesDevice.KDeviceFontFamily).FontWeight("bold").FontSize(rulesIcon.Width.GetInt() / 4).Text("◔").Fill(data.ColorIcon).X((rulesIcon.Width / 2).GetInt() - 8).Y((rulesIcon.Height / 2).GetInt() + 5)
 	wl, _ := utilsText.GetTextSize(data.Label, rulesIcon.FontFamily, rulesIcon.FontWeight, rulesIcon.FontStyle, data.LabelFontSize.GetInt())
 	label := factoryBrowser.NewTagSvgText().FontFamily(rulesIcon.FontFamily).FontWeight(rulesIcon.FontWeight).FontStyle(rulesIcon.FontStyle).FontSize(data.LabelFontSize.GetInt()).Text(data.Label).Fill(data.ColorLabel).X((rulesIcon.Width / 2).GetInt() - wl/2).Y(data.LabelY.GetInt())
 	svgIcon.Append(hexDraw, iconLabel, label)
@@ -1042,3 +1105,9 @@ func (e *StatementPieChart) MoveBy(dx, dy float64) {
 		e.wireMgr.RecalculateForElement(e.id)
 	}
 }
+
+// SetSceneMgr receives the scene serializer — called by
+// scene.Serializer.Register via interface assertion at registration time.
+// Português: Recebe o serializer de cena — chamado pelo
+// scene.Serializer.Register por assertion no registro.
+func (e *StatementPieChart) SetSceneMgr(mgr *scene.Serializer) { e.sceneMgr = mgr }

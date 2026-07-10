@@ -88,6 +88,20 @@ type DeviceCreator interface {
 	CreateSetVarFloat()
 	CreateGetVarString()
 	CreateSetVarString()
+	// The six debug-print sinks (Debug group, SysDebug). Part of the same
+	// contract as every Create* above: the concrete implementation lives in
+	// factoryDevice.DeviceFactory; the SysPrint* factories in this file call
+	// them through this interface.
+	// Português: Os seis sinks de print (grupo Debug, SysDebug). Mesmo
+	// contrato dos demais Create*: a implementação concreta vive em
+	// factoryDevice.DeviceFactory; as factories SysPrint* deste arquivo
+	// chamam por esta interface.
+	CreatePrintInt()
+	CreatePrintFloat()
+	CreatePrintString()
+	CreatePrintBool()
+	CreatePrintByte()
+	CreatePrintByteArray()
 	CreateGauge()
 	CreateLED()
 	CreateBarGraph()
@@ -736,7 +750,28 @@ func (b *MenuBuilder) buildSystemNode(slot *RailSlot, label string, styles [5]he
 	item := fn(label)
 
 	// Build children recursively for submenu items.
-	if slot.ItemType == "submenu" && len(slot.Children) > 0 {
+	//
+	// [FIX 2026-07] The gate is len(slot.Children) alone — the DB's
+	// item_type is NOT consulted. Databases seeded before the linear panel
+	// existed carry item_type='action' on group slots that were direct
+	// actions in the old design (SysExport, SysDisplay); gating on that
+	// stale flag left their Submenu empty, so the panel fell back to
+	// showing the group itself as its only row ("Export ›" going nowhere).
+	// The tree's parent/child structure is the ground truth the server
+	// already maintains; the client now follows it. The server-side
+	// counterpart (migrateMenuTreeItemTypes) heals the stale rows so the
+	// Control Panel shows the right type too.
+	//
+	// Português: [FIX 2026-07] O gate é só len(slot.Children) — o item_type
+	// do banco NÃO é consultado. Bancos populados antes do painel linear
+	// carregam item_type='action' em grupos que eram ações diretas no
+	// design antigo (SysExport, SysDisplay); condicionar nessa flag velha
+	// deixava o Submenu vazio e o painel caía no fallback de mostrar o
+	// próprio grupo como única linha ("Export ›" sem destino). A estrutura
+	// pai/filho da árvore é a verdade que o server já mantém; o cliente
+	// agora a segue. O par no server (migrateMenuTreeItemTypes) corrige as
+	// linhas velhas para o Control Panel também mostrar o tipo certo.
+	if len(slot.Children) > 0 {
 		sub := make([]hexMenu.MenuItem, 0, len(slot.Children)+1)
 		back := hexMenu.GoBackItem(3, 3)
 		back.Styles = styles
@@ -749,6 +784,13 @@ func (b *MenuBuilder) buildSystemNode(slot *RailSlot, label string, styles [5]he
 			}
 		}
 		item.Submenu = sub
+		// A node with children must behave as a submenu even when its
+		// factory (or a stale catalog) says otherwise — the panel's
+		// navigation keys off item.Type.
+		// Português: Nó com filhos precisa se comportar como submenu mesmo
+		// quando a factory (ou catálogo velho) diz outra coisa — a
+		// navegação do painel decide por item.Type.
+		item.Type = hexMenu.ItemSubmenu
 	}
 
 	return &item
@@ -2591,6 +2633,91 @@ func (b *MenuBuilder) registerFactories() {
 			ViewBox:         "0 0 512 512",
 			Type:            hexMenu.ItemAction,
 			OnClick:         func() { b.factory.SafeRun("CreateIndexString", b.factory.CreateIndexString) },
+			Styles:          styles,
+		}
+	}
+
+	// ── Debug ─────────────────────────────────────────────────────────────
+	// The Debug group (SysDebug) and its six Print sinks are system slots
+	// the DB seeds at the ROOT level (MigrateMenuTreePrint). Without these
+	// factories the DB-driven builder would skip the slots (the "no factory
+	// for system slot_id" path) — the group node itself needs one too, its
+	// children then come generically from the DB tree. Glyphs match the
+	// seed's icon_fa: KFABug for the group, KFAPrint for the sinks (both
+	// copied verbatim from the generated FA registry).
+	//
+	// Português: O grupo Debug (SysDebug) e seus seis sinks Print são slots
+	// de sistema que o banco semeia na RAIZ (MigrateMenuTreePrint). Sem
+	// estas factories o builder pularia os slots — o nó do grupo também
+	// precisa de uma; os filhos vêm genericamente da árvore do banco.
+	// Glifos casam com o icon_fa do seed: KFABug no grupo, KFAPrint nos
+	// sinks (ambos verbatim do registry FA gerado).
+	b.factories["SysDebug"] = func(label string) hexMenu.MenuItem {
+		return hexMenu.MenuItem{
+			ID: "SysDebug", Label: label,
+			FontAwesomePath: rulesIcon.KFABug,
+			ViewBox:         "0 0 576 512",
+			Type:            hexMenu.ItemSubmenu,
+			Styles:          styles,
+		}
+	}
+	b.factories["SysPrintInt"] = func(label string) hexMenu.MenuItem {
+		return hexMenu.MenuItem{
+			ID: "SysPrintInt", Label: label,
+			FontAwesomePath: rulesIcon.KFAPrint,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemAction,
+			OnClick:         func() { b.factory.SafeRun("CreatePrintInt", b.factory.CreatePrintInt) },
+			Styles:          styles,
+		}
+	}
+	b.factories["SysPrintFloat"] = func(label string) hexMenu.MenuItem {
+		return hexMenu.MenuItem{
+			ID: "SysPrintFloat", Label: label,
+			FontAwesomePath: rulesIcon.KFAPrint,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemAction,
+			OnClick:         func() { b.factory.SafeRun("CreatePrintFloat", b.factory.CreatePrintFloat) },
+			Styles:          styles,
+		}
+	}
+	b.factories["SysPrintString"] = func(label string) hexMenu.MenuItem {
+		return hexMenu.MenuItem{
+			ID: "SysPrintString", Label: label,
+			FontAwesomePath: rulesIcon.KFAPrint,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemAction,
+			OnClick:         func() { b.factory.SafeRun("CreatePrintString", b.factory.CreatePrintString) },
+			Styles:          styles,
+		}
+	}
+	b.factories["SysPrintBool"] = func(label string) hexMenu.MenuItem {
+		return hexMenu.MenuItem{
+			ID: "SysPrintBool", Label: label,
+			FontAwesomePath: rulesIcon.KFAPrint,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemAction,
+			OnClick:         func() { b.factory.SafeRun("CreatePrintBool", b.factory.CreatePrintBool) },
+			Styles:          styles,
+		}
+	}
+	b.factories["SysPrintByte"] = func(label string) hexMenu.MenuItem {
+		return hexMenu.MenuItem{
+			ID: "SysPrintByte", Label: label,
+			FontAwesomePath: rulesIcon.KFAPrint,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemAction,
+			OnClick:         func() { b.factory.SafeRun("CreatePrintByte", b.factory.CreatePrintByte) },
+			Styles:          styles,
+		}
+	}
+	b.factories["SysPrintByteArray"] = func(label string) hexMenu.MenuItem {
+		return hexMenu.MenuItem{
+			ID: "SysPrintByteArray", Label: label,
+			FontAwesomePath: rulesIcon.KFAPrint,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemAction,
+			OnClick:         func() { b.factory.SafeRun("CreatePrintByteArray", b.factory.CreatePrintByteArray) },
 			Styles:          styles,
 		}
 	}

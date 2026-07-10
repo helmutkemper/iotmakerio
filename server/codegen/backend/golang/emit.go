@@ -21,6 +21,7 @@ package golang
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"server/codegen/blackbox"
@@ -94,6 +95,17 @@ func (e *goEmitter) emit(prog *ir.Program) string {
 	e.bbEmitted = make(map[string]bool)
 
 	for _, inst := range prog.Instructions {
+		// [COMMENT] the maker's device comment (stamped by the IR on the
+		// node's first instruction) prefixes it as `// ` lines, one per
+		// comment line, at the current indentation.
+		// Português: O comentário do device (carimbado pelo IR na primeira
+		// instrução do node) o prefixa como linhas `// `, uma por linha do
+		// comentário, na indentação corrente.
+		if c := inst.Meta["comment"]; c != "" {
+			for _, line := range strings.Split(c, "\n") {
+				e.writef("// %s\n", strings.TrimRight(line, " \t"))
+			}
+		}
 		switch inst.Op {
 		// Native opcodes
 		case ir.OpConst:
@@ -144,6 +156,8 @@ func (e *goEmitter) emit(prog *ir.Program) string {
 			e.emitCondEnd(inst)
 		case ir.OpOutput:
 			e.emitOutput(inst)
+		case ir.OpPrint:
+			e.emitPrint(inst)
 		case ir.OpReturn:
 			e.emitReturn(inst)
 
@@ -599,6 +613,94 @@ func (e *goEmitter) emitOutput(inst ir.Instruction) {
 func (e *goEmitter) emitReturn(inst ir.Instruction) {
 	src := goOperand(inst.Args[0])
 	e.writef("_ = %s // return value\n", src)
+}
+
+// emitPrint translates OpPrint into a fmt.Printf call. The printed line is
+// "<prefix> <value>\n" — the prefix (and its separating space) is omitted
+// when empty. The prefix is maker-typed free text: every "%" in it is doubled
+// so Printf treats it as a literal, and the assembled format string goes
+// through strconv.Quote so quotes, backslashes and non-ASCII survive as a
+// valid Go string literal.
+//
+// Per-type verbs (see OpPrint's table in ir/types.go):
+//
+//	int    → %d, or 0x%X for "hex"
+//	float  → %v, or int64(v) + %d for "trunc" (truncated toward zero,
+//	         never rounded — %.0f would round)
+//	string → %s
+//	bool   → %t, or a tiny named temp + %d for "onezero" (Go has no
+//	         ternary and no bool→int conversion; the temp keeps the
+//	         generated code readable)
+//	byte   → 0x%02X, or %d for "decimal"
+//	[]byte → "% X" (space-separated hex pairs), or %s for "text"
+//
+// Português: Traduz OpPrint para fmt.Printf. A linha é "<prefix> <valor>\n"
+// — o prefixo (e o espaço separador) some quando vazio. Todo "%" do prefixo
+// é dobrado e a string de formato passa por strconv.Quote para virar um
+// literal Go válido. Verbos por tipo na tabela acima — trunc é parte
+// inteira TRUNCADA (int64(v)), nunca arredondada; bool "onezero" usa um
+// temp nomeado porque Go não tem ternário nem conversão bool→int.
+func (e *goEmitter) emitPrint(inst ir.Instruction) {
+	if len(inst.Args) == 0 {
+		return
+	}
+	e.addImport("fmt")
+	src := goOperand(inst.Args[0])
+
+	lead := ""
+	if p := inst.Meta["prefix"]; p != "" {
+		lead = strings.ReplaceAll(p, "%", "%%") + " "
+	}
+
+	verb := ""
+	arg := src
+	switch inst.Type {
+	case "int":
+		verb = "%d"
+		if inst.Meta["format"] == "hex" {
+			verb = "0x%X"
+		}
+	case "float":
+		verb = "%v"
+		if inst.Meta["format"] == "trunc" {
+			verb = "%d"
+			arg = "int64(" + src + ")"
+		}
+	case "string":
+		verb = "%s"
+	case "bool":
+		if inst.Meta["format"] == "onezero" {
+			tmp := goIdent(inst.Dest) + "AsInt"
+			e.writef("%s := 0\n", tmp)
+			e.writef("if %s {\n", src)
+			e.indent++
+			e.writef("%s = 1\n", tmp)
+			e.indent--
+			e.writef("}\n")
+			verb = "%d"
+			arg = tmp
+		} else {
+			verb = "%t"
+		}
+	case "byte":
+		verb = "0x%02X"
+		if inst.Meta["format"] == "decimal" {
+			verb = "%d"
+		}
+	case "[]byte":
+		// "% X" renders the slice as space-separated hex pairs; the space
+		// is a fmt FLAG (between elements), not a literal leading space.
+		// Português: "% X" imprime o slice como pares hex separados por
+		// espaço; o espaço é FLAG do fmt (entre elementos), não literal.
+		verb = "% X"
+		if inst.Meta["format"] == "text" {
+			verb = "%s"
+		}
+	default:
+		verb = "%v"
+	}
+
+	e.writef("fmt.Printf(%s, %s)\n", strconv.Quote(lead+verb+"\n"), arg)
 }
 
 // =====================================================================

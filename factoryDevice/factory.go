@@ -28,6 +28,7 @@ import (
 	"github.com/helmutkemper/iotmakerio/devices/block"
 	"github.com/helmutkemper/iotmakerio/devices/compArray"
 	"github.com/helmutkemper/iotmakerio/devices/compConsts"
+	"github.com/helmutkemper/iotmakerio/devices/compDebug"
 	"github.com/helmutkemper/iotmakerio/devices/compFlow"
 	"github.com/helmutkemper/iotmakerio/devices/compFrontend"
 	"github.com/helmutkemper/iotmakerio/devices/compLogic"
@@ -1118,6 +1119,204 @@ func (f *DeviceFactory) CreateSetVarString() {
 	log.Printf("[Factory] Created StatementSetVarString at (%v, %v)", cx, cy)
 }
 
+// CreatePrintInt places the debug-print sink device (int) on the stage.
+// Same wiring as every rectangular sink (SetVar family); the print itself
+// happens at code generation via ir.OpPrint — fmt.Printf in Go, printf in
+// C99.
+//
+// Português: Coloca o sink de print (int) na stage. Mesma fiação dos
+// sinks retangulares (família SetVar); o print acontece na geração de
+// código via ir.OpPrint — fmt.Printf no Go, printf no C99.
+func (f *DeviceFactory) CreatePrintInt() {
+	stm := new(compDebug.StatementPrintInt)
+	stm.SetStage(f.Stage)
+	stm.SetWireManager(f.WireMgr)
+	stm.SetResizerButton(f.ResizeButton)
+	stm.SetGridAdjust(f.GridAdjust)
+	stm.SetContextMenu(f.ContextMenu)
+
+	if err := stm.Init(); err != nil {
+		log.Printf("[Factory] StatementPrintInt.Init: %v", err)
+		return
+	}
+
+	stm.RegisterConnectors()
+	f.SceneMgr.Register(stm)
+	stm.SetSceneNotify(f.SceneNotifyFn)
+	stm.SetOnRemove(f.makeOnRemove())
+
+	cx, cy := f.devicePosition()
+	stm.SetPosition(cx, cy)
+	stm.SetDragEnable(true)
+	stm.Append()
+	log.Printf("[Factory] Created StatementPrintInt at (%v, %v)", cx, cy)
+}
+
+// CreatePrintFloat places the debug-print sink device (float) on the stage.
+// Same wiring as every rectangular sink (SetVar family); the print itself
+// happens at code generation via ir.OpPrint — fmt.Printf in Go, printf in
+// C99.
+//
+// Português: Coloca o sink de print (float) na stage. Mesma fiação dos
+// sinks retangulares (família SetVar); o print acontece na geração de
+// código via ir.OpPrint — fmt.Printf no Go, printf no C99.
+func (f *DeviceFactory) CreatePrintFloat() {
+	stm := new(compDebug.StatementPrintFloat)
+	stm.SetStage(f.Stage)
+	stm.SetWireManager(f.WireMgr)
+	stm.SetResizerButton(f.ResizeButton)
+	stm.SetGridAdjust(f.GridAdjust)
+	stm.SetContextMenu(f.ContextMenu)
+
+	if err := stm.Init(); err != nil {
+		log.Printf("[Factory] StatementPrintFloat.Init: %v", err)
+		return
+	}
+
+	stm.RegisterConnectors()
+	f.SceneMgr.Register(stm)
+	stm.SetSceneNotify(f.SceneNotifyFn)
+	stm.SetOnRemove(f.makeOnRemove())
+
+	cx, cy := f.devicePosition()
+	stm.SetPosition(cx, cy)
+	stm.SetDragEnable(true)
+	stm.Append()
+	log.Printf("[Factory] Created StatementPrintFloat at (%v, %v)", cx, cy)
+}
+
+// CreatePrintString places the debug-print sink device (string) on the stage.
+// Same wiring as every rectangular sink (SetVar family); the print itself
+// happens at code generation via ir.OpPrint — fmt.Printf in Go, printf in
+// C99.
+//
+// Português: Coloca o sink de print (string) na stage. Mesma fiação dos
+// sinks retangulares (família SetVar); o print acontece na geração de
+// código via ir.OpPrint — fmt.Printf no Go, printf no C99.
+func (f *DeviceFactory) CreatePrintString() {
+	stm := new(compDebug.StatementPrintString)
+	stm.SetStage(f.Stage)
+	stm.SetWireManager(f.WireMgr)
+	stm.SetResizerButton(f.ResizeButton)
+	stm.SetGridAdjust(f.GridAdjust)
+	stm.SetContextMenu(f.ContextMenu)
+
+	if err := stm.Init(); err != nil {
+		log.Printf("[Factory] StatementPrintString.Init: %v", err)
+		return
+	}
+
+	stm.RegisterConnectors()
+	f.SceneMgr.Register(stm)
+	stm.SetSceneNotify(f.SceneNotifyFn)
+	stm.SetOnRemove(f.makeOnRemove())
+
+	cx, cy := f.devicePosition()
+	stm.SetPosition(cx, cy)
+	stm.SetDragEnable(true)
+	stm.Append()
+	log.Printf("[Factory] Created StatementPrintString at (%v, %v)", cx, cy)
+}
+
+// CreatePrintBool places the debug-print sink device (bool) on the stage.
+// Same wiring as every rectangular sink (SetVar family); the print itself
+// happens at code generation via ir.OpPrint — fmt.Printf in Go, printf in
+// C99.
+//
+// Português: Coloca o sink de print (bool) na stage. Mesma fiação dos
+// sinks retangulares (família SetVar); o print acontece na geração de
+// código via ir.OpPrint — fmt.Printf no Go, printf no C99.
+func (f *DeviceFactory) CreatePrintBool() {
+	stm := new(compDebug.StatementPrintBool)
+	stm.SetStage(f.Stage)
+	stm.SetWireManager(f.WireMgr)
+	stm.SetResizerButton(f.ResizeButton)
+	stm.SetGridAdjust(f.GridAdjust)
+	stm.SetContextMenu(f.ContextMenu)
+
+	if err := stm.Init(); err != nil {
+		log.Printf("[Factory] StatementPrintBool.Init: %v", err)
+		return
+	}
+
+	stm.RegisterConnectors()
+	f.SceneMgr.Register(stm)
+	stm.SetSceneNotify(f.SceneNotifyFn)
+	stm.SetOnRemove(f.makeOnRemove())
+
+	cx, cy := f.devicePosition()
+	stm.SetPosition(cx, cy)
+	stm.SetDragEnable(true)
+	stm.Append()
+	log.Printf("[Factory] Created StatementPrintBool at (%v, %v)", cx, cy)
+}
+
+// CreatePrintByte places the debug-print sink device (byte) on the stage.
+// Same wiring as every rectangular sink (SetVar family); the print itself
+// happens at code generation via ir.OpPrint — fmt.Printf in Go, printf in
+// C99.
+//
+// Português: Coloca o sink de print (byte) na stage. Mesma fiação dos
+// sinks retangulares (família SetVar); o print acontece na geração de
+// código via ir.OpPrint — fmt.Printf no Go, printf no C99.
+func (f *DeviceFactory) CreatePrintByte() {
+	stm := new(compDebug.StatementPrintByte)
+	stm.SetStage(f.Stage)
+	stm.SetWireManager(f.WireMgr)
+	stm.SetResizerButton(f.ResizeButton)
+	stm.SetGridAdjust(f.GridAdjust)
+	stm.SetContextMenu(f.ContextMenu)
+
+	if err := stm.Init(); err != nil {
+		log.Printf("[Factory] StatementPrintByte.Init: %v", err)
+		return
+	}
+
+	stm.RegisterConnectors()
+	f.SceneMgr.Register(stm)
+	stm.SetSceneNotify(f.SceneNotifyFn)
+	stm.SetOnRemove(f.makeOnRemove())
+
+	cx, cy := f.devicePosition()
+	stm.SetPosition(cx, cy)
+	stm.SetDragEnable(true)
+	stm.Append()
+	log.Printf("[Factory] Created StatementPrintByte at (%v, %v)", cx, cy)
+}
+
+// CreatePrintByteArray places the debug-print sink device ([]byte) on the stage.
+// Same wiring as every rectangular sink (SetVar family); the print itself
+// happens at code generation via ir.OpPrint — fmt.Printf in Go, printf in
+// C99.
+//
+// Português: Coloca o sink de print ([]byte) na stage. Mesma fiação dos
+// sinks retangulares (família SetVar); o print acontece na geração de
+// código via ir.OpPrint — fmt.Printf no Go, printf no C99.
+func (f *DeviceFactory) CreatePrintByteArray() {
+	stm := new(compDebug.StatementPrintByteArray)
+	stm.SetStage(f.Stage)
+	stm.SetWireManager(f.WireMgr)
+	stm.SetResizerButton(f.ResizeButton)
+	stm.SetGridAdjust(f.GridAdjust)
+	stm.SetContextMenu(f.ContextMenu)
+
+	if err := stm.Init(); err != nil {
+		log.Printf("[Factory] StatementPrintByteArray.Init: %v", err)
+		return
+	}
+
+	stm.RegisterConnectors()
+	f.SceneMgr.Register(stm)
+	stm.SetSceneNotify(f.SceneNotifyFn)
+	stm.SetOnRemove(f.makeOnRemove())
+
+	cx, cy := f.devicePosition()
+	stm.SetPosition(cx, cy)
+	stm.SetDragEnable(true)
+	stm.Append()
+	log.Printf("[Factory] Created StatementPrintByteArray at (%v, %v)", cx, cy)
+}
+
 // CreateGauge creates a dual device: backend data node + frontend gauge dial.
 // Uses dualStages() to correctly resolve which stage is backend vs frontend,
 // regardless of which workspace tab the factory belongs to.
@@ -1996,6 +2195,24 @@ func (f *DeviceFactory) CreateByType(deviceType string, x, y float64) bool {
 		f.CreateSetVarFloat()
 	case "StatementSetVarString":
 		f.CreateSetVarString()
+	// Debug-print sinks. Registered here from day one so scene import
+	// (importScene → CreateByType) reconstructs them — the SetVar family
+	// above documents the silent-drop bug this switch previously caused.
+	// Português: Sinks de print. Registrados aqui desde o primeiro dia para
+	// o import de cena reconstruí-los — a família SetVar acima documenta o
+	// bug de descarte silencioso que este switch já causou.
+	case "StatementPrintInt":
+		f.CreatePrintInt()
+	case "StatementPrintFloat":
+		f.CreatePrintFloat()
+	case "StatementPrintString":
+		f.CreatePrintString()
+	case "StatementPrintBool":
+		f.CreatePrintBool()
+	case "StatementPrintByte":
+		f.CreatePrintByte()
+	case "StatementPrintByteArray":
+		f.CreatePrintByteArray()
 	case "StatementGauge":
 		f.CreateGauge()
 	case "StatementLED":

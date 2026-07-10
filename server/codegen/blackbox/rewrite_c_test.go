@@ -507,14 +507,55 @@ func TestRewriteC_Function_InlineParamDoesNotCorruptDevice(t *testing.T) {
 	}
 }
 
-func TestRewriteC_Function_ReturnPortIsNotEditable(t *testing.T) {
-	src := `esp_err_t display_init(void);`
-	edits := []WizardEdit{
+// The synthetic return port is labelled through the function's leading
+// `return:<label>.` directive — this pins the MERGE semantics: the
+// existing block (label/icon/prose) survives verbatim, only the
+// return: segment is owned by this writer, relabel replaces it, and an
+// empty label removes it. (This path used to reject as "not editable";
+// the natural row-click gesture silently lost the typed value — field
+// report 2026-07-08.)
+func TestRewriteC_Function_ReturnPortLabelMerge(t *testing.T) {
+	src := "// label:Init display.\n" +
+		"// icon:tv.\n" +
+		"// Prose the merge must not eat.\n" +
+		"int display_init(void) { return 0; }\n"
+
+	out, err := RewriteC(src, []WizardEdit{
 		mkEdit("setPortConnection", "function.display_init.out.return", map[string]string{"label": "Status"}),
+	})
+	if err != nil {
+		t.Fatalf("label the return: %v", err)
 	}
-	_, err := RewriteC(src, edits)
-	if err == nil {
-		t.Fatal("editing the synthetic 'return' port should error (no source position)")
+	for _, needle := range []string{"label:Init display.", "icon:tv.", "Prose the merge must not eat.", "// return:Status."} {
+		if !strings.Contains(out, needle) {
+			t.Fatalf("merge lost %q:\n%s", needle, out)
+		}
+	}
+	def, _ := ParseC([]byte(out), DefaultParserLimits())
+	if got := def.Functions[0].Outputs[0].Label; got != "Status" {
+		t.Fatalf("round trip: return label = %q, want Status", got)
+	}
+
+	// Relabel replaces — no duplicate return: lines.
+	out2, err := RewriteC(out, []WizardEdit{
+		mkEdit("setPortConnection", "function.display_init.out.return", map[string]string{"label": "Err code"}),
+	})
+	if err != nil {
+		t.Fatalf("relabel: %v", err)
+	}
+	if strings.Count(out2, "return:") != 1 || !strings.Contains(out2, "return:Err code.") {
+		t.Fatalf("relabel must replace, not stack:\n%s", out2)
+	}
+
+	// Empty label removes the directive.
+	out3, err := RewriteC(out2, []WizardEdit{
+		mkEdit("setPortConnection", "function.display_init.out.return", map[string]string{"label": ""}),
+	})
+	if err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if strings.Contains(out3, "return:") {
+		t.Fatalf("clear must remove the directive:\n%s", out3)
 	}
 }
 

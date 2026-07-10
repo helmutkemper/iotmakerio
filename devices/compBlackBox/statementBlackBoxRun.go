@@ -43,6 +43,7 @@ import (
 	"github.com/helmutkemper/iotmakerio/blackbox"
 	"github.com/helmutkemper/iotmakerio/devices/block"
 	"github.com/helmutkemper/iotmakerio/grid"
+	"github.com/helmutkemper/iotmakerio/rulesConnection"
 	"github.com/helmutkemper/iotmakerio/rulesDensity"
 	"github.com/helmutkemper/iotmakerio/rulesDevice"
 	"github.com/helmutkemper/iotmakerio/rulesSequentialId"
@@ -83,6 +84,11 @@ type StatementBlackBoxMethod struct {
 
 	id    string
 	label string
+	// [COMMENT] user comment — appears as `// ` lines above this device's
+	// statement in the generated code and in the device's hover tooltip.
+	// Português: Comentário do usuário — vira linhas `// ` acima do
+	// statement deste device no código gerado e no tooltip de hover.
+	comment string
 
 	// def is the full component definition. method is the specific method
 	// this device represents (Run, Log, Step, …).
@@ -91,7 +97,16 @@ type StatementBlackBoxMethod struct {
 
 	instanceId  string // shared with Init device and sibling method devices
 	sceneNotify func()
-	onRemove    func(id string)
+	// [SCENEGRAPH] injected by scene.Serializer.Register (self-injection by
+	// interface assertion). DragEnd reports through it so the scenegraph
+	// refreshes geometry, recomputes conflicts (own + peers) and reassigns
+	// parenting — the same EndDrag hook the containers use.
+	// Português: Injetado pelo scene.Serializer.Register (auto-injeção por
+	// assertion). O DragEnd reporta por ele para o scenegraph refrescar
+	// geometria, recomputar conflitos (próprios + peers) e reatribuir
+	// parenting — o mesmo gancho EndDrag dos containers.
+	sceneMgr *scene.Serializer
+	onRemove func(id string)
 
 	lastClickTime time.Time
 
@@ -333,20 +348,30 @@ func (e *StatementBlackBoxMethod) renderSVG(w, h float64) string {
 		int(w), int(h+float64(rulesDevice.KLabelHeight)),
 	)
 
+	// [PIN] the body is inset on BOTH sides by the pin length: the standard
+	// connector pins (one per port, inputs left / outputs right) live in the
+	// freed margins, protruding from the borders with the wires anchored at
+	// their outer tips — the element's edges.
+	// Português: O corpo recua dos DOIS lados o comprimento do pino: os
+	// pinos padrão (um por porta, entradas à esquerda / saídas à direita)
+	// vivem nas margens liberadas, saindo das bordas com os fios ancorados
+	// nas pontas externas — as bordas do element.
+	pin := rulesConnection.PinBodyInset()
+
 	// ── Background — slightly different colour from Init ───────────────────
 	svg += fmt.Sprintf(
 		`<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="6" ry="6" fill="#1e2832" stroke="#55AA88" stroke-width="%.1f"/>`,
-		bw/2, bw/2, w-bw, h-bw, bw,
+		pin+bw/2, bw/2, w-2*pin-bw, h-bw, bw,
 	)
 
 	// ── Header bar ────────────────────────────────────────────────────────
 	svg += fmt.Sprintf(
 		`<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="6" ry="6" fill="#283842"/>`,
-		bw, bw, w-2*bw, bbHeaderH-bw,
+		pin+bw, bw, w-2*pin-2*bw, bbHeaderH-bw,
 	)
 	svg += fmt.Sprintf(
 		`<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="#283842"/>`,
-		bw, bbHeaderH-8, w-2*bw, 8.0,
+		pin+bw, bbHeaderH-8, w-2*pin-2*bw, 8.0,
 	)
 
 	// ── Icon ──────────────────────────────────────────────────────────────
@@ -357,44 +382,51 @@ func (e *StatementBlackBoxMethod) renderSVG(w, h float64) string {
 	// Format: "{StructLabel} {MethodLabel}" e.g. "APDS9960 log"
 	headerText := e.def.EffectiveStructLabel() + " " + e.method.EffectiveLabel()
 	svg += fmt.Sprintf(
-		`<text x="%.1f" y="%.1f" font-family="Arial,sans-serif" font-size="%d" fill="#88DDBB" font-weight="bold" text-anchor="middle">%s</text>`,
+		`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamily+`" font-size="%d" fill="#88DDBB" font-weight="bold" text-anchor="middle">%s</text>`,
 		w/2, bbLabelY, bbHeaderFS, escapeXml(headerText),
 	)
 
 	// ── Divider ───────────────────────────────────────────────────────────
 	svg += fmt.Sprintf(
 		`<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="#3a4858" stroke-width="0.5"/>`,
-		bw, bbHeaderH, w-bw, bbHeaderH,
+		pin+bw, bbHeaderH, w-pin-bw, bbHeaderH,
 	)
 
 	// ── Input ports (left side) ───────────────────────────────────────────
 	for i, port := range e.method.Inputs {
 		cy := portCY(i)
 		color := portColor(port.GoType, port.IsError)
+		// [PIN] standard connector pin, port-type fill; the wire anchors at
+		// its outer tip (the element's left edge).
+		// Português: Pino padrão na cor do tipo da porta; o fio ancora na
+		// ponta externa (borda esquerda do element).
+		svg += rulesConnection.PinSVGFragment(rulesConnection.PinSideLeft, pin, cy, color)
+		// The wire-ƒ marker sits centred on the pin (pin/2 = its midpoint).
+		// Português: O marcador ƒ fica centrado no pino (pin/2 = seu meio).
+		svg += bbCallbackGlyph(port.CallbackType, pin/2, cy)
 		svg += fmt.Sprintf(
-			`<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s" stroke="#FFFFFF" stroke-width="1"/>`,
-			bbConnLeft, cy, bbConnR, color,
-		)
-		svg += bbCallbackGlyph(port.CallbackType, bbConnLeft, cy)
-		svg += fmt.Sprintf(
-			`<text x="%.1f" y="%.1f" font-family="Arial,sans-serif" font-size="%d" fill="#AABBCC" dominant-baseline="central">%s</text>`,
-			bbConnLeft+bbConnR+4, cy, bbFontSize, escapeXml(port.Name),
+			`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamily+`" font-size="%d" fill="#AABBCC" dominant-baseline="central">%s</text>`,
+			pin+6, cy, bbFontSize, escapeXml(port.Name),
 		)
 	}
 
 	// ── Output ports (right side) ─────────────────────────────────────────
-	connRight := w - bbConnLeft
 	for i, port := range e.method.Outputs {
 		cy := portCY(i)
 		color := portColor(port.GoType, port.IsError)
+		// [PIN] standard pin protruding RIGHT, wire anchored at the outer
+		// tip (the element's right edge).
+		// Português: Pino padrão saindo à DIREITA, fio ancorado na ponta
+		// externa (borda direita do element).
+		svg += rulesConnection.PinSVGFragment(rulesConnection.PinSideRight, w-pin, cy, color)
+		// The wire-ƒ marker sits centred on the pin (w-pin/2 = the right
+		// pin's midpoint) — outputs can be callback references too.
+		// Português: O marcador ƒ fica centrado no pino (w-pin/2 = meio do
+		// pino direito) — saídas também podem ser referências de callback.
+		svg += bbCallbackGlyph(port.CallbackType, w-pin/2, cy)
 		svg += fmt.Sprintf(
-			`<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s" stroke="#FFFFFF" stroke-width="1"/>`,
-			connRight, cy, bbConnR, color,
-		)
-		svg += bbCallbackGlyph(port.CallbackType, connRight, cy)
-		svg += fmt.Sprintf(
-			`<text x="%.1f" y="%.1f" font-family="Arial,sans-serif" font-size="%d" fill="#AABBCC" dominant-baseline="central" text-anchor="end">%s</text>`,
-			connRight-bbConnR-4, cy, bbFontSize, escapeXml(port.Name),
+			`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamily+`" font-size="%d" fill="#AABBCC" dominant-baseline="central" text-anchor="end">%s</text>`,
+			w-pin-6, cy, bbFontSize, escapeXml(port.Name),
 		)
 	}
 
@@ -415,11 +447,11 @@ func bbCallbackGlyph(callbackType string, cx, cy float64) string {
 	if callbackType == "" {
 		return ""
 	}
-	// White bold ƒ (U+0192) centred on the r=bbConnR dot. text-anchor=middle +
+	// White bold ƒ (U+0192) centred on the standard pin. text-anchor=middle +
 	// dominant-baseline=central keep it on the dot on either side. The default
 	// type colour for a function-pointer typedef is blue, so white reads well.
 	return fmt.Sprintf(
-		`<text x="%.1f" y="%.1f" font-family="Arial,sans-serif" font-size="9" fill="#FFFFFF" font-weight="bold" text-anchor="middle" dominant-baseline="central">&#x192;</text>`,
+		`<text x="%.1f" y="%.1f" font-family="`+rulesDevice.KDeviceFontFamily+`" font-size="9" fill="#FFFFFF" font-weight="bold" text-anchor="middle" dominant-baseline="central">&#x192;</text>`,
 		cx, cy,
 	)
 }
@@ -471,9 +503,9 @@ func (e *StatementBlackBoxMethod) wireEvents() {
 		// Hit-test input connectors
 		for i, port := range e.method.Inputs {
 			cy := portCY(i)
-			dx := event.LocalX - bbConnLeft
-			dy := event.LocalY - cy
-			if dx*dx+dy*dy <= (bbConnR+4)*(bbConnR+4) {
+			if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+				rulesConnection.PinBodyInset(), cy,
+				event.LocalX, event.LocalY) {
 				items := mainMenu.ConnectorMenu(e.wireMgr, e.id, port.Name)
 				go e.ctxMenu.OpenAtWorld(items, clickWX, clickWY)
 				return
@@ -481,12 +513,11 @@ func (e *StatementBlackBoxMethod) wireEvents() {
 		}
 
 		// Hit-test output connectors
-		connRight := w - bbConnLeft
 		for i, port := range e.method.Outputs {
 			cy := portCY(i)
-			dx := event.LocalX - connRight
-			dy := event.LocalY - cy
-			if dx*dx+dy*dy <= (bbConnR+4)*(bbConnR+4) {
+			if rulesConnection.PinHit(rulesConnection.PinSideRight,
+				w-rulesConnection.PinBodyInset(), cy,
+				event.LocalX, event.LocalY) {
 				items := mainMenu.ConnectorMenu(e.wireMgr, e.id, port.Name)
 				go e.ctxMenu.OpenAtWorld(items, clickWX, clickWY)
 				return
@@ -512,6 +543,13 @@ func (e *StatementBlackBoxMethod) wireEvents() {
 		if e.wireMgr != nil {
 			e.wireMgr.RecalculateForElement(e.id)
 		}
+		// [SCENEGRAPH] dx/dy=0: they only move container descendants (this
+		// device has none); geometry is re-read live by refreshGeometry.
+		// Português: dx/dy=0: eles só movem descendentes de container (este
+		// device não tem); a geometria é relida ao vivo pelo refreshGeometry.
+		if e.sceneMgr != nil {
+			e.sceneMgr.EndDrag(e.id, 0, 0)
+		}
 		if e.sceneNotify != nil {
 			e.sceneNotify()
 		}
@@ -521,18 +559,15 @@ func (e *StatementBlackBoxMethod) wireEvents() {
 		w, _ := e.elem.GetSize()
 		for i := range e.method.Inputs {
 			cy := portCY(i)
-			dx := lx - bbConnLeft
-			dy := ly - cy
-			if dx*dx+dy*dy <= (bbConnR+4)*(bbConnR+4) {
+			if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+				rulesConnection.PinBodyInset(), cy, lx, ly) {
 				return sprite.CursorPointer
 			}
 		}
-		connRight := w - bbConnLeft
 		for i := range e.method.Outputs {
 			cy := portCY(i)
-			dx := lx - connRight
-			dy := ly - cy
-			if dx*dx+dy*dy <= (bbConnR+4)*(bbConnR+4) {
+			if rulesConnection.PinHit(rulesConnection.PinSideRight,
+				w-rulesConnection.PinBodyInset(), cy, lx, ly) {
 				return sprite.CursorPointer
 			}
 		}
@@ -579,7 +614,9 @@ func (e *StatementBlackBoxMethod) RegisterConnectors() {
 			Label:              pp.Name,
 			PositionFunc: func() (float64, float64) {
 				ex, ey := e.elem.GetPosition()
-				return ex + bbConnLeft, ey + portCY(idx)
+				ax, ay := rulesConnection.PinAnchor(rulesConnection.PinSideLeft,
+					rulesConnection.PinBodyInset(), portCY(idx))
+				return ex + ax, ey + ay
 			},
 		})
 	}
@@ -599,7 +636,9 @@ func (e *StatementBlackBoxMethod) RegisterConnectors() {
 			PositionFunc: func() (float64, float64) {
 				ex, ey := e.elem.GetPosition()
 				w, _ := e.elem.GetSize()
-				return ex + w - bbConnLeft, ey + portCY(idx)
+				ax, ay := rulesConnection.PinAnchor(rulesConnection.PinSideRight,
+					w-rulesConnection.PinBodyInset(), portCY(idx))
+				return ex + ax, ey + ay
 			},
 		})
 	}
@@ -631,6 +670,14 @@ func (e *StatementBlackBoxMethod) GetInspectConfig() interface{} {
 
 	fields := []overlay.Field{
 		{Key: "label", Label: translate.T("propLabel", "Label"), Type: overlay.FieldText, Value: e.label},
+		{
+			Key:         "comment",
+			Label:       translate.T("propComment", "Comment"),
+			Type:        overlay.FieldTextarea,
+			Value:       e.comment,
+			Placeholder: translate.T("propCommentPlaceholder", "Comment shown in generated code..."),
+			Rows:        3,
+		},
 		{
 			Key:         "executionOrder",
 			Label:       translate.T("propExecutionOrder", "Execution order"),
@@ -698,6 +745,17 @@ func (e *StatementBlackBoxMethod) GetInspectConfig() interface{} {
 		Width: "540px",
 		Tabs:  tabs,
 		OnSave: func(values map[string]string) {
+			// [COMMENT] the form's comment must be stored here too: this
+			// OnSave handles its keys inline (it does not route through
+			// ApplyProperties, unlike the math family), so without this
+			// line the typed comment would be silently dropped.
+			// Português: O comentário do formulário precisa ser gravado
+			// aqui também: este OnSave trata suas chaves inline (não roteia
+			// pelo ApplyProperties, diferente da família math), então sem
+			// esta linha o comentário digitado seria perdido em silêncio.
+			if v, ok := values["comment"]; ok {
+				e.comment = v
+			}
 			changed := false
 
 			if v, ok := values["label"]; ok && v != "" && v != e.label {
@@ -756,6 +814,9 @@ func (e *StatementBlackBoxMethod) GetInspectConfig() interface{} {
 // de volta aqui. Implementar isto também faz o device satisfazer
 // scene.Inspectable, então o importScene o chama no carregamento.
 func (e *StatementBlackBoxMethod) ApplyProperties(values map[string]string) {
+	if v, ok := values["comment"]; ok {
+		e.comment = v
+	}
 	changed := false
 
 	if raw, ok := values["executionOrderOverride"]; ok {
@@ -840,9 +901,22 @@ func (e *StatementBlackBoxMethod) MoveBy(dx, dy float64) {
 	}
 }
 
+// GetComment returns the user comment shown in generated code and in the
+// device's hover tooltip.
+// Português: Retorna o comentário do usuário exibido no código gerado e
+// no tooltip de hover do device.
+func (e *StatementBlackBoxMethod) GetComment() string { return e.comment }
+
+// SetComment sets the user comment.
+// Português: Define o comentário do usuário.
+func (e *StatementBlackBoxMethod) SetComment(c string) { e.comment = c }
+
 func (e *StatementBlackBoxMethod) GetProperties() map[string]interface{} {
 	props := map[string]interface{}{
 		"instanceId": e.instanceId,
+	}
+	if e.comment != "" {
+		props["comment"] = e.comment
 	}
 
 	// executionOrder carries the EFFECTIVE value (per-instance override, else
@@ -864,3 +938,9 @@ func (e *StatementBlackBoxMethod) GetProperties() map[string]interface{} {
 
 	return props
 }
+
+// SetSceneMgr receives the scene serializer — called by
+// scene.Serializer.Register via interface assertion at registration time.
+// Português: Recebe o serializer de cena — chamado pelo
+// scene.Serializer.Register por assertion no registro.
+func (e *StatementBlackBoxMethod) SetSceneMgr(mgr *scene.Serializer) { e.sceneMgr = mgr }

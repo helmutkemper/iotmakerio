@@ -76,9 +76,37 @@ func TestValidateCodeFileSet(t *testing.T) {
 		}, "c", "duplicate path"},
 
 		// Extension-per-language — the rule that killed the .go stamp.
-		{"go rejects .py", []store.CodeFileEntry{f("main.py", "x")}, "golang", "only .go"},
-		{"go rejects .c", []store.CodeFileEntry{f("main.c", "x")}, "golang", "only .go"},
-		{"c rejects .go", []store.CodeFileEntry{f("main.go", "x")}, "c", "only .c and .h"},
+		{"go rejects .py", []store.CodeFileEntry{f("main.py", "x")}, "golang", "invalid extension for a Go project"},
+		{"go rejects .c", []store.CodeFileEntry{f("main.c", "x")}, "golang", "invalid extension for a Go project"},
+		{"c rejects .go", []store.CodeFileEntry{f("main.go", "x")}, "c", "invalid extension for a C project"},
+
+		// ── Unified asset model (2026-07-08) ────────────────────────────
+		// Text assets ride beside source, both languages; binary assets
+		// REQUIRE base64 and must decode; source must NOT be base64;
+		// assets alone do not make a device.
+		{"go with text asset", []store.CodeFileEntry{
+			f("device.go", "package a"), f("templates/portal.html", "<html>"),
+		}, "golang", ""},
+		{"c with text asset", []store.CodeFileEntry{
+			f("core.c", "int x;"), f("data/notes.txt", "hi"),
+		}, "c", ""},
+		{"binary asset needs base64", []store.CodeFileEntry{
+			f("device.go", "package a"), f("logo.gif", "GIF89a-raw-bytes"),
+		}, "golang", "must be uploaded (encoding base64)"},
+		{"binary asset valid", []store.CodeFileEntry{
+			f("device.go", "package a"),
+			{Path: "logo.gif", Content: "R0lGODlh", Encoding: "base64"},
+		}, "golang", ""},
+		{"binary asset bad base64", []store.CodeFileEntry{
+			f("device.go", "package a"),
+			{Path: "logo.gif", Content: "not-base64!!!", Encoding: "base64"},
+		}, "golang", "invalid base64"},
+		{"source must not be base64", []store.CodeFileEntry{
+			{Path: "device.go", Content: "cGFja2FnZSBh", Encoding: "base64"},
+		}, "golang", "plain text"},
+		{"assets alone are not a device", []store.CodeFileEntry{
+			f("templates/portal.html", "<html>"),
+		}, "golang", "at least one source file"},
 		// GoMF (2026-07-08): a Go project is a Go PACKAGE — multi-file is
 		// valid at this gate; the Go-shaped rules (one struct, same
 		// package, no redeclaration) live in the parser.

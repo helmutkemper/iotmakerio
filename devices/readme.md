@@ -246,7 +246,9 @@ code that renders the operator symbol (typically a `%` for modulo).
 
 The ornament draws:
 - The outer shape (rectangle, rounded rect, hexagon)
-- Connection point circles (inputs on the left, outputs on the right)
+- The standard connector **pins** (inputs on the left, outputs on the right),
+  drawn with `rulesConnection.PinPathDraw` / `PinSVGFragment` — see
+  [Connections](#8-step-6-connections-wire-manager) for the geometry contract
 - The operator symbol in the center
 - Fill colors and borders
 
@@ -262,25 +264,34 @@ func (e *StatementModulo) renderSVG() string {
 
     svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d">`, int(w), int(h))
 
-    // Background rectangle
-    svg += fmt.Sprintf(`<rect x="1" y="1" width="%.1f" height="%.1f" rx="4" ry="4"
-        fill="#334455" stroke="#88AACC" stroke-width="2"/>`, w-2, h-2)
+    // [PIN] the body is inset on both sides by the pin length: the standard
+    // connector pins live in the freed margins, protruding from the borders
+    // with the wires anchored at their outer tips — the element's edges.
+    pin := rulesConnection.PinBodyInset()
+
+    // Background rectangle — inset left AND right (this device has both sides)
+    svg += fmt.Sprintf(`<rect x="%.1f" y="1" width="%.1f" height="%.1f" rx="4" ry="4"
+        fill="#334455" stroke="#88AACC" stroke-width="2"/>`, pin+1, w-2*pin-2, h-2)
 
     // Label text
     svg += fmt.Sprintf(`<text x="%.1f" y="%.1f" font-family="Arial" font-size="14"
         fill="#FFFFFF" text-anchor="middle" dominant-baseline="central">%%</text>`,
         w/2, h/2)
 
-    // Input connector (left, center)
-    svg += fmt.Sprintf(`<circle cx="8" cy="%.1f" r="5" fill="#4488CC" stroke="#FFF" stroke-width="1"/>`, h/2)
+    // Input pin (left border, vertical center) — fill = the port's TYPE color
+    svg += rulesConnection.PinSVGFragment(rulesConnection.PinSideLeft, pin, h/2, "#4488CC")
 
-    // Output connector (right, center)
-    svg += fmt.Sprintf(`<circle cx="%.1f" cy="%.1f" r="5" fill="#44CC88" stroke="#FFF" stroke-width="1"/>`, w-8, h/2)
+    // Output pin (right border, vertical center)
+    svg += rulesConnection.PinSVGFragment(rulesConnection.PinSideRight, w-pin, h/2, "#44CC88")
 
     svg += `</svg>`
     return svg
 }
 ```
+
+The pin helpers guarantee every device shares ONE geometry: the pin's outer
+tip sits exactly on the element's edge, which is also where the wire anchors
+and where the click hit-box centers. Never hand-draw connector circles.
 
 Then use `CacheFromSvg` to render:
 
@@ -470,7 +481,11 @@ func (e *StatementModulo) RegisterConnectors() {
             ex, ey := e.elem.GetPosition()
             _, h := e.elem.GetSize()
             ornH := h - float64(moduloLabelHeight)
-            return ex + 2, ey + ornH/2
+            // The wire anchors at the pin's OUTER TIP — the element's left
+            // edge. PinAnchor turns (edgeX, edgeY) into that point.
+            ax, ay := rulesConnection.PinAnchor(rulesConnection.PinSideLeft,
+                rulesConnection.PinBodyInset(), ornH/2)
+            return ex + ax, ey + ay
         },
     })
 
@@ -485,7 +500,9 @@ func (e *StatementModulo) RegisterConnectors() {
             ex, ey := e.elem.GetPosition()
             w, h := e.elem.GetSize()
             ornH := h - float64(moduloLabelHeight)
-            return ex + w - 12, ey + ornH/2
+            ax, ay := rulesConnection.PinAnchor(rulesConnection.PinSideRight,
+                w-rulesConnection.PinBodyInset(), ornH/2)
+            return ex + ax, ey + ay
         },
     })
 }
@@ -511,24 +528,41 @@ func (e *StatementModulo) RegisterConnectors() {
 6. **Recalculate on move/resize** — after drag or resize, call
    `e.wireMgr.RecalculateForElement(e.id)` so wires redraw correctly.
 
-### Connector position conventions
+7. **One geometry, three consumers** — the renderer (`PinSVGFragment` /
+   `PinPathDraw`), the hit tests (`PinHit`) and the wire anchor (`PinAnchor`)
+   must all receive the SAME edge point. Sharing the point is what keeps the
+   drawing, the click box and the wire attached to one another on every
+   device.
+
+### Connector position conventions — the standard pin
+
+Every connector is a small rectangular **pin** protruding from the device
+border. Its geometry has a single source of truth, the **EDGE POINT**: the
+point where the pin meets the body (its inner edge). The helpers draw the
+body from that point toward the border and DERIVE the outer tip — one
+`PinLength()` further out — which lands exactly on the element's edge; the
+wire anchors there (`PinAnchor` returns the derived tip).
 
 ```
-    inputX ●─────────────── ● output
-           │               │
-           │   (device)    │
-           │               │
-    inputY ●───────────────┘
+        ┌──────────────┐
+  ──────█ inputX       █──────   ← wires anchor at the pins' OUTER tips
+        │   (device)   │           (the element's edges: x=0 and x=w)
+  ──────█ inputY       │
+        └──────────────┘
 
-    Local coordinates:
-    inputX:  (2, 15)
-    inputY:  (2, ornH - 18)
-    output:  (w - 12, ornH/2 - 2)
+    Edge points (local coordinates):
+    inputX:  side=Left,  (0, y1)         → PinAnchor(Left,  PinBodyInset(), y1)
+    inputY:  side=Left,  (0, y2)
+    output:  side=Right, (w, ornH/2)     → PinAnchor(Right, w-PinBodyInset(), ornH/2)
 ```
 
-The exact coordinates come from the ornament's SVG circle positions. If you
-create a custom ornament, match the connector registration positions to the
-SVG circle coordinates.
+The `rulesConnection` helpers all take that point (plus the side) and agree
+with each other by construction: `PinSVGFragment`/`PinPathDraw` draw the pin,
+`PinHit` tests clicks, `PinAnchor` places the wire. The body rectangle is
+inset by `PinBodyInset()` on each side that carries pins, so the pins live in
+the freed margin and the element size never changes — grids and saved scenes
+are unaffected. Never hand-place circles or hand-tune hit radii; if you build
+a custom ornament, feed the same edge points to all three helpers.
 
 ---
 

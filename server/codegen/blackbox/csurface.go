@@ -197,6 +197,9 @@ func (s *CSurface) Code() string { return s.code }
 // def direto.
 func (s *CSurface) Files() []FileEntry { return s.def.Files }
 
+// Assets exposes the def's cargo lane — see BlackBoxDef.Assets.
+func (s *CSurface) Assets() []AssetEntry { return s.def.Assets }
+
 // sortedNames returns the surface names in deterministic (sorted) order, so
 // the generated defines block is byte-stable across builds — same discipline
 // as deviceSources()' sort in the C backend.

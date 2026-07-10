@@ -70,6 +70,7 @@ import (
 	"github.com/helmutkemper/iotmakerio/devices"
 	"github.com/helmutkemper/iotmakerio/devices/block"
 	"github.com/helmutkemper/iotmakerio/grid"
+	"github.com/helmutkemper/iotmakerio/rulesConnection"
 	"github.com/helmutkemper/iotmakerio/rulesDensity"
 	"github.com/helmutkemper/iotmakerio/rulesDevice"
 	"github.com/helmutkemper/iotmakerio/rulesIcon"
@@ -78,6 +79,7 @@ import (
 	"github.com/helmutkemper/iotmakerio/scene"
 	"github.com/helmutkemper/iotmakerio/scenegraph"
 	"github.com/helmutkemper/iotmakerio/sprite"
+	"github.com/helmutkemper/iotmakerio/translate"
 	"github.com/helmutkemper/iotmakerio/ui/contextMenu"
 	"github.com/helmutkemper/iotmakerio/ui/mainMenu"
 	"github.com/helmutkemper/iotmakerio/ui/overlay"
@@ -106,6 +108,11 @@ type StatementIndexString struct {
 	// (Inspect is manual-only), so label stays empty and the id is shown; it is
 	// kept for scene round-trip parity with the other devices.
 	label string
+	// [COMMENT] user comment — appears as `// ` lines above this device's
+	// statement in the generated code and in the device's hover tooltip.
+	// Português: Comentário do usuário — vira linhas `// ` acima do
+	// statement deste device no código gerado e no tooltip de hover.
+	comment string
 
 	width  rulesDensity.Density
 	height rulesDensity.Density
@@ -129,7 +136,16 @@ type StatementIndexString struct {
 	iconStatus  int
 	lastClick   time.Time
 	sceneNotify func()
-	onRemove    func(id string)
+	// [SCENEGRAPH] injected by scene.Serializer.Register (self-injection by
+	// interface assertion). DragEnd reports through it so the scenegraph
+	// refreshes geometry, recomputes conflicts (own + peers) and reassigns
+	// parenting — the same EndDrag hook the containers use.
+	// Português: Injetado pelo scene.Serializer.Register (auto-injeção por
+	// assertion). O DragEnd reporta por ele para o scenegraph refrescar
+	// geometria, recomputar conflitos (próprios + peers) e reatribuir
+	// parenting — o mesmo gancho EndDrag dos containers.
+	sceneMgr *scene.Serializer
+	onRemove func(id string)
 }
 
 // ── Dependency injection ──────────────────────────────────────────────────────
@@ -191,7 +207,15 @@ func (e *StatementIndexString) connectorLayout() (leftX, rightX, upperY, lowerY 
 	w := e.width.GetFloat()
 	ornH := e.height.GetFloat() // body height (the label sits below it)
 	headerH := float64(rulesDevice.KDeviceHeaderHeight)
-	off := float64(rulesDevice.KConnectorOffsetRight)
+	// [PIN] the returned coordinates are the pins' EDGE POINTS — where each
+	// pin touches the body border. The body is inset by PinBodyInset() on
+	// BOTH sides, so left pins end exactly at the element's left edge and
+	// right pins at its right edge (where the wires anchor).
+	// Português: As coordenadas retornadas são os EDGE POINTS dos pinos —
+	// onde cada pino encosta na borda do corpo. O corpo recua PinBodyInset()
+	// dos DOIS lados; pinos da esquerda terminam na borda esquerda do
+	// element e os da direita na borda direita (onde os fios ancoram).
+	off := rulesConnection.PinBodyInset()
 
 	leftX = off
 	rightX = w - off
@@ -211,6 +235,15 @@ func (e *StatementIndexString) renderSVG() string {
 
 	bw := rulesDevice.KDeviceBorderWidth
 	rx := rulesDevice.KDeviceCornerRadius
+	// [PIN] the body is inset by the pin length on BOTH sides: the four
+	// standard pins live in the freed margins, protruding from the borders
+	// with the wires anchored at their outer tips. The element size itself
+	// is unchanged, so grid layout and saved scenes are unaffected.
+	// Português: O corpo recua o comprimento do pino dos DOIS lados: os
+	// quatro pinos padrão vivem nas margens liberadas, saindo das bordas com
+	// os fios ancorados nas pontas externas. O tamanho do element não muda —
+	// grid e cenas salvas não são afetados.
+	pin := rulesConnection.PinBodyInset()
 	// The device border/header tag take the VALUE type's colour family (int =
 	// blue): the box "is" an int reader. Individual connectors are coloured by
 	// their OWN type below.
@@ -222,27 +255,27 @@ func (e *StatementIndexString) renderSVG() string {
 	// Outer rect
 	svg += fmt.Sprintf(
 		`<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="%.1f" ry="%.1f" fill="%s" stroke="%s" stroke-width="%.1f"/>`,
-		bw/2, bw/2, w-bw, h-bw, rx, rx,
+		pin+bw/2, bw/2, w-2*pin-bw, h-bw, rx, rx,
 		rulesDevice.KColorDeviceBg, ts.Color, bw,
 	)
 
 	// Header
 	hh := rulesDevice.KDeviceHeaderHeight
 	svg += fmt.Sprintf(`<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="%.1f" ry="%.1f" fill="%s"/>`,
-		bw, bw, w-2*bw, hh, rx, rx, rulesDevice.KColorDeviceHeader)
+		pin+bw, bw, w-2*pin-2*bw, hh, rx, rx, rulesDevice.KColorDeviceHeader)
 	svg += fmt.Sprintf(`<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s"/>`,
-		bw, bw+hh/2, w-2*bw, hh/2, rulesDevice.KColorDeviceHeader)
+		pin+bw, bw+hh/2, w-2*pin-2*bw, hh/2, rulesDevice.KColorDeviceHeader)
 
 	// Type tag (INT — the element type this reader yields)
 	svg += fmt.Sprintf(
 		`<text x="%.1f" y="%.1f" font-family="%s" font-size="%d" fill="%s" dominant-baseline="middle">%s</text>`,
-		bw+6, bw+hh/2+float64(rulesDevice.KDeviceFontSizeTypeTag)/2,
+		pin+bw+6, bw+hh/2+float64(rulesDevice.KDeviceFontSizeTypeTag)/2,
 		rulesDevice.KDeviceFontFamily, rulesDevice.KDeviceFontSizeTypeTag, ts.Color, ts.Tag,
 	)
 
 	// Divider
 	svg += fmt.Sprintf(`<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="0.5"/>`,
-		bw, bw+hh, w-bw, bw+hh, rulesDevice.KColorDeviceDivider)
+		pin+bw, bw+hh, w-pin-bw, bw+hh, rulesDevice.KColorDeviceDivider)
 
 	// Body label ("index")
 	bodyTop := bw + hh
@@ -254,20 +287,21 @@ func (e *StatementIndexString) renderSVG() string {
 		rulesDevice.KColorDeviceText, escapeXml(kIndexBody),
 	)
 
-	// Four connectors, each coloured by its own wire type.
+	// [PIN] four standard connector pins, each filled with its OWN wire
+	// type's color (the box border keeps the value type's family). Inputs
+	// protrude LEFT, outputs protrude RIGHT; wires anchor at the outer tips.
+	// Português: Quatro pinos padrão, cada um preenchido com a cor do SEU
+	// tipo de fio (a borda da caixa mantém a família do tipo do value).
+	// Entradas saem à ESQUERDA, saídas à DIREITA; fios ancoram nas pontas
+	// externas.
 	leftX, rightX, upperY, lowerY := e.connectorLayout()
-	r := rulesDevice.KConnectorRadius
-	stroke := rulesDevice.KColorConnectorStroke
-	circle := func(cx, cy float64, typ string) string {
-		c := rulesDevice.TypeStyleFor(typ)
-		return fmt.Sprintf(
-			`<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s" stroke="%s" stroke-width="1"/>`,
-			cx, cy, r, c.Color, stroke)
+	pinOf := func(side rulesConnection.PinSide, edgeX, edgeY float64, typ string) string {
+		return rulesConnection.PinSVGFragment(side, edgeX, edgeY, rulesDevice.TypeStyleFor(typ).Color)
 	}
-	svg += circle(leftX, upperY, e.arrayType())  // array (in)
-	svg += circle(leftX, lowerY, e.indexType())  // index (in)
-	svg += circle(rightX, upperY, e.valueType()) // value (out)
-	svg += circle(rightX, lowerY, e.okType())    // ok (out)
+	svg += pinOf(rulesConnection.PinSideLeft, leftX, upperY, e.arrayType())   // array (in)
+	svg += pinOf(rulesConnection.PinSideLeft, leftX, lowerY, e.indexType())   // index (in)
+	svg += pinOf(rulesConnection.PinSideRight, rightX, upperY, e.valueType()) // value (out)
+	svg += pinOf(rulesConnection.PinSideRight, rightX, lowerY, e.okType())    // ok (out)
 
 	// Label (instance id) below the box
 	displayLabel := e.label
@@ -346,19 +380,22 @@ func (e *StatementIndexString) Init() (err error) {
 // the same layout the renderer draws.
 func (e *StatementIndexString) connectorAt(lx, ly float64) string {
 	leftX, rightX, upperY, lowerY := e.connectorLayout()
-	hit := rulesDevice.KConnectorHitRadius
-	within := func(cx, cy float64) bool {
-		dx, dy := lx-cx, ly-cy
-		return dx*dx+dy*dy <= hit*hit
+	// [PIN] the standard pin hit boxes — same edge points renderSVG draws
+	// and RegisterConnectors anchors to, so the three consumers agree.
+	// Português: Caixas de clique dos pinos padrão — mesmos edge points que
+	// o renderSVG desenha e o RegisterConnectors ancora; os três
+	// consumidores concordam.
+	within := func(side rulesConnection.PinSide, cx, cy float64) bool {
+		return rulesConnection.PinHit(side, cx, cy, lx, ly)
 	}
 	switch {
-	case within(leftX, upperY):
+	case within(rulesConnection.PinSideLeft, leftX, upperY):
 		return "array"
-	case within(leftX, lowerY):
+	case within(rulesConnection.PinSideLeft, leftX, lowerY):
 		return "index"
-	case within(rightX, upperY):
+	case within(rulesConnection.PinSideRight, rightX, upperY):
 		return "value"
-	case within(rightX, lowerY):
+	case within(rulesConnection.PinSideRight, rightX, lowerY):
 		return "ok"
 	}
 	return ""
@@ -406,6 +443,13 @@ func (e *StatementIndexString) wireEvents() {
 		if e.wireMgr != nil {
 			e.wireMgr.RecalculateForElement(e.id)
 		}
+		// [SCENEGRAPH] dx/dy=0: they only move container descendants (this
+		// device has none); geometry is re-read live by refreshGeometry.
+		// Português: dx/dy=0: eles só movem descendentes de container (este
+		// device não tem); a geometria é relida ao vivo pelo refreshGeometry.
+		if e.sceneMgr != nil {
+			e.sceneMgr.EndDrag(e.id, 0, 0)
+		}
 		if e.sceneNotify != nil {
 			e.sceneNotify()
 		}
@@ -434,20 +478,49 @@ func (e *StatementIndexString) bodyMenuItems() []contextMenu.Item {
 
 func (e *StatementIndexString) showInspectOverlay() { overlay.Show(e.inspectConfig()) }
 
-// inspectConfig — the reader has NO editable data, so Inspect is a single Help
-// tab (the manual). This is decision "Inspect = só o manual".
+// inspectConfig — the reader's only editable datum is the COMMENT (decision
+// "Inspect = só o manual" now reads "manual + the universal comment"): a
+// Properties tab with the comment textarea, then the Help tab.
+// Português: O único dado editável do leitor é o COMENTÁRIO (a decisão
+// "Inspect = só o manual" agora lê "manual + o comentário universal"): aba
+// Properties com a textarea do comentário, depois a aba Help.
 func (e *StatementIndexString) inspectConfig() overlay.Config {
 	return overlay.Config{
 		Title: e.id,
 		Width: "480px",
 		Tabs: []overlay.Tab{
+			{
+				Label: "Properties",
+				Type:  overlay.TabForm,
+				Fields: []overlay.Field{
+					{
+						Key:         "comment",
+						Label:       translate.T("propComment", "Comment"),
+						Type:        overlay.FieldTextarea,
+						Value:       e.comment,
+						Placeholder: translate.T("propCommentPlaceholder", "Comment shown in generated code..."),
+						Rows:        3,
+					},
+					{Key: "id", Label: "ID", Type: overlay.FieldText, Value: e.id, ReadOnly: true},
+				},
+			},
 			{Label: "Help", Type: overlay.TabMarkdown, Content: indexStringHelp()},
+		},
+		OnSave: func(values map[string]string) {
+			e.ApplyProperties(values)
 		},
 	}
 }
 
-func (e *StatementIndexString) GetInspectConfig() interface{}       { return e.inspectConfig() }
-func (e *StatementIndexString) ApplyProperties(_ map[string]string) {} // no editable properties
+func (e *StatementIndexString) GetInspectConfig() interface{} { return e.inspectConfig() }
+
+// ApplyProperties restores the comment — the reader's only editable datum.
+// Português: Restaura o comentário — o único dado editável do leitor.
+func (e *StatementIndexString) ApplyProperties(values map[string]string) {
+	if v, ok := values["comment"]; ok {
+		e.comment = v
+	}
+}
 
 // ── Wire connectors ───────────────────────────────────────────────────────────
 
@@ -456,20 +529,29 @@ func (e *StatementIndexString) RegisterConnectors() {
 		return
 	}
 
-	// Each connector's world position is the element origin plus its LOCAL
-	// layout offset, so registration matches exactly what renderSVG draws.
+	// [PIN] each connector's world position is the element origin plus the
+	// OUTER TIP of its standard pin (PinAnchor over the shared
+	// connectorLayout edge points) — so wires attach outside the silhouette,
+	// exactly where renderSVG draws the pin tip.
+	// Português: A posição mundial de cada conector é a origem do element
+	// mais a PONTA EXTERNA do pino padrão (PinAnchor sobre os edge points do
+	// connectorLayout) — fios prendem fora da silhueta, exatamente onde o
+	// renderSVG desenha a ponta.
 	pos := func(right, lower bool) func() (float64, float64) {
 		return func() (float64, float64) {
 			ex, ey := e.elem.GetPosition()
 			leftX, rightX, upperY, lowerY := e.connectorLayout()
 			x, y := leftX, upperY
+			side := rulesConnection.PinSideLeft
 			if right {
 				x = rightX
+				side = rulesConnection.PinSideRight
 			}
 			if lower {
 				y = lowerY
 			}
-			return ex + x, ey + y
+			ax, ay := rulesConnection.PinAnchor(side, x, y)
+			return ex + ax, ey + ay
 		}
 	}
 
@@ -665,7 +747,7 @@ func (e *StatementIndexString) getIcon(data rulesIcon.Data) js.Value {
 	hexDraw := factoryBrowser.NewTagSvgPath().
 		StrokeWidth(rulesIcon.BorderWidth.GetInt()).Stroke(data.ColorBorder).Fill(data.ColorBackground).D(hexPath)
 	labelIcon := factoryBrowser.NewTagSvgText().
-		FontFamily("Arial,sans-serif").FontWeight("bold").FontSize(rulesIcon.Width.GetInt() / 5).
+		FontFamily(rulesDevice.KDeviceFontFamily).FontWeight("bold").FontSize(rulesIcon.Width.GetInt() / 5).
 		Text("[i]").Fill(data.ColorIcon).
 		X((rulesIcon.Width / 2).GetInt() - 14).Y((rulesIcon.Height / 2).GetInt() + 4)
 	wl, _ := utilsText.GetTextSize(data.Label, rulesIcon.FontFamily, rulesIcon.FontWeight, rulesIcon.FontStyle, data.LabelFontSize.GetInt())
@@ -686,11 +768,25 @@ func (e *StatementIndexString) GetProperties() map[string]interface{} {
 	// elementType mirrors the sibling collection devices. The IR generator does
 	// not need it (it derives the element type from the node type), but keeping
 	// it makes the scene self-describing and consistent.
-	return map[string]interface{}{
+	props := map[string]interface{}{
 		"elementType": kIndexStringElement,
 		"label":       e.label,
 	}
+	if e.comment != "" {
+		props["comment"] = e.comment
+	}
+	return props
 }
+
+// GetComment returns the user comment shown in generated code and in the
+// device's hover tooltip.
+// Português: Retorna o comentário do usuário exibido no código gerado e
+// no tooltip de hover do device.
+func (e *StatementIndexString) GetComment() string { return e.comment }
+
+// SetComment sets the user comment.
+// Português: Define o comentário do usuário.
+func (e *StatementIndexString) SetComment(c string) { e.comment = c }
 func (e *StatementIndexString) GetOuterBBox() scene.Rect {
 	if e.elem == nil {
 		return scene.Rect{}
@@ -752,3 +848,9 @@ out-of-range position.
 - Sibling devices exist for **int** and **float** collections.
 `
 }
+
+// SetSceneMgr receives the scene serializer — called by
+// scene.Serializer.Register via interface assertion at registration time.
+// Português: Recebe o serializer de cena — chamado pelo
+// scene.Serializer.Register por assertion no registro.
+func (e *StatementIndexString) SetSceneMgr(mgr *scene.Serializer) { e.sceneMgr = mgr }

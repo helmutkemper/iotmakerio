@@ -39,6 +39,20 @@ func setupCodeNumbersTest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open in-memory db: %v", err)
 	}
+	// The classic :memory: trap: SQLite creates a SEPARATE database per
+	// CONNECTION, and database/sql is a POOL — the concurrent test's 16
+	// goroutines forced extra connections, each seeing a fresh empty DB
+	// ("no such table: code_numbers"). One connection pins one database.
+	// This is not a test-only trick: it MIRRORS production — store.Open()
+	// pins the same limit (db.go, DB.SetMaxOpenConns(1)); the gap existed
+	// only because this setup bypasses Open() with a raw sql.Open.
+	//
+	// Português: A armadilha clássica do :memory:: um banco POR CONEXÃO,
+	// e database/sql é um POOL. Uma conexão fixa um banco — e isso
+	// ESPELHA produção: o store.Open() prende o mesmo limite (db.go);
+	// a lacuna só existia porque este setup contorna o Open() com um
+	// sql.Open cru.
+	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = db.Close() })
 	DB = db
 

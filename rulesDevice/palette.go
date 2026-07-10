@@ -4,6 +4,8 @@
 
 package rulesDevice
 
+import "strings"
+
 // palette.go — Visual design system for all IDE devices.
 //
 // This file is the single source of truth for colors, sizes, typography, and
@@ -97,6 +99,55 @@ const (
 	// Duration input (or vice-versa), even though the underlying Go type is int64.
 	// Semantic type safety through visual identity.
 	KColorTypeDuration = "#00CCCC"
+
+	// KColorTypeUint is the color for uint, uint16 and uint32 values.
+	// Deep purple — the unsigned family, clearly separated from the signed
+	// blues. Inherited from the historical wire palette so existing scenes
+	// keep their hue after the palette unification.
+	//
+	// NOTE: uint8 is intentionally NOT in this family. In Go, byte IS uint8
+	// (a type alias), so uint8 must share KColorTypeByte — otherwise the same
+	// value would change color depending on how the specialist spelled the
+	// type in their black-box source.
+	//
+	// Português: Roxo profundo — a família sem sinal, separada dos azuis com
+	// sinal. Herdado da paleta histórica dos fios. uint8 fica FORA desta
+	// família de propósito: em Go, byte É uint8 (alias), então uint8 usa
+	// KColorTypeByte — senão o mesmo valor mudaria de cor conforme a grafia
+	// escolhida pelo especialista.
+	KColorTypeUint = "#5E35B1"
+
+	// KColorTypeUint64 is the color for uint64 values.
+	// Darkest purple — distinguishes the 64-bit unsigned width at a glance,
+	// mirroring how int64 vs int32 use different blues.
+	KColorTypeUint64 = "#4527A0"
+
+	// KColorTypeStruct is the catch-all color for pointer types (*machine.I2C)
+	// and package-qualified named types (spi.Config) coming from black-box
+	// components. Violet reads as "structured hardware data" and is distinct
+	// from every primitive color. This is the same violet the wire system has
+	// always used for its "struct" fallback — now defined in one place.
+	//
+	// Português: Cor pega-tudo para tipos ponteiro e tipos nomeados
+	// qualificados por pacote vindos de black-boxes. Violeta comunica "dado
+	// estruturado de hardware". É o mesmo violeta que o wire sempre usou no
+	// fallback "struct" — agora definido em um único lugar.
+	KColorTypeStruct = "#9C27B0"
+
+	// KColorFamilyDebug is the identity color of the Debug device family
+	// (the Print sinks): a burnt orange, deliberately DISTINCT from the
+	// bool wire orange (KColorTypeBool #FF8833) so a PrintBool still reads
+	// as "orange box, brighter-orange pin" instead of one undifferentiated
+	// blob. Family colors paint the BOX (border + header tag); pins, wires
+	// and the type label always keep the value type's own color.
+	//
+	// Português: Cor de identidade da família Debug (os sinks Print):
+	// laranja queimado, DISTINTO de propósito do laranja do fio bool
+	// (KColorTypeBool #FF8833) — um PrintBool lê como "caixa laranja, pino
+	// laranja mais vivo" em vez de um borrão único. Cores de família pintam
+	// a CAIXA (borda + tag do header); pinos, fios e o label de tipo sempre
+	// ficam na cor do próprio tipo.
+	KColorFamilyDebug = "#E8590C"
 )
 
 // ─── Device background colors ─────────────────────────────────────────────────
@@ -124,10 +175,14 @@ const (
 	// Dimmer than KColorDeviceText to create visual hierarchy.
 	KColorDeviceTextMuted = "#8899AA"
 
-	// KColorConnectorStroke is always white for the 1px outline of every
-	// connector dot.  The white ring makes connectors visible even when the
-	// dot fill color is close to the background color.
-	KColorConnectorStroke = "#FFFFFF"
+	// The connector-dot stroke color (KColorConnectorStroke) was RETIRED in
+	// the wave-2 connector standardization: the standard pins carry their
+	// own outline inside rulesConnection.PinSVGFragment. No legacy, per
+	// project rule.
+	// Português: A cor do traço do dot (KColorConnectorStroke) foi
+	// APOSENTADA na onda 2 da padronização: os pinos padrão carregam o
+	// próprio contorno dentro do rulesConnection.PinSVGFragment. Sem
+	// legado, regra do projeto.
 )
 
 // ─── Typography ───────────────────────────────────────────────────────────────
@@ -154,6 +209,27 @@ const (
 	// that appears below the device ornament.
 	// Kept at 12px to be readable but visually subordinate to the device body.
 	KDeviceFontSizeLabel = 12
+
+	// KDeviceFontSizeSymbol is the font size for the large operator glyph in
+	// the center of ornament-based devices (the "+" of Add, the "=" of
+	// EqualTo). Ornaments whose symbol is longer than one character (">=",
+	// "!=") may override it downward, but the base size lives here so the
+	// operator family shares one visual weight.
+	//
+	// Português: Tamanho da fonte do glifo grande de operador no centro dos
+	// devices baseados em ornament. Ornaments com símbolo maior que um
+	// caractere podem reduzir, mas o tamanho base vive aqui.
+	KDeviceFontSizeSymbol = 35
+
+	// KDeviceFontFamilyMono is the monospaced font stack for content where
+	// column alignment carries meaning: code-like values, hex dumps, byte
+	// previews, seven-segment-style readouts. Everything else uses
+	// KDeviceFontFamily.
+	//
+	// Português: Pilha de fontes monoespaçadas para conteúdo onde o
+	// alinhamento em colunas tem significado (valores tipo código, dumps hex,
+	// prévias de bytes). Todo o resto usa KDeviceFontFamily.
+	KDeviceFontFamilyMono = "monospace"
 )
 
 // ─── Geometry ─────────────────────────────────────────────────────────────────
@@ -172,23 +248,18 @@ const (
 	// black-box devices (which use their own bbHeaderH constant).
 	KDeviceHeaderHeight = 18.0
 
-	// KConnectorRadius is the visual radius of every connector dot.
-	KConnectorRadius = 5.0
-
-	// KConnectorOffsetRight is the distance from the right edge of the device
-	// body to the center of the output connector dot.
-	// Connector center x = device_width - KConnectorOffsetRight.
-	KConnectorOffsetRight = 8.0
-
-	// KConnectorOffsetLeft is the distance from the left edge of the device
-	// body to the center of an input connector dot.
-	// Connector center x = KConnectorOffsetLeft.
-	KConnectorOffsetLeft = 8.0
-
-	// KConnectorHitRadius is the radius used for click hit-testing on
-	// connectors.  Slightly larger than KConnectorRadius so the user does not
-	// have to click pixel-perfectly on the dot.
-	KConnectorHitRadius = 10.0
+	// The connector-dot geometry constants (KConnectorRadius,
+	// KConnectorOffsetLeft/Right, KConnectorHitRadius) were RETIRED in the
+	// wave-2 connector standardization: every device now uses the standard
+	// pin (rulesConnection: PinBodyInset, PinSVGFragment, PinHit,
+	// PinAnchor), whose single source of truth is the EDGE POINT — the
+	// pin's outer tip on the element border. No legacy, per project rule.
+	// Português: As constantes de geometria do dot (KConnectorRadius,
+	// KConnectorOffsetLeft/Right, KConnectorHitRadius) foram APOSENTADAS na
+	// onda 2 da padronização: todo device usa o pino padrão
+	// (rulesConnection: PinBodyInset, PinSVGFragment, PinHit, PinAnchor),
+	// cuja fonte única é o EDGE POINT — a ponta externa do pino na borda do
+	// element. Sem legado, regra do projeto.
 )
 
 // ─── Constant device sizes ────────────────────────────────────────────────────
@@ -241,6 +312,31 @@ func TypeStyleFor(goType string) TypeStyle {
 		return TypeStyle{Tag: "INT", Color: KColorTypeInt}
 	case "int32":
 		return TypeStyle{Tag: "I32", Color: KColorTypeInt32}
+	case "int8", "int16":
+		// Narrow signed widths share the "narrower int" darker blue used by
+		// int32 — the signed family reads as one hue family, widths as shades.
+		// The tag still shows the exact width for the specialist's benefit.
+		// Português: Larguras estreitas com sinal usam o azul mais escuro do
+		// int32 — a família com sinal lê como uma família de matiz; o tag
+		// mostra a largura exata para o especialista.
+		if goType == "int8" {
+			return TypeStyle{Tag: "I8", Color: KColorTypeInt32}
+		}
+		return TypeStyle{Tag: "I16", Color: KColorTypeInt32}
+	case "uint", "uint16", "uint32":
+		// Unsigned family — deep purple. uint8 is handled below with byte
+		// (they are the same Go type; see KColorTypeUint's doc comment).
+		// Português: Família sem sinal — roxo profundo. uint8 é tratado
+		// abaixo junto com byte (são o mesmo tipo Go).
+		switch goType {
+		case "uint16":
+			return TypeStyle{Tag: "U16", Color: KColorTypeUint}
+		case "uint32":
+			return TypeStyle{Tag: "U32", Color: KColorTypeUint}
+		}
+		return TypeStyle{Tag: "UINT", Color: KColorTypeUint}
+	case "uint64":
+		return TypeStyle{Tag: "U64", Color: KColorTypeUint64}
 	case "float32":
 		return TypeStyle{Tag: "F32", Color: KColorTypeFloat32}
 	case "float64":
@@ -265,11 +361,28 @@ func TypeStyleFor(goType string) TypeStyle {
 		return TypeStyle{Tag: "STR", Color: KColorTypeString}
 	case "error":
 		return TypeStyle{Tag: "ERR", Color: KColorTypeError}
-	case "byte", "[]byte":
+	case "byte", "uint8", "[]byte":
+		// byte and uint8 are the SAME Go type (alias) — one style, always.
+		// Português: byte e uint8 são o MESMO tipo Go (alias) — um estilo só.
 		return TypeStyle{Tag: "BYTE", Color: KColorTypeByte}
 	case "time.Duration":
 		return TypeStyle{Tag: "DUR", Color: KColorTypeDuration}
 	default:
+		// Pointer types (*machine.I2C) and package-qualified named types
+		// (spi.Config) from black-box components: the violet "structured
+		// data" catch-all. Checked BEFORE the slice derivation because a
+		// slice of a complex type ([]machine.Pin) should also read as
+		// structured data, and the slice branch below would recurse into
+		// this one anyway. time.Duration never reaches here — it has its
+		// explicit case above.
+		//
+		// Português: Tipos ponteiro e tipos qualificados por pacote vindos de
+		// black-boxes: o pega-tudo violeta de "dado estruturado". Verificado
+		// ANTES da derivação de slice. time.Duration nunca chega aqui — tem
+		// case explícito acima.
+		if strings.HasPrefix(goType, "*") || strings.Contains(goType, ".") {
+			return TypeStyle{Tag: "STRUCT", Color: KColorTypeStruct}
+		}
 		// Slice of a known element type ("[]int", "[]float32", …): derive
 		// the style from the ELEMENT — same accent color, tag prefixed
 		// with "[]". This matches the wire system's rule for collections

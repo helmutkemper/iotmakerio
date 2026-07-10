@@ -16,7 +16,66 @@ import (
 	"github.com/helmutkemper/iotmakerio/connection/factoryConnection"
 	"github.com/helmutkemper/iotmakerio/rulesConnection"
 	"github.com/helmutkemper/iotmakerio/rulesDensity"
+	"github.com/helmutkemper/iotmakerio/rulesDevice"
 )
+
+// opAmpBorder is the inset of the triangle body from the ornament bounds.
+// The margin it frees on the left and right is exactly where the connector
+// pins live, so they protrude from the triangle while staying inside the
+// sprite element.
+//
+// Português: Recuo do triângulo em relação aos limites do ornamento. A
+// margem liberada à esquerda e à direita é onde os pinos vivem, saindo do
+// triângulo sem estourar o sprite element.
+const opAmpBorder = 8
+
+// PinEdge is one connector's EDGE POINT in the ornament's logical (Density)
+// space: the point where the pin meets the device body border, vertically
+// centered on the pin. See rulesConnection/pin.go for the full vocabulary.
+//
+// Português: EDGE POINT de um conector no espaço lógico (Density) do
+// ornamento: onde o pino encosta na borda do corpo, centrado verticalmente
+// no pino. Ver rulesConnection/pin.go para o vocabulário completo.
+type PinEdge struct {
+	X rulesDensity.Density
+	Y rulesDensity.Density
+}
+
+// OpAmpPinEdges returns the three connector edge points of the op-amp
+// triangle for the given ornament size (logical Density, label area
+// excluded). This is the SINGLE geometry source for the op-amp family:
+//
+//   - the ornament draws the pins here (Update),
+//   - the devices hit-test clicks and the cursor here, and
+//   - the devices anchor their wires here (PositionFunc via PinAnchor).
+//
+// Change a position in this function and every consumer follows — the four
+// call sites can never disagree again.
+//
+//	inputX: left border of the triangle, upper pin
+//	inputY: left border of the triangle, lower pin
+//	output: right vertex of the triangle, vertical center
+//
+// Português: Retorna os três edge points do triângulo op-amp para o tamanho
+// dado (Density lógico, sem a área do label). É a fonte ÚNICA de geometria
+// da família op-amp: o ornamento desenha os pinos aqui, os devices testam
+// clique/cursor aqui e ancoram os fios aqui. Mudou aqui, todos os
+// consumidores seguem — os quatro pontos de uso não conseguem mais divergir.
+func OpAmpPinEdges(width, height rulesDensity.Density) (inputX, inputY, output PinEdge) {
+	b := rulesDensity.Density(opAmpBorder)
+
+	// The vertical offsets keep the pins visually where they always were on
+	// the 60×60 default ornament (upper pin centered at y=17, lower at
+	// height-16) — the standardization moved the wire ANCHORS to the outer
+	// tips, not the pins themselves.
+	// Português: Os deslocamentos verticais mantêm os pinos onde sempre
+	// estiveram no ornamento padrão 60×60 — a padronização moveu os ANCHORS
+	// dos fios para as pontas externas, não os pinos.
+	inputX = PinEdge{X: b, Y: rulesDensity.Density(17)}
+	inputY = PinEdge{X: b, Y: height - rulesDensity.Density(16)}
+	output = PinEdge{X: width - b, Y: height / 2}
+	return
+}
 
 // OrnamentOpAmpSymbol Responsible for drawing the operational amplifier symbol used in analog electronics for mathematical
 // operations
@@ -50,6 +109,51 @@ type OrnamentOpAmpSymbol struct {
 	inputYConnectionArea connection.Connection
 	outputConnection     *html.TagSvgPath
 	outputConnectionArea connection.Connection
+
+	// [PIN] data type per connector — controls each pin's fill color, kept in
+	// sync with the wire.Manager's AllowedTypes by the owning device. They are
+	// SEPARATE fields (not one shared type) because the comparison devices
+	// have mixed ports: operand inputs follow the selected data type while the
+	// output is ALWAYS bool.
+	//
+	// Português: Tipo de dado por conector — controla a cor de cada pino,
+	// mantido em sincronia com os AllowedTypes do wire.Manager pelo device
+	// dono. São campos SEPARADOS (não um tipo único) porque os devices de
+	// comparação têm portas mistas: entradas seguem o tipo selecionado, mas a
+	// saída é SEMPRE bool.
+	inputXType string
+	inputYType string
+	outputType string
+}
+
+// SetConnectionTypes sets the data type of each connector pin and repaints
+// the pins with the canonical palette color of their type (the same hue the
+// wire of that type uses, so pin and wire read as one continuous piece).
+//
+// The owning device must call this:
+//   - once after Init(), with the initial types, and
+//   - again from its SetDataType(), followed by a recacheOrnament(), so a
+//     type switch in the Inspect panel recolors the pins on screen.
+//
+// Português: Define o tipo de dado de cada pino e repinta os pinos com a cor
+// canônica do tipo (o mesmo matiz do fio daquele tipo, para pino e fio lerem
+// como uma peça contínua). O device dono deve chamar: uma vez após Init(),
+// com os tipos iniciais, e de novo no SetDataType(), seguido de
+// recacheOrnament(), para a troca de tipo no Inspect recolorir na tela.
+func (e *OrnamentOpAmpSymbol) SetConnectionTypes(inputXType, inputYType, outputType string) {
+	e.inputXType = inputXType
+	e.inputYType = inputYType
+	e.outputType = outputType
+
+	if e.inputXConnection != nil {
+		e.inputXConnection.Fill(rulesConnection.TypeToColor(inputXType))
+	}
+	if e.inputYConnection != nil {
+		e.inputYConnection.Fill(rulesConnection.TypeToColor(inputYType))
+	}
+	if e.outputConnection != nil {
+		e.outputConnection.Fill(rulesConnection.TypeToColor(outputType))
+	}
 }
 
 func (e *OrnamentOpAmpSymbol) InputXSetup(setup connection.Setup) {
@@ -236,9 +340,18 @@ func (e *OrnamentOpAmpSymbol) Init() (err error) {
 	e.deviceBackgroundSelectedColor = color.RGBA{R: 253, G: 205, B: 0, A: 255}
 	e.deviceSymbolSelectedColor = color.RGBA{R: 133, G: 83, B: 81, A: 255}
 
+	// [FONT] typography comes from the design system (rulesDevice) — the
+	// operator glyph shares the family every device uses and the base symbol
+	// size the whole op-amp family shares. Individual ornaments with longer
+	// symbols (">=", "!=") may still call SetSymbolFontSize to shrink.
+	//
+	// Português: Tipografia vem do design system (rulesDevice) — o glifo do
+	// operador usa a família de todos os devices e o tamanho base da família
+	// op-amp. Ornaments com símbolos maiores podem reduzir via
+	// SetSymbolFontSize.
 	e.deviceSymbolText = "?"
-	e.deviceSymbolFontSize = rulesDensity.Density(35)
-	e.deviceSymbolFontFamily = "Arial"
+	e.deviceSymbolFontSize = rulesDensity.Density(rulesDevice.KDeviceFontSizeSymbol)
+	e.deviceSymbolFontFamily = rulesDevice.KDeviceFontFamily
 	e.deviceSymbolFontWeight = "bold"
 
 	e.svg = factoryBrowser.NewTagSvg()
@@ -263,19 +376,40 @@ func (e *OrnamentOpAmpSymbol) Init() (err error) {
 		UserSelectNone()
 	e.svg.Append(e.deviceSymbol)
 
-	e.inputXConnection = factoryConnection.NewConnection("int", "url(#inputXConnection)")
+	// [PIN] the pins are born with the default types below; the owning device
+	// overrides them right after Init() via SetConnectionTypes(). Before the
+	// standardization the color was hardcoded to "int" and NEVER updated — an
+	// Add switched to float kept blue pins next to a teal wire. The per-pin
+	// type fields fix that permanently.
+	//
+	// Português: Os pinos nascem com os tipos padrão abaixo; o device dono
+	// sobrescreve logo após Init() via SetConnectionTypes(). Antes da
+	// padronização a cor era "int" fixo e NUNCA atualizada — um Add trocado
+	// para float ficava com pinos azuis ao lado de um fio teal. Os campos de
+	// tipo por pino corrigem isso em definitivo.
+	if e.inputXType == "" {
+		e.inputXType = "int"
+	}
+	if e.inputYType == "" {
+		e.inputYType = "int"
+	}
+	if e.outputType == "" {
+		e.outputType = "int"
+	}
+
+	e.inputXConnection = factoryConnection.NewConnection(e.inputXType, "url(#inputXConnection)")
 	e.svg.Append(e.inputXConnection)
 
 	e.inputXConnectionArea.Init("url(#inputXConnectionArea)")
 	e.svg.Append(e.inputXConnectionArea.GetSvgPath())
 
-	e.inputYConnection = factoryConnection.NewConnection("int", "url(#inputYConnection)")
+	e.inputYConnection = factoryConnection.NewConnection(e.inputYType, "url(#inputYConnection)")
 	e.svg.Append(e.inputYConnection)
 
 	e.inputYConnectionArea.Init("url(#inputYConnectionArea)")
 	e.svg.Append(e.inputYConnectionArea.GetSvgPath())
 
-	e.outputConnection = factoryConnection.NewConnection("int", "url(#outputConnection)")
+	e.outputConnection = factoryConnection.NewConnection(e.outputType, "url(#outputConnection)")
 	e.svg.Append(e.outputConnection)
 
 	e.outputConnectionArea.Init("url(#stopButtonConnection)")
@@ -301,7 +435,7 @@ func (e *OrnamentOpAmpSymbol) Update(x, y, width, height rulesDensity.Density) (
 	//e.svg.ViewBox([]int{0.0, 0.0, width, height})
 
 	// draw the triangle
-	border := rulesDensity.Density(8)
+	border := rulesDensity.Density(opAmpBorder)
 	device := []string{
 		fmt.Sprintf("M %v %v", 0+border, 0+border),
 		fmt.Sprintf("L %v %v", width-border, height/2),
@@ -324,17 +458,35 @@ func (e *OrnamentOpAmpSymbol) Update(x, y, width, height rulesDensity.Density) (
 	e.deviceSymbol.X(rulesDensity.FromScaledInt(xc).GetInt() + e.deviceAdjustX.GetInt())
 	e.deviceSymbol.Y(rulesDensity.FromScaledInt(yc).GetInt() + e.deviceAdjustY.GetInt())
 
-	e.inputXConnection.D(rulesConnection.GetPathDraw(rulesDensity.Density(2), rulesDensity.Density(15)))
-	e.inputXConnectionArea.GetSvgPath().D(rulesConnection.GetPathAreaDraw(rulesDensity.Density(2), rulesDensity.Density(15)))
-	e.inputXConnectionArea.SetXY(x+rulesDensity.Density(2), y+rulesDensity.Density(15))
+	// [PIN] connector pins — drawn by the standard pin geometry so the four
+	// consumers (this drawing, the devices' click hit-test, cursor hit-test
+	// and wire anchor) all read from OpAmpPinEdges and can never disagree.
+	// Inputs protrude LEFT from the triangle's left border; the output
+	// protrudes RIGHT from the triangle's vertex, so the wire attaches at
+	// the pin's OUTER TIP — the product-standard connector look.
+	//
+	// Português: Pinos dos conectores — desenhados pela geometria padrão para
+	// os quatro consumidores (este desenho, o hit-test de clique dos devices,
+	// o de cursor e o anchor do fio) lerem de OpAmpPinEdges e nunca
+	// divergirem. Entradas saem para a ESQUERDA da borda esquerda do
+	// triângulo; a saída sai para a DIREITA do vértice, com o fio preso na
+	// PONTA EXTERNA do pino — o visual padrão do produto.
+	inputX, inputY, output := OpAmpPinEdges(width, height)
 
-	e.inputYConnection.D(rulesConnection.GetPathDraw(rulesDensity.Density(2), e.height-rulesDensity.Density(18)))
-	e.inputYConnectionArea.GetSvgPath().D(rulesConnection.GetPathAreaDraw(rulesDensity.Density(2), e.height-rulesDensity.Density(18)))
-	e.inputYConnectionArea.SetXY(x+rulesDensity.Density(2), y+e.height-rulesDensity.Density(18))
+	e.inputXConnection.D(rulesConnection.PinPathDraw(rulesConnection.PinSideLeft, inputX.X, inputX.Y))
+	e.inputXConnectionArea.GetSvgPath().D(rulesConnection.PinPathAreaDraw(rulesConnection.PinSideLeft, inputX.X, inputX.Y))
+	axX, axY := rulesConnection.PinAnchorD(rulesConnection.PinSideLeft, inputX.X, inputX.Y)
+	e.inputXConnectionArea.SetXY(x+axX, y+axY)
 
-	e.outputConnection.D(rulesConnection.GetPathDraw(e.width-rulesDensity.Density(12), e.height/2-rulesDensity.Density(2)))
-	e.outputConnectionArea.GetSvgPath().D(rulesConnection.GetPathAreaDraw(e.width-rulesDensity.Density(12), e.height/2-rulesDensity.Density(2)))
-	e.outputConnectionArea.SetXY(x+e.width-rulesDensity.Density(12), y+e.height/2-rulesDensity.Density(2))
+	e.inputYConnection.D(rulesConnection.PinPathDraw(rulesConnection.PinSideLeft, inputY.X, inputY.Y))
+	e.inputYConnectionArea.GetSvgPath().D(rulesConnection.PinPathAreaDraw(rulesConnection.PinSideLeft, inputY.X, inputY.Y))
+	ayX, ayY := rulesConnection.PinAnchorD(rulesConnection.PinSideLeft, inputY.X, inputY.Y)
+	e.inputYConnectionArea.SetXY(x+ayX, y+ayY)
+
+	e.outputConnection.D(rulesConnection.PinPathDraw(rulesConnection.PinSideRight, output.X, output.Y))
+	e.outputConnectionArea.GetSvgPath().D(rulesConnection.PinPathAreaDraw(rulesConnection.PinSideRight, output.X, output.Y))
+	aoX, aoY := rulesConnection.PinAnchorD(rulesConnection.PinSideRight, output.X, output.Y)
+	e.outputConnectionArea.SetXY(x+aoX, y+aoY)
 
 	return
 }

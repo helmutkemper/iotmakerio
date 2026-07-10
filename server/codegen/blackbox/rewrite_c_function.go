@@ -66,8 +66,26 @@ func planCFunctionEdit(source string, fp cFunctionPath, e WizardEdit) (cSplicePl
 			"function port path supports setPortConnection, got %q", e.Op)
 	}
 	if fp.Port == "return" {
-		return cSplicePlan{}, fmt.Errorf(
-			"the 'return' output has no source position and is not editable")
+		// The synthetic return port HAS a designed label mechanism — the
+		// `return:<label>.` directive in the FUNCTION's leading comment
+		// (parser: extractReturnLabelDirective) — but this path used to
+		// reject with "not editable", so the natural gesture (clicking
+		// the return row and typing a label) silently lost the value on
+		// re-open (field report 2026-07-08). It now MERGES: the existing
+		// leading block survives verbatim (label/icon/prose/callback —
+		// this writer owns ONLY the return: segment), unlike the
+		// function modal's whole-block rebuild, which prefills and
+		// re-emits everything. Both writers converge on the same
+		// directive. Connection is meaningless on outputs and the port
+		// has no doc slot — both args are ignored, mirroring the Go
+		// router's silent-drop stance.
+		//
+		// Português: O port sintético de retorno TEM mecanismo de label
+		// (`return:<label>.` no comentário da função), mas este caminho
+		// rejeitava — o gesto natural perdia o valor. Agora faz MERGE: o
+		// bloco existente sobrevive verbatim; este writer é dono SÓ do
+		// segmento return:. Connection/doc são ignorados.
+		return planCReturnLabel(source, fp.Func, e)
 	}
 	return planCFunctionPortConnection(source, fp, e)
 }
@@ -349,4 +367,55 @@ func locateCFunction(source, name string) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// planCReturnLabel writes (or removes) the `return:<label>.` directive
+// in a function's leading comment, PRESERVING every other line of the
+// block verbatim — see the routing note above for why this writer merges
+// where the function modal rebuilds. An empty label removes the
+// directive (the return row shows its default again).
+//
+// Português: Escreve (ou remove) o `return:<label>.` no comentário
+// líder, preservando todo o resto verbatim. Label vazio remove.
+func planCReturnLabel(source, fnName string, e WizardEdit) (cSplicePlan, error) {
+	var args struct {
+		Label string `json:"label"`
+	}
+	if err := json.Unmarshal(e.Args, &args); err != nil {
+		return cSplicePlan{}, fmt.Errorf("invalid args: %w", err)
+	}
+
+	declStart, ok := locateCFunction(source, fnName)
+	if !ok {
+		return cSplicePlan{}, fmt.Errorf("function %q not found", fnName)
+	}
+	commentStart, commentEnd := findLeadingCommentRange(source, declStart)
+	indent := indentOfLine(source, declStart)
+
+	existing := source[commentStart:commentEnd]
+	var kept []string
+	for _, line := range strings.Split(existing, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		// Drop ONLY a `// return:…` directive line; everything else —
+		// label/icon lines, prose, /* */ blocks — passes through
+		// verbatim, indentation included.
+		if body, isLine := strings.CutPrefix(trimmed, "//"); isLine {
+			if strings.HasPrefix(strings.TrimSpace(body), "return:") {
+				continue
+			}
+		}
+		kept = append(kept, line)
+	}
+	if strings.TrimSpace(args.Label) != "" {
+		kept = append(kept, indent+"// return:"+strings.TrimSpace(args.Label)+".")
+	}
+
+	newBlock := ""
+	if len(kept) > 0 {
+		newBlock = strings.Join(kept, "\n") + "\n"
+	}
+	return cSplicePlan{start: commentStart, end: commentEnd, newText: newBlock}, nil
 }

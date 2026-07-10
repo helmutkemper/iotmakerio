@@ -706,6 +706,11 @@ func (e *emitter) emitScope(scopeID string) []string {
 
 	if scopeID != "" {
 		e.program.Append(Instruction{Op: OpLoopBegin, Dest: scopeID})
+		// [COMMENT] container comments land on the LOOP_BEGIN itself, so the
+		// backends print them right above the loop statement.
+		// Português: Comentários de container caem no próprio LOOP_BEGIN,
+		// então os backends os imprimem logo acima do laço.
+		e.stampScopeComment(scopeID)
 		// Loop scope: hoist BB_DECL for loop-local instances at loop top,
 		// immediately after LOOP_BEGIN and before any other instructions.
 		e.emitBBDeclsForScope(scopeID, sorted)
@@ -986,6 +991,11 @@ func (e *emitter) emitCase(scopeID string) {
 	// codegen.ValidateCases — the codegen is the authority on reachability,
 	// not the overlay.
 	e.program.Append(Instruction{Op: OpCondBegin, Dest: scopeID})
+	// [COMMENT] same container rule as loops: the comment rides COND_BEGIN
+	// and prints right above the if/switch.
+	// Português: Mesma regra de container dos loops: o comentário viaja no
+	// COND_BEGIN e imprime logo acima do if/switch.
+	e.stampScopeComment(scopeID)
 	for ci, c := range scope.Cases {
 		if c.IsDefault {
 			continue
@@ -1260,6 +1270,18 @@ func (e *emitter) emitNode(nodeID string) {
 		return
 	}
 
+	// [COMMENT] the maker's Inspect comment rides the node's FIRST emitted
+	// instruction as Meta["comment"]; the backends prefix it as `// ` lines.
+	// A deferred stamp survives the early returns inside the dispatch, and
+	// nodes that emit nothing (callback references) naturally skip.
+	// Português: O comentário do Inspect do maker viaja na PRIMEIRA
+	// instrução emitida do node como Meta["comment"]; os backends o
+	// prefixam como linhas `// `. O defer sobrevive aos returns dentro do
+	// dispatch, e nodes que não emitem nada (referências de callback) pulam
+	// naturalmente.
+	before := len(e.program.Instructions)
+	defer e.stampNodeComment(node, before)
+
 	switch {
 	case isCallbackRefNode(node):
 		// C99 callback REFERENCE device (the "ƒ" variant of a callback handler):
@@ -1332,6 +1354,18 @@ func (e *emitter) emitNode(nodeID string) {
 		e.emitIndex(node, "float")
 	case node.Type == "StatementIndexString":
 		e.emitIndex(node, "string")
+	case node.Type == "StatementPrintInt":
+		e.emitPrint(node, "int")
+	case node.Type == "StatementPrintFloat":
+		e.emitPrint(node, "float")
+	case node.Type == "StatementPrintString":
+		e.emitPrint(node, "string")
+	case node.Type == "StatementPrintBool":
+		e.emitPrint(node, "bool")
+	case node.Type == "StatementPrintByte":
+		e.emitPrint(node, "byte")
+	case node.Type == "StatementPrintByteArray":
+		e.emitPrint(node, "[]byte")
 	case node.Type == "StatementEqualTo":
 		e.emitCmp(node, OpCmpEQ)
 	case node.Type == "StatementNotEqualTo":
@@ -2415,6 +2449,35 @@ func (e *emitter) emitGauge(node *graph.Node) {
 	})
 }
 
+// emitPrint emits OpPrint for one StatementPrint{...} sink. The single input
+// port is "value"; the device carries two free properties — "prefix" (text
+// printed before the value) and "format" (the per-type variant; see OpPrint's
+// table in types.go). Both travel as Meta so the two backends read one shape.
+// An unconnected input is a warning, not an error: the maker parked the
+// device, the scene still generates.
+//
+// Português: Emite OpPrint para um sink StatementPrint{...}. A porta única é
+// "value"; o device leva duas propriedades — "prefix" (texto antes do valor)
+// e "format" (a variante por tipo; tabela no OpPrint em types.go). As duas
+// vão em Meta para os dois backends lerem uma forma só. Entrada desconectada
+// é aviso, não erro: o maker estacionou o device, a cena ainda gera.
+func (e *emitter) emitPrint(node *graph.Node, dataType string) {
+	src := e.resolveInput(node.ID, "value")
+	if src == "" {
+		e.program.Warn("%s.value: not connected", node.ID)
+		return
+	}
+	prefix, _ := node.Properties["prefix"].(string)
+	format, _ := node.Properties["format"].(string)
+	e.program.Append(Instruction{
+		Op:   OpPrint,
+		Dest: node.ID,
+		Type: dataType,
+		Args: []string{src},
+		Meta: map[string]string{"prefix": prefix, "format": format},
+	})
+}
+
 // =====================================================================
 //  Topological sort with execution-order and Init→Loop implicit edges
 // =====================================================================
@@ -2921,4 +2984,64 @@ func zeroValue(dataType string) string {
 	default:
 		return "0"
 	}
+}
+
+// stampNodeComment attaches the node's Inspect comment to the instruction at
+// index `before` — the first one this node emitted. Deferred from emitNode:
+// runs after the dispatch, whatever path it took. Skips silently when the
+// node has no comment or emitted nothing.
+//
+// Português: Anexa o comentário do Inspect do node à instrução no índice
+// `before` — a primeira que este node emitiu. Deferido do emitNode: roda
+// após o dispatch, qualquer que seja o caminho. Sai em silêncio quando o
+// node não tem comentário ou não emitiu nada.
+func (e *emitter) stampNodeComment(node *graph.Node, before int) {
+	if len(e.program.Instructions) <= before {
+		return
+	}
+	e.stampCommentAt(node, before)
+}
+
+// stampScopeComment attaches a container node's comment to the instruction
+// just appended (LOOP_BEGIN / COND_BEGIN). Containers don't flow through
+// emitNode — the scope walkers emit their begin/end frames — so they get
+// this dedicated stamp right after the begin Append.
+//
+// Português: Anexa o comentário de um node container à instrução recém
+// anexada (LOOP_BEGIN / COND_BEGIN). Containers não passam pelo emitNode —
+// os walkers de escopo emitem seus frames — então ganham este carimbo
+// dedicado logo após o Append do begin.
+func (e *emitter) stampScopeComment(scopeID string) {
+	node, ok := e.graph.Nodes[scopeID]
+	if !ok {
+		return
+	}
+	n := len(e.program.Instructions)
+	if n == 0 {
+		return
+	}
+	e.stampCommentAt(node, n-1)
+}
+
+// stampCommentAt is the shared core: reads Properties["comment"], trims it,
+// and writes Meta["comment"] on the instruction at idx. Meta is the IR's
+// documented "extra metadata" bag — no Instruction struct change needed.
+//
+// Português: Núcleo compartilhado: lê Properties["comment"], apara e grava
+// Meta["comment"] na instrução em idx. Meta é a bolsa documentada de
+// "metadados extras" do IR — sem mudança na struct Instruction.
+func (e *emitter) stampCommentAt(node *graph.Node, idx int) {
+	if node == nil || node.Properties == nil {
+		return
+	}
+	c, _ := node.Properties["comment"].(string)
+	c = strings.TrimSpace(c)
+	if c == "" {
+		return
+	}
+	inst := &e.program.Instructions[idx]
+	if inst.Meta == nil {
+		inst.Meta = map[string]string{}
+	}
+	inst.Meta["comment"] = c
 }

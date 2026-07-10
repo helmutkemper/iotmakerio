@@ -194,6 +194,26 @@ var catalog = []DeviceMetadata{
 	{TypeName: "StatementIndexFloat", SupportedLanguages: universalLanguages},
 	{TypeName: "StatementIndexString", SupportedLanguages: universalLanguages},
 
+	// Print{Int,Float,String,Bool,Byte,ByteArray} — debug-print sinks, one
+	// per value type. One input ("value"), no output. All emit ir.OpPrint,
+	// which BOTH backends render for real (fmt.Printf in Go, printf in
+	// C99) — unlike the display widgets below, whose OpOutput never
+	// reaches the generated program. []byte in C99 relies on the
+	// collection's `_len` companion (the OpConstArray convention).
+	//
+	// Português: Sinks de print de depuração, um por tipo. Uma entrada
+	// ("value"), sem saída. Todos emitem ir.OpPrint, que os DOIS backends
+	// renderizam de verdade (fmt.Printf no Go, printf no C99) — diferente
+	// dos widgets de display abaixo, cujo OpOutput nunca chega ao programa
+	// gerado. []byte no C99 depende do companheiro `_len` da coleção
+	// (convenção do OpConstArray).
+	{TypeName: "StatementPrintInt", SupportedLanguages: universalLanguages},
+	{TypeName: "StatementPrintFloat", SupportedLanguages: universalLanguages},
+	{TypeName: "StatementPrintString", SupportedLanguages: universalLanguages},
+	{TypeName: "StatementPrintBool", SupportedLanguages: universalLanguages},
+	{TypeName: "StatementPrintByte", SupportedLanguages: universalLanguages},
+	{TypeName: "StatementPrintByteArray", SupportedLanguages: universalLanguages},
+
 	// ── Display / output devices ────────────────────────────────────────
 	// These are frontend-only widgets (gauge, LED, charts...). They
 	// occupy a place on the canvas and may be wired to backend nodes,

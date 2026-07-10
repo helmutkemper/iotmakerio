@@ -28,6 +28,7 @@ import (
 	"github.com/helmutkemper/iotmakerio/grid"
 	"github.com/helmutkemper/iotmakerio/hexagon"
 	"github.com/helmutkemper/iotmakerio/ornament/ifElseBorder"
+	"github.com/helmutkemper/iotmakerio/rulesConnection"
 	"github.com/helmutkemper/iotmakerio/rulesContainer"
 	"github.com/helmutkemper/iotmakerio/rulesDensity"
 	"github.com/helmutkemper/iotmakerio/rulesIcon"
@@ -38,6 +39,7 @@ import (
 	"github.com/helmutkemper/iotmakerio/translate"
 	"github.com/helmutkemper/iotmakerio/ui/contextMenu"
 	"github.com/helmutkemper/iotmakerio/ui/mainMenu"
+	"github.com/helmutkemper/iotmakerio/ui/overlay"
 	"github.com/helmutkemper/iotmakerio/utilsDraw"
 	"github.com/helmutkemper/iotmakerio/utilsText"
 	"github.com/helmutkemper/iotmakerio/wire"
@@ -54,8 +56,13 @@ type StatementIfElse struct {
 	dragEnabled  bool
 	dragLocked   bool
 	resizeLocked bool
-	width        rulesDensity.Density
-	height       rulesDensity.Density
+	// [COMMENT] user comment — appears as `// ` lines above this container's
+	// statement in the generated code and in the container's hover tooltip.
+	// Português: Comentário do usuário — vira linhas `// ` acima do
+	// statement deste container no código gerado e no tooltip de hover.
+	comment string
+	width   rulesDensity.Density
+	height  rulesDensity.Density
 
 	pendingResizeEnable *bool
 	pendingDragEnable   *bool
@@ -408,8 +415,7 @@ func (e *StatementIfElse) getBodyMenuItems() []contextMenu.Item {
 			e.Remove()
 		}),
 		mainMenu.InspectItem(func() {
-			log.Printf("[IfElse] inspect: id=%v size=(%.0f,%.0f)",
-				e.id, e.width.GetFloat(), e.height.GetFloat())
+			go e.showInspectOverlay()
 		}),
 		{
 			ID:              "resize",
@@ -452,12 +458,15 @@ func (e *StatementIfElse) wireEvents() {
 			return
 		}
 
-		connX := 5.0
+		// [PIN] standard pin hit box at the container's LEFT edge — same
+		// edge point the border ornament draws and the wire anchors to.
+		// Português: Caixa de clique do pino padrão na borda ESQUERDA do
+		// container — mesmo edge point que o ornamento desenha e o fio
+		// ancora.
 		connY := h / 2
-		connRadius := 12.0
-		dx := event.LocalX - connX
-		dy := event.LocalY - connY
-		if dx*dx+dy*dy <= connRadius*connRadius {
+		if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+			rulesConnection.PinBodyInset(), connY,
+			event.LocalX, event.LocalY) {
 			if e.ctxMenu != nil && e.wireMgr != nil {
 				elemX, elemY := e.elem.GetPosition()
 				menuX, menuY := elemX+event.LocalX, elemY+event.LocalY
@@ -607,11 +616,9 @@ func (e *StatementIfElse) wireEvents() {
 		if localX >= 20 && localX <= 100 && localY >= 16 && localY <= 38 {
 			return sprite.CursorPointer
 		}
-		connX := 5.0
 		connY := h / 2
-		dx := localX - connX
-		dy := localY - connY
-		if dx*dx+dy*dy <= 12.0*12.0 {
+		if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+			rulesConnection.PinBodyInset(), connY, localX, localY) {
 			return sprite.CursorPointer
 		}
 		return ""
@@ -650,7 +657,9 @@ func (e *StatementIfElse) RegisterConnectors() {
 		PositionFunc: func() (float64, float64) {
 			ex, ey := e.elem.GetPosition()
 			_, h := e.elem.GetSize()
-			return ex + 5, ey + h/2
+			ax, ay := rulesConnection.PinAnchor(rulesConnection.PinSideLeft,
+				rulesConnection.PinBodyInset(), h/2)
+			return ex + ax, ey + ay
 		},
 	})
 }
@@ -709,14 +718,66 @@ func (e *StatementIfElse) RefreshVisual() {
 
 func (e *StatementIfElse) GetProperties() map[string]interface{} {
 	e.assignNewChildren()
-	return map[string]interface{}{
+	props := map[string]interface{}{
 		"selectedBranch": e.selectedBranch,
 		"trueBranchIDs":  e.trueBranchIDs,
 		"falseBranchIDs": e.falseBranchIDs,
 	}
+	if e.comment != "" {
+		props["comment"] = e.comment
+	}
+	return props
+}
+
+// GetComment returns the user comment shown in generated code and in the
+// container's hover tooltip.
+// Português: Retorna o comentário do usuário exibido no código gerado e
+// no tooltip de hover do container.
+func (e *StatementIfElse) GetComment() string { return e.comment }
+
+// SetComment sets the user comment.
+// Português: Define o comentário do usuário.
+func (e *StatementIfElse) SetComment(c string) { e.comment = c }
+
+// showInspectOverlay opens the container's Inspect: a Properties tab whose
+// only editable datum is the universal COMMENT (containers have no other
+// form-editable state — membership and geometry live on the stage).
+// Português: Abre o Inspect do container: aba Properties cujo único dado
+// editável é o COMENTÁRIO universal (containers não têm outro estado
+// editável por formulário — membros e geometria vivem no stage).
+func (e *StatementIfElse) showInspectOverlay() { overlay.Show(e.inspectConfig()) }
+
+func (e *StatementIfElse) inspectConfig() overlay.Config {
+	return overlay.Config{
+		Title: e.id,
+		Width: "480px",
+		Tabs: []overlay.Tab{
+			{
+				Label: translate.T("tabProperties", "Properties"),
+				Type:  overlay.TabForm,
+				Fields: []overlay.Field{
+					{
+						Key:         "comment",
+						Label:       translate.T("propComment", "Comment"),
+						Type:        overlay.FieldTextarea,
+						Value:       e.comment,
+						Placeholder: translate.T("propCommentPlaceholder", "Comment shown in generated code..."),
+						Rows:        3,
+					},
+					{Key: "id", Label: "ID", Type: overlay.FieldText, Value: e.id, ReadOnly: true},
+				},
+			},
+		},
+		OnSave: func(values map[string]string) {
+			e.ApplyProperties(values)
+		},
+	}
 }
 
 func (e *StatementIfElse) ApplyProperties(values map[string]string) {
+	if v, ok := values["comment"]; ok {
+		e.comment = v
+	}
 	if branch, ok := values["selectedBranch"]; ok {
 		e.selectedBranch = branch
 		if e.ornamentDraw != nil {

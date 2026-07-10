@@ -106,6 +106,20 @@ func TestParseForLanguageDispatch(t *testing.T) {
 		t.Fatalf("two-structs error = %q, want the one-family rule", err)
 	}
 
+	// Assets never reach the walkers (unified asset model): a Go project
+	// carrying device.go + an asset routes through the SINGLE-FILE path —
+	// len() downstream means SOURCE files. The filter is the dispatch's
+	// single choke point.
+	goPlusAsset := []FileEntry{
+		{Path: "device.go", Content: goSrcForDispatch},
+		{Path: "templates/portal.html", Content: "<html>"},
+	}
+	if def, err := ParseForLanguageFiles("go", goPlusAsset, limits); def == nil || err != nil {
+		t.Fatalf("go+asset must parse as single-file: (%v, %v)", def, err)
+	} else if len(def.Files) != 1 || def.Files[0].Path != "device.go" {
+		t.Fatalf("def.Files must be SOURCE-only; got %+v", def.Files)
+	}
+
 	// Empty set mirrors Parse(nil): an empty def, no error — the "new
 	// project, nothing typed yet" state must not explode.
 	if def, err := ParseForLanguageFiles("go", nil, limits); def == nil || err != nil {

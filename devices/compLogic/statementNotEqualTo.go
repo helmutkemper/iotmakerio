@@ -16,9 +16,10 @@ import (
 	"github.com/helmutkemper/iotmakerio/devices"
 	"github.com/helmutkemper/iotmakerio/devices/block"
 	"github.com/helmutkemper/iotmakerio/grid"
-	"github.com/helmutkemper/iotmakerio/hexMenu"
 	"github.com/helmutkemper/iotmakerio/ornament"
 	"github.com/helmutkemper/iotmakerio/ornament/compare"
+	"github.com/helmutkemper/iotmakerio/ornament/device"
+	"github.com/helmutkemper/iotmakerio/rulesConnection"
 	"github.com/helmutkemper/iotmakerio/rulesDensity"
 	"github.com/helmutkemper/iotmakerio/rulesDevice"
 	"github.com/helmutkemper/iotmakerio/rulesIcon"
@@ -65,18 +66,28 @@ type StatementNotEqualTo struct {
 	// [SPRITE] resize button template.
 	resizerButton block.ResizeButton
 
-	// [HEXMENU] single menu instance — reused for body and each connector.
-	// Only one menu is visible at a time; Open() closes any previous one.
+	// [HEXMENU] shared hex menu instance. The device no longer OPENS it (all
+	// device menus are linear context menus — the old hexagonal output menu
+	// and its first-click tutorial were removed after user testing); the
+	// reference is kept only so a click on the device can close a hex menu
+	// left open elsewhere (the main palette), keeping the ghost-menu
+	// prevention rule intact.
+	//
+	// Português: Instância compartilhada do menu hexagonal. O device não a
+	// ABRE mais (todos os menus do device são menus de contexto lineares — o
+	// antigo menu hexagonal da saída e seu tutorial de primeiro clique foram
+	// removidos após os testes com usuários); a referência fica só para um
+	// clique no device fechar um menu hexagonal deixado aberto por outro
+	// lugar (a palette principal), mantendo a regra de prevenção de menus
+	// fantasma.
 	hexMenu *mainMenu.SpriteHexMenu
 
-	// [CTXMENU] linear context menu controller. Used by body
-	// and all port clicks. Tutorial path (first-time output click)
-	// still uses hexMenu because StartTutorialFromDevice flashes
-	// hex items — lifted in Delivery C.
+	// [CTXMENU] linear context menu controller — the single menu system for
+	// body and connector clicks.
+	//
+	// Português: Controlador do menu de contexto linear — o único sistema de
+	// menus para cliques no corpo e nos conectores.
 	ctxMenu *contextMenu.Controller
-
-	// [HEXMENU] tutorial demo: first click on output uses guided tutorial mode.
-	outputTutorialShown bool
 
 	// [WIRE] wire manager reference — set via SetWireManager() before Init()
 	wireMgr *wire.Manager
@@ -123,6 +134,15 @@ type StatementNotEqualTo struct {
 
 	// [SCENE] overlap policy and scene change notifier
 	sceneNotify func()
+	// [SCENEGRAPH] injected by scene.Serializer.Register (self-injection by
+	// interface assertion). DragEnd reports through it so the scenegraph
+	// refreshes geometry, recomputes conflicts (own + peers) and reassigns
+	// parenting — the same EndDrag hook the containers use.
+	// Português: Injetado pelo scene.Serializer.Register (auto-injeção por
+	// assertion). O DragEnd reporta por ele para o scenegraph refrescar
+	// geometria, recomputar conflitos (próprios + peers) e reatribuir
+	// parenting — o mesmo gancho EndDrag dos containers.
+	sceneMgr *scene.Serializer
 
 	// [LIFECYCLE] onRemove is called by Remove() so external registries
 	// (scene serializer, device manager) can clean up. Set by the factory.
@@ -174,7 +194,7 @@ func (e *StatementNotEqualTo) GetDataType() string { return e.dataType }
 // Atualiza o ConnectorInfo do wire.Manager in-place (sem desconectar).
 func (e *StatementNotEqualTo) SetDataType(dt string) {
 	if dt != "int" && dt != "float" && dt != "string" {
-		log.Printf("[Add] %s: invalid dataType %q, keeping %q", e.id, dt, e.dataType)
+		log.Printf("[NotEqualTo] %s: invalid dataType %q, keeping %q", e.id, dt, e.dataType)
 		return
 	}
 	if dt == e.dataType {
@@ -183,7 +203,19 @@ func (e *StatementNotEqualTo) SetDataType(dt string) {
 	old := e.dataType
 	e.dataType = dt
 	e.updateConnectorTypes()
-	log.Printf("[Add] %s: dataType changed from %q to %q", e.id, old, dt)
+	// [PIN] repaint the connector pins: operand inputs take the new type's
+	// canonical color; the OUTPUT keeps the bool color (a comparison result
+	// is always bool — see updateConnectorTypes). Re-cache so the change is
+	// visible immediately.
+	// Português: Repinta os pinos: as entradas (operandos) recebem a cor
+	// canônica do novo tipo; a SAÍDA mantém a cor de bool (o resultado de
+	// uma comparação é sempre bool — ver updateConnectorTypes). Re-cacheia
+	// para a mudança aparecer na hora.
+	if e.ornamentDraw != nil {
+		e.ornamentDraw.SetConnectionTypes(dt, dt, e.dataTypeOutput)
+		go e.recacheOrnament()
+	}
+	log.Printf("[NotEqualTo] %s: dataType changed from %q to %q", e.id, old, dt)
 }
 
 // updateConnectorTypes updates AllowedTypes on all registered connectors
@@ -428,9 +460,13 @@ func (e *StatementNotEqualTo) getInputYMenuItems() []contextMenu.Item {
 	return mainMenu.ConnectorMenu(e.wireMgr, e.id, "inputY")
 }
 
-// getOutputMenuItems returns the normal (non-tutorial) output menu:
-// Connect + Monitor submenu. The Monitor tree is preserved from the
-// original hex version — linear renderer handles depth via push-replace.
+// getOutputMenuItems returns the output-connector menu: Connect +
+// Monitor submenu. The Monitor tree is preserved from the original
+// hex version — the linear renderer handles depth via push-replace.
+//
+// Português: Menu do conector de saída: Connect + submenu Monitor. A
+// árvore Monitor vem da versão hexagonal original; o renderer linear
+// lida com a profundidade via push-replace.
 func (e *StatementNotEqualTo) getOutputMenuItems() []contextMenu.Item {
 	return mainMenu.ConnectorMenu(e.wireMgr, e.id, "output",
 		contextMenu.Item{
@@ -501,76 +537,6 @@ func (e *StatementNotEqualTo) getOutputFormatSubmenu() []contextMenu.Item {
 			FontAwesomePath: rulesIcon.KFADivide, ViewBox: "0 0 448 512",
 			HelpFallback: "Show as base-2 binary.",
 			OnClick:      func() { log.Printf("[CTXMENU] output format = Binary: id=%v", e.id) },
-		},
-	}
-}
-
-// getOutputTutorialHexItems returns the tutorial-only hex version of
-// the output menu. Keep in sync with the linear getOutputMenuItems.
-// Replaced by a linear tutorial in Delivery C.
-func (e *StatementNotEqualTo) getOutputTutorialHexItems() []hexMenu.MenuItem {
-	return []hexMenu.MenuItem{
-		{ID: "connect_output", Col: 1, Row: 1,
-			Label:           translate.T("menuDeviceConnect", "Connect"),
-			FontAwesomePath: rulesIcon.KFALink, ViewBox: "0 0 640 512",
-			Type: hexMenu.ItemAction, OnClick: func() {},
-		},
-		{ID: "monitorOutput", Col: 1, Row: 3,
-			Label:           translate.T("menuDeviceMonitor", "Monitor"),
-			FontAwesomePath: rulesIcon.KFADesktop, ViewBox: "0 0 576 512",
-			Type: hexMenu.ItemSubmenu,
-			Submenu: []hexMenu.MenuItem{
-				hexMenu.GoBackItem(3, 3),
-				{ID: "monValue", Col: 2, Row: 2, Label: "Value",
-					FontAwesomePath: rulesIcon.KFAEye, ViewBox: "0 0 512 512",
-					Type: hexMenu.ItemSubmenu,
-					Submenu: []hexMenu.MenuItem{
-						hexMenu.GoBackItem(3, 3),
-						{ID: "valFormat", Col: 2, Row: 2, Label: "Format",
-							FontAwesomePath: rulesIcon.KFAGear, ViewBox: "0 0 512 512",
-							Type: hexMenu.ItemSubmenu,
-							Submenu: []hexMenu.MenuItem{
-								hexMenu.GoBackItem(4, 4),
-								{ID: "fmtDecimal", Col: 3, Row: 1, Label: "Decimal",
-									FontAwesomePath: rulesIcon.KFAPlus, ViewBox: "0 0 448 512",
-									Type: hexMenu.ItemAction, OnClick: func() {},
-									Styles: hexMenu.DefaultStyles(),
-								},
-							},
-							Styles: hexMenu.DefaultStyles(),
-						},
-					},
-					Styles: hexMenu.DefaultStyles(),
-				},
-			},
-		},
-	}
-}
-
-// getOutputTutorialSteps returns tutorial steps for the output connection menu.
-// 4 levels deep — each step flashes the target item, user clicks, advances:
-//
-//	Step 1: Root page     → flash "Monitor"  → click → opens Monitor submenu
-//	Step 2: Monitor page  → flash "Value"    → click → opens Value submenu
-//	Step 3: Value page    → flash "Format"   → click → opens Format submenu
-//	Step 4: Format page   → flash "Decimal"  → click → action executes, tutorial ends
-func (e *StatementNotEqualTo) getOutputTutorialSteps() []hexMenu.TutorialStep {
-	return []hexMenu.TutorialStep{
-		{
-			PagePath: nil,             // root page
-			ItemID:   "monitorOutput", // flash Monitor
-		},
-		{
-			PagePath: []string{"monitorOutput"}, // Monitor submenu
-			ItemID:   "monValue",                // flash Value
-		},
-		{
-			PagePath: []string{"monitorOutput", "monValue"}, // Value submenu
-			ItemID:   "valFormat",                           // flash Format
-		},
-		{
-			PagePath: []string{"monitorOutput", "monValue", "valFormat"}, // Format submenu
-			ItemID:   "fmtDecimal",                                       // flash Decimal
 		},
 	}
 }
@@ -663,6 +629,16 @@ func (e *StatementNotEqualTo) Init() (err error) {
 
 	_ = e.ornamentDraw.Init()
 
+	// [PIN] paint the connector pins before the first Update/cache: operand
+	// inputs use the initial data type's color, the output uses bool — the
+	// comparison result type — so the pins match the wires from the first
+	// render.
+	// Português: Pinta os pinos antes do primeiro Update/cache: entradas com
+	// a cor do tipo inicial, saída com bool — o tipo do resultado da
+	// comparação — para os pinos casarem com os fios desde o primeiro
+	// render.
+	e.ornamentDraw.SetConnectionTypes(e.dataType, e.dataType, e.dataTypeOutput)
+
 	// [SPRITE] serialize ornament SVG and create sprite.Element
 	_ = e.ornamentDraw.Update(0, 0, e.width, e.height)
 
@@ -734,10 +710,18 @@ func (e *StatementNotEqualTo) wireEvents() {
 	// Hit-test order: connections first (small targets), then body (fallback).
 	// Each click closes any open menu, then opens the appropriate one.
 	e.elem.SetOnClick(func(event sprite.PointerEvent) {
-		// Get device add size
-		w, h := e.elem.GetSize()
-		ornH := h - float64(rulesDevice.KLabelHeight) // ornament height without label
-		connRadius := 10.0                            // todo: move to rules
+		// [PIN] connector geometry — the SAME edge points the ornament draws
+		// (device.OpAmpPinEdges) and the wire anchors use, so click, drawing
+		// and wire can never disagree. Sizes come from the logical (Density)
+		// space and are scaled at the comparison, keeping the hit-test
+		// correct on any screen density.
+		// Português: Geometria dos conectores — os MESMOS edge points que o
+		// ornamento desenha e que os fios ancoram; clique, desenho e fio não
+		// conseguem divergir. Tamanhos vêm do espaço lógico (Density) e são
+		// escalados na comparação, mantendo o hit-test correto em qualquer
+		// densidade de tela.
+		wD, hD := e.elem.GetSizeD()
+		pinInputX, pinInputY, pinOutput := device.OpAmpPinEdges(wD, hD-rulesDevice.KLabelHeight)
 
 		// Double-click detection: open inspect overlay
 		now := time.Now()
@@ -749,8 +733,13 @@ func (e *StatementNotEqualTo) wireEvents() {
 		clickWX := elemX + event.LocalX
 		clickWY := elemY + event.LocalY
 
-		// Close any open menu first — ctxMenu is primary; hex only
-		// drives the first-time tutorial on the output port.
+		// Close any open menu first. The device itself only opens linear
+		// context menus; the hex-menu check exists to close a hex menu left
+		// open elsewhere (the main palette), preventing menu ghosts.
+		// Português: Fecha qualquer menu aberto primeiro. O device só abre
+		// menus de contexto lineares; a checagem do menu hexagonal fecha um
+		// menu deixado aberto por outro lugar (a palette principal),
+		// prevenindo menus fantasma.
 		if e.ctxMenu != nil && e.ctxMenu.IsOpen() {
 			e.ctxMenu.Close()
 			return
@@ -765,42 +754,27 @@ func (e *StatementNotEqualTo) wireEvents() {
 			return
 		}
 
-		// inputX at (2, 15)
-		dx := event.LocalX - 2
-		dy := event.LocalY - 15
-		if dx*dx+dy*dy <= connRadius*connRadius {
+		// Connector pins — hit the padded standard pin box (click comfort is
+		// preserved: the box is as generous as the old circular targets).
+		// Português: Pinos — testa a caixa padrão do pino com folga (o
+		// conforto de clique é preservado: a caixa é tão generosa quanto os
+		// alvos circulares antigos).
+		if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+			pinInputX.X.GetFloat(), pinInputX.Y.GetFloat(), event.LocalX, event.LocalY) {
 			log.Printf("[CTXMENU] inputX clicked on: %v", e.id)
 			go e.ctxMenu.OpenAtWorld(e.getInputXMenuItems(), clickWX, clickWY)
 			return
 		}
 
-		// inputY at (2, ornH-18)
-		dx = event.LocalX - 2
-		dy = event.LocalY - (ornH - 18)
-		if dx*dx+dy*dy <= connRadius*connRadius {
+		if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+			pinInputY.X.GetFloat(), pinInputY.Y.GetFloat(), event.LocalX, event.LocalY) {
 			log.Printf("[CTXMENU] inputY clicked on: %v", e.id)
 			go e.ctxMenu.OpenAtWorld(e.getInputYMenuItems(), clickWX, clickWY)
 			return
 		}
 
-		// todo:
-		//   The code snippet below contains the tutorial, and the click event should be a connection feature;
-		//   It should not reside within the device.
-
-		// output at (width-12, ornH/2-2)
-		dx = event.LocalX - (w - 12)
-		dy = event.LocalY - (ornH/2 - 2)
-		if dx*dx+dy*dy <= connRadius*connRadius {
-			if !e.outputTutorialShown && e.hexMenu != nil {
-				e.outputTutorialShown = true
-				log.Printf("[HEXMENU] output clicked — first-time tutorial: %v", e.id)
-				go e.hexMenu.StartTutorialFromDevice(
-					e.getOutputTutorialHexItems(),
-					e.getOutputTutorialSteps(),
-					clickWX, clickWY,
-				)
-				return
-			}
+		if rulesConnection.PinHit(rulesConnection.PinSideRight,
+			pinOutput.X.GetFloat(), pinOutput.Y.GetFloat(), event.LocalX, event.LocalY) {
 			log.Printf("[CTXMENU] output clicked on: %v", e.id)
 			go e.ctxMenu.OpenAtWorld(e.getOutputMenuItems(), clickWX, clickWY)
 			return
@@ -833,6 +807,13 @@ func (e *StatementNotEqualTo) wireEvents() {
 		}
 
 		// [SCENE] notify scene change
+		// [SCENEGRAPH] dx/dy=0: they only move container descendants (this
+		// device has none); geometry is re-read live by refreshGeometry.
+		// Português: dx/dy=0: eles só movem descendentes de container (este
+		// device não tem); a geometria é relida ao vivo pelo refreshGeometry.
+		if e.sceneMgr != nil {
+			e.sceneMgr.EndDrag(e.id, 0, 0)
+		}
 		if e.sceneNotify != nil {
 			e.sceneNotify()
 		}
@@ -869,28 +850,25 @@ func (e *StatementNotEqualTo) wireEvents() {
 
 	// [SPRITE] cursor hit-test: pointer cursor near connection points.
 	e.elem.SetCursorHitTest(func(localX float64, localY float64) sprite.CursorStyle {
-		w, h := e.elem.GetSize()
-		ornH := h - float64(rulesDevice.KLabelHeight)
-		connRadius := 10.0
+		// [PIN] same edge points and hit boxes as the click handler — one
+		// geometry source (device.OpAmpPinEdges + rulesConnection.PinHit),
+		// so the pointer cursor appears exactly where a click would land.
+		// Português: Mesmos edge points e caixas do handler de clique — uma
+		// fonte de geometria só, então o cursor pointer aparece exatamente
+		// onde o clique cairia.
+		wD, hD := e.elem.GetSizeD()
+		pinInputX, pinInputY, pinOutput := device.OpAmpPinEdges(wD, hD-rulesDevice.KLabelHeight)
 
-		// inputX at (2, 15)
-		dx := localX - 2
-		dy := localY - 15
-		if dx*dx+dy*dy <= connRadius*connRadius {
+		if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+			pinInputX.X.GetFloat(), pinInputX.Y.GetFloat(), localX, localY) {
 			return sprite.CursorPointer
 		}
-
-		// inputY at (2, ornH-18)
-		dx = localX - 2
-		dy = localY - (ornH - 18)
-		if dx*dx+dy*dy <= connRadius*connRadius {
+		if rulesConnection.PinHit(rulesConnection.PinSideLeft,
+			pinInputY.X.GetFloat(), pinInputY.Y.GetFloat(), localX, localY) {
 			return sprite.CursorPointer
 		}
-
-		// output at (width-12, ornH/2-2)
-		dx = localX - (w - 12)
-		dy = localY - (ornH/2 - 2)
-		if dx*dx+dy*dy <= connRadius*connRadius {
+		if rulesConnection.PinHit(rulesConnection.PinSideRight,
+			pinOutput.X.GetFloat(), pinOutput.Y.GetFloat(), localX, localY) {
 			return sprite.CursorPointer
 		}
 
@@ -914,7 +892,10 @@ func (e *StatementNotEqualTo) RegisterConnectors() {
 		return
 	}
 
-	// inputX — left side, local position (2, 15)
+	// inputX — left side. The wire anchors at the OUTER TIP of the standard
+	// pin (rulesConnection.PinAnchor over the shared OpAmpPinEdges geometry).
+	// Português: inputX — lado esquerdo. O fio ancora na PONTA EXTERNA do
+	// pino padrão (PinAnchor sobre a geometria compartilhada OpAmpPinEdges).
 	e.wireMgr.RegisterConnector(wire.ConnectorInfo{
 		ID:                 wire.ConnectorID{ElementID: e.id, PortName: "inputX"},
 		IsOutput:           false,
@@ -925,11 +906,17 @@ func (e *StatementNotEqualTo) RegisterConnectors() {
 		Label:              "Input X",
 		PositionFunc: func() (float64, float64) {
 			ex, ey := e.elem.GetPosition()
-			return ex + 2, ey + 15
+			wD, hD := e.elem.GetSizeD()
+			pinInputX, _, _ := device.OpAmpPinEdges(wD, hD-rulesDevice.KLabelHeight)
+			ax, ay := rulesConnection.PinAnchor(rulesConnection.PinSideLeft,
+				pinInputX.X.GetFloat(), pinInputX.Y.GetFloat())
+			return ex + ax, ey + ay
 		},
 	})
 
-	// inputY — left side, local position (2, ornH-18)
+	// inputY — left side, lower pin; anchored at the pin's outer tip.
+	// Português: inputY — lado esquerdo, pino inferior; ancorado na ponta
+	// externa do pino.
 	e.wireMgr.RegisterConnector(wire.ConnectorInfo{
 		ID:                 wire.ConnectorID{ElementID: e.id, PortName: "inputY"},
 		IsOutput:           false,
@@ -940,13 +927,22 @@ func (e *StatementNotEqualTo) RegisterConnectors() {
 		Label:              "Input Y",
 		PositionFunc: func() (float64, float64) {
 			ex, ey := e.elem.GetPosition()
-			_, h := e.elem.GetSize()
-			ornH := h - float64(rulesDevice.KLabelHeight)
-			return ex + 2, ey + ornH - 18
+			wD, hD := e.elem.GetSizeD()
+			_, pinInputY, _ := device.OpAmpPinEdges(wD, hD-rulesDevice.KLabelHeight)
+			ax, ay := rulesConnection.PinAnchor(rulesConnection.PinSideLeft,
+				pinInputY.X.GetFloat(), pinInputY.Y.GetFloat())
+			return ex + ax, ey + ay
 		},
 	})
 
-	// output — right side, local position (width-12, ornH/2-2)
+	// output — right side, at the triangle vertex; anchored at the pin's
+	// outer tip so the wire leaves from OUTSIDE the device silhouette. The
+	// type is dataTypeOutput (bool): a comparison result, never the operand
+	// type.
+	// Português: output — lado direito, no vértice do triângulo; ancorado na
+	// ponta externa para o fio sair de FORA da silhueta do device. O tipo é
+	// dataTypeOutput (bool): resultado de comparação, nunca o tipo dos
+	// operandos.
 	e.wireMgr.RegisterConnector(wire.ConnectorInfo{
 		ID:                 wire.ConnectorID{ElementID: e.id, PortName: "output"},
 		IsOutput:           true,
@@ -957,9 +953,11 @@ func (e *StatementNotEqualTo) RegisterConnectors() {
 		Label:              "Output",
 		PositionFunc: func() (float64, float64) {
 			ex, ey := e.elem.GetPosition()
-			w, h := e.elem.GetSize()
-			ornH := h - float64(rulesDevice.KLabelHeight)
-			return ex + w - 12, ey + ornH/2 - 2
+			wD, hD := e.elem.GetSizeD()
+			_, _, pinOutput := device.OpAmpPinEdges(wD, hD-rulesDevice.KLabelHeight)
+			ax, ay := rulesConnection.PinAnchor(rulesConnection.PinSideRight,
+				pinOutput.X.GetFloat(), pinOutput.Y.GetFloat())
+			return ex + ax, ey + ay
 		},
 	})
 }
@@ -1270,19 +1268,19 @@ func (e *StatementNotEqualTo) ApplyProperties(values map[string]string) {
 	if v, ok := values["label"]; ok && v != "" && v != e.label {
 		e.label = v
 		changed = true
-		log.Printf("[Add] %s: label set to %q", e.id, v)
+		log.Printf("[NotEqualTo] %s: label set to %q", e.id, v)
 	}
 
 	if v, ok := values["comment"]; ok && v != e.comment {
 		e.comment = v
-		log.Printf("[Add] %s: comment set to %q", e.id, v)
+		log.Printf("[NotEqualTo] %s: comment set to %q", e.id, v)
 	}
 
 	if v, ok := values["hidden"]; ok {
 		h := v == "true"
 		if h != e.hidden {
 			e.SetHidden(h)
-			log.Printf("[Add] %s: hidden set to %v", e.id, h)
+			log.Printf("[NotEqualTo] %s: hidden set to %v", e.id, h)
 		}
 	}
 
@@ -1357,3 +1355,9 @@ func (e *StatementNotEqualTo) MoveBy(dx, dy float64) {
 		e.wireMgr.RecalculateForElement(e.id)
 	}
 }
+
+// SetSceneMgr receives the scene serializer — called by
+// scene.Serializer.Register via interface assertion at registration time.
+// Português: Recebe o serializer de cena — chamado pelo
+// scene.Serializer.Register por assertion no registro.
+func (e *StatementNotEqualTo) SetSceneMgr(mgr *scene.Serializer) { e.sceneMgr = mgr }

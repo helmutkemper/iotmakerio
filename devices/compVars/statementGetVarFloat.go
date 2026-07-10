@@ -42,6 +42,7 @@ import (
 	"github.com/helmutkemper/iotmakerio/devices"
 	"github.com/helmutkemper/iotmakerio/devices/block"
 	"github.com/helmutkemper/iotmakerio/grid"
+	"github.com/helmutkemper/iotmakerio/rulesConnection"
 	"github.com/helmutkemper/iotmakerio/rulesDensity"
 	"github.com/helmutkemper/iotmakerio/rulesDevice"
 	"github.com/helmutkemper/iotmakerio/rulesIcon"
@@ -69,6 +70,13 @@ type StatementGetVarFloat struct {
 	name    string
 	varName string // the project variable this device reads (its codegen identifier)
 	label   string // editable name shown below ornament (defaults to id)
+	// [COMMENT] user comment — appears as `// ` lines above this device's
+	// statement in the generated code, in the Code Preview, and in the
+	// device's hover tooltip.
+	// Português: Comentário do usuário — vira linhas `// ` acima do
+	// statement deste device no código gerado, no Code Preview e no
+	// tooltip de hover do device.
+	comment string
 
 	// e.height is ornament height only. Total element = e.height + KLabelHeight.
 	width  rulesDensity.Density
@@ -94,7 +102,16 @@ type StatementGetVarFloat struct {
 	iconStatus  int
 	lastClick   time.Time
 	sceneNotify func()
-	onRemove    func(id string)
+	// [SCENEGRAPH] injected by scene.Serializer.Register (self-injection by
+	// interface assertion). DragEnd reports through it so the scenegraph
+	// refreshes geometry, recomputes conflicts (own + peers) and reassigns
+	// parenting — the same EndDrag hook the containers use.
+	// Português: Injetado pelo scene.Serializer.Register (auto-injeção por
+	// assertion). O DragEnd reporta por ele para o scenegraph refrescar
+	// geometria, recomputar conflitos (próprios + peers) e reatribuir
+	// parenting — o mesmo gancho EndDrag dos containers.
+	sceneMgr *scene.Serializer
+	onRemove func(id string)
 }
 
 // ── Dependency injection ──────────────────────────────────────────────────────
@@ -153,6 +170,16 @@ func (e *StatementGetVarFloat) renderSVG() string {
 
 	bw := rulesDevice.KDeviceBorderWidth
 	rx := rulesDevice.KDeviceCornerRadius
+	// [PIN] the body is inset on the right by the pin length: the standard
+	// connector pin lives in the freed margin, protruding from the border
+	// with the wire anchored at its outer tip. The element size itself is
+	// unchanged, so grid layout and saved scenes are unaffected.
+	// Português: O corpo recua à direita o comprimento do pino: o pino
+	// padrão vive na margem liberada, saindo da borda com o fio ancorado na
+	// ponta externa. O tamanho do element não muda — grid e cenas salvas não
+	// são afetados.
+	pin := rulesConnection.PinBodyInset()
+	bodyR := w - pin
 	ts := rulesDevice.TypeStyleFor("float64")
 
 	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d">`,
@@ -161,16 +188,16 @@ func (e *StatementGetVarFloat) renderSVG() string {
 	// Outer rect — border color = type color
 	svg += fmt.Sprintf(
 		`<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="%.1f" ry="%.1f" fill="%s" stroke="%s" stroke-width="%.1f"/>`,
-		bw/2, bw/2, w-bw, h-bw, rx, rx,
+		bw/2, bw/2, bodyR-bw, h-bw, rx, rx,
 		rulesDevice.KColorDeviceBg, ts.Color, bw,
 	)
 
 	// Header — rounded top, flat bottom
 	hh := rulesDevice.KDeviceHeaderHeight
 	svg += fmt.Sprintf(`<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="%.1f" ry="%.1f" fill="%s"/>`,
-		bw, bw, w-2*bw, hh, rx, rx, rulesDevice.KColorDeviceHeader)
+		bw, bw, bodyR-2*bw, hh, rx, rx, rulesDevice.KColorDeviceHeader)
 	svg += fmt.Sprintf(`<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s"/>`,
-		bw, bw+hh/2, w-2*bw, hh/2, rulesDevice.KColorDeviceHeader)
+		bw, bw+hh/2, bodyR-2*bw, hh/2, rulesDevice.KColorDeviceHeader)
 
 	// "VAR" tag (left) + type label (right)
 	svg += fmt.Sprintf(
@@ -186,7 +213,7 @@ func (e *StatementGetVarFloat) renderSVG() string {
 
 	// Divider
 	svg += fmt.Sprintf(`<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="0.5"/>`,
-		bw, bw+hh, w-bw, bw+hh, rulesDevice.KColorDeviceDivider)
+		bw, bw+hh, bodyR-bw, bw+hh, rulesDevice.KColorDeviceDivider)
 
 	// Variable name (body)
 	displayName := e.varName
@@ -197,17 +224,19 @@ func (e *StatementGetVarFloat) renderSVG() string {
 	bodyCY := bodyTop + (h-bw-hh)/2
 	svg += fmt.Sprintf(
 		`<text x="%.1f" y="%.1f" font-family="%s" font-size="%d" fill="%s" text-anchor="middle" dominant-baseline="central" font-weight="bold">%s</text>`,
-		w/2, bodyCY,
+		bodyR/2, bodyCY,
 		rulesDevice.KDeviceFontFamily, rulesDevice.KDeviceFontSizeValue,
 		rulesDevice.KColorDeviceText, escapeXml(displayName),
 	)
 
 	// Output connector
-	svg += fmt.Sprintf(
-		`<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s" stroke="%s" stroke-width="1"/>`,
-		w-rulesDevice.KConnectorOffsetRight, h/2,
-		rulesDevice.KConnectorRadius, ts.Color, rulesDevice.KColorConnectorStroke,
-	)
+	// [PIN] the standard connector pin at the body's right border, filled
+	// with the type color so pin and wire read as one continuous piece; the
+	// wire anchors at the pin's outer tip (see RegisterConnectors).
+	// Português: O pino padrão na borda direita do corpo, preenchido com a
+	// cor do tipo para pino e fio lerem como uma peça contínua; o fio ancora
+	// na ponta externa do pino (ver RegisterConnectors).
+	svg += rulesConnection.PinSVGFragment(rulesConnection.PinSideRight, bodyR, h/2, ts.Color)
 
 	// Label
 	displayLabel := e.label
@@ -309,10 +338,15 @@ func (e *StatementGetVarFloat) wireEvents() {
 		e.lastClick = now
 
 		// Connector hit test.
+		// [PIN] standard pin hit box — same edge point the renderer draws
+		// and the wire anchors to, so click, drawing and wire agree.
+		// Português: Caixa de clique do pino padrão — mesmo edge point que o
+		// renderer desenha e onde o fio ancora; clique, desenho e fio
+		// concordam.
 		w, _ := e.elem.GetSize()
-		dx := event.LocalX - (w - rulesDevice.KConnectorOffsetRight)
-		dy := event.LocalY - e.height.GetFloat()/2
-		if dx*dx+dy*dy <= rulesDevice.KConnectorHitRadius*rulesDevice.KConnectorHitRadius {
+		if rulesConnection.PinHit(rulesConnection.PinSideRight,
+			w-rulesConnection.PinBodyInset(), e.height.GetFloat()/2,
+			event.LocalX, event.LocalY) {
 			go e.ctxMenu.OpenAtWorld(mainMenu.ConnectorConnectMenu(e.wireMgr, e.id, "output"), menuX, menuY)
 			return
 		}
@@ -336,16 +370,25 @@ func (e *StatementGetVarFloat) wireEvents() {
 		if e.wireMgr != nil {
 			e.wireMgr.RecalculateForElement(e.id)
 		}
+		// [SCENEGRAPH] dx/dy=0: they only move container descendants (this
+		// device has none); geometry is re-read live by refreshGeometry.
+		// Português: dx/dy=0: eles só movem descendentes de container (este
+		// device não tem); a geometria é relida ao vivo pelo refreshGeometry.
+		if e.sceneMgr != nil {
+			e.sceneMgr.EndDrag(e.id, 0, 0)
+		}
 		if e.sceneNotify != nil {
 			e.sceneNotify()
 		}
 	})
 
 	e.elem.SetCursorHitTest(func(lx, ly float64) sprite.CursorStyle {
+		// [PIN] same hit box as the click handler — one geometry source.
+		// Português: Mesma caixa do handler de clique — uma fonte de
+		// geometria só.
 		w, _ := e.elem.GetSize()
-		dx := lx - (w - rulesDevice.KConnectorOffsetRight)
-		dy := ly - e.height.GetFloat()/2
-		if dx*dx+dy*dy <= rulesDevice.KConnectorHitRadius*rulesDevice.KConnectorHitRadius {
+		if rulesConnection.PinHit(rulesConnection.PinSideRight,
+			w-rulesConnection.PinBodyInset(), e.height.GetFloat()/2, lx, ly) {
 			return sprite.CursorPointer
 		}
 		return ""
@@ -382,17 +425,36 @@ func (e *StatementGetVarFloat) inspectConfig() overlay.Config {
 				Fields: []overlay.Field{
 					{Key: "varName", Label: translate.T("propVariable", "Variable"), Type: overlay.FieldText, Value: e.varName, Placeholder: "counter", InputFilter: "identifier"},
 					{Key: "label", Label: translate.T("propLabel", "Label"), Type: overlay.FieldText, Value: e.label},
+					{
+						Key:         "comment",
+						Label:       translate.T("propComment", "Comment"),
+						Type:        overlay.FieldTextarea,
+						Value:       e.comment,
+						Placeholder: translate.T("propCommentPlaceholder", "Comment shown in generated code..."),
+						Rows:        3,
+					},
 					{Key: "id", Label: "ID", Type: overlay.FieldText, Value: e.id, ReadOnly: true},
 				},
 			},
 			{
 				Label: "Code Preview", Type: overlay.TabMonaco,
-				Content:  fmt.Sprintf("// Get variable: %s\n// Reads the variable's current value; emits no code of its own\n// (alias to the variable's register).", e.varName),
+				Content:  devices.CommentPrefix(e.comment) + fmt.Sprintf("// Get variable: %s\n// Reads the variable's current value; emits no code of its own\n// (alias to the variable's register).", e.varName),
 				Language: "go", ReadOnly: true,
 			},
 			{Label: "Help", Type: overlay.TabMarkdown, Content: getVarFloatHelp()},
 		},
 		OnSave: func(values map[string]string) {
+			// [COMMENT] the form's comment must be stored here too: this
+			// OnSave handles its keys inline (it does not route through
+			// ApplyProperties, unlike the math family), so without this
+			// line the typed comment would be silently dropped.
+			// Português: O comentário do formulário precisa ser gravado
+			// aqui também: este OnSave trata suas chaves inline (não roteia
+			// pelo ApplyProperties, diferente da família math), então sem
+			// esta linha o comentário digitado seria perdido em silêncio.
+			if v, ok := values["comment"]; ok {
+				e.comment = v
+			}
 			if v, ok := values["varName"]; ok {
 				e.varName = v
 			}
@@ -412,6 +474,9 @@ func (e *StatementGetVarFloat) inspectConfig() overlay.Config {
 
 func (e *StatementGetVarFloat) GetInspectConfig() interface{} { return e.inspectConfig() }
 func (e *StatementGetVarFloat) ApplyProperties(values map[string]string) {
+	if v, ok := values["comment"]; ok {
+		e.comment = v
+	}
 	if v, ok := values["varName"]; ok {
 		e.varName = v
 	}
@@ -441,9 +506,17 @@ func (e *StatementGetVarFloat) RegisterConnectors() {
 		MaxConnections:     0,
 		Label:              "Output",
 		PositionFunc: func() (float64, float64) {
+			// [PIN] the wire anchors at the OUTER TIP of the standard pin —
+			// exactly the element's right edge, vertically centered on the
+			// ornament.
+			// Português: O fio ancora na PONTA EXTERNA do pino padrão —
+			// exatamente a borda direita do element, centrado verticalmente
+			// no ornamento.
 			ex, ey := e.elem.GetPosition()
 			w := e.elem.GetWidthD().GetFloat()
-			return ex + w - rulesDevice.KConnectorOffsetRight, ey + e.height.GetFloat()/2
+			ax, ay := rulesConnection.PinAnchor(rulesConnection.PinSideRight,
+				w-rulesConnection.PinBodyInset(), e.height.GetFloat()/2)
+			return ex + ax, ey + ay
 		},
 	})
 }
@@ -596,7 +669,7 @@ func (e *StatementGetVarFloat) getIcon(data rulesIcon.Data) js.Value {
 	hexDraw := factoryBrowser.NewTagSvgPath().
 		StrokeWidth(rulesIcon.BorderWidth.GetInt()).Stroke(data.ColorBorder).Fill(data.ColorBackground).D(hexPath)
 	labelIcon := factoryBrowser.NewTagSvgText().
-		FontFamily("Arial,sans-serif").FontWeight("bold").FontSize(rulesIcon.Width.GetInt() / 3).
+		FontFamily(rulesDevice.KDeviceFontFamily).FontWeight("bold").FontSize(rulesIcon.Width.GetInt() / 3).
 		Text("VAR").Fill(data.ColorIcon).
 		X((rulesIcon.Width / 2).GetInt() - 16).Y((rulesIcon.Height / 2).GetInt() + 4)
 	wl, _ := utilsText.GetTextSize(data.Label, rulesIcon.FontFamily, rulesIcon.FontWeight, rulesIcon.FontStyle, data.LabelFontSize.GetInt())
@@ -614,8 +687,22 @@ func (e *StatementGetVarFloat) getIcon(data rulesIcon.Data) js.Value {
 
 func (e *StatementGetVarFloat) GetDeviceType() string { return "StatementGetVarFloat" }
 func (e *StatementGetVarFloat) GetProperties() map[string]interface{} {
-	return map[string]interface{}{"varName": e.varName, "label": e.label}
+	props := map[string]interface{}{"varName": e.varName, "label": e.label}
+	if e.comment != "" {
+		props["comment"] = e.comment
+	}
+	return props
 }
+
+// GetComment returns the user comment shown in generated code and in the
+// device's hover tooltip.
+// Português: Retorna o comentário do usuário exibido no código gerado e
+// no tooltip de hover do device.
+func (e *StatementGetVarFloat) GetComment() string { return e.comment }
+
+// SetComment sets the user comment.
+// Português: Define o comentário do usuário.
+func (e *StatementGetVarFloat) SetComment(c string) { e.comment = c }
 
 // GetVariableDecl implements scene.VariableDeclarer: this device declares the
 // integer variable it names. The serializer collects it into the scene's
@@ -682,3 +769,9 @@ then drag a chip onto the stage to place a Get or Set.
 - Pair with **SetVarInt** to update the same variable elsewhere on the stage.
 `
 }
+
+// SetSceneMgr receives the scene serializer — called by
+// scene.Serializer.Register via interface assertion at registration time.
+// Português: Recebe o serializer de cena — chamado pelo
+// scene.Serializer.Register por assertion no registro.
+func (e *StatementGetVarFloat) SetSceneMgr(mgr *scene.Serializer) { e.sceneMgr = mgr }

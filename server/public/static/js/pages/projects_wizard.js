@@ -922,6 +922,9 @@ function _alignCardsInternal(m, cardsHost) {
     // defensively in case the loader hasn't finished yet on a very
     // first paint (fall back to a reasonable line height).
     const monacoGlobal = window.monaco;
+    // Hoisted above `entries`: the stale-line clamp in its filter reads
+    // this (declaring it later put the read in the temporal dead zone).
+    const totalLines = m.getModel()?.getLineCount() || 0;
     const lineHeight = (monacoGlobal && m.getOption)
         ? (m.getOption(monacoGlobal.editor.EditorOption.lineHeight) || 19)
         : 19;
@@ -935,7 +938,21 @@ function _alignCardsInternal(m, cardsHost) {
             commentLine: parseInt(card.dataset.commentLine, 10) || parseInt(card.dataset.line, 10),
             height: card.getBoundingClientRect().height,
         }))
-        .filter(e => Number.isFinite(e.line) && e.line > 0)
+        // Stale-line clamp: a data-line beyond the ACTIVE model's last
+        // line means the stamp came from another tab's source (the
+        // strip is shared; the model can change under the cards). Such
+        // an entry once produced a NEGATIVE `available` and therefore a
+        // giant compensating view zone — the card ended up glued to the
+        // bottom of a hugely inflated content with a void above it
+        // (field report 2026-07-08). Stale entries drop to static flow;
+        // the tab-switch hook below re-renders with fresh lines anyway.
+        //
+        // Português: Clamp de linha stale: data-line além da última
+        // linha do modelo ATIVO veio de outra aba — gerava `available`
+        // NEGATIVO e uma view zone gigante (card colado no fundo, vazio
+        // acima). Entrada stale cai no fluxo estático; a troca de aba
+        // re-renderiza com linhas frescas.
+        .filter(e => Number.isFinite(e.line) && e.line > 0 && e.line <= totalLines)
         .sort((a, b) => a.line - b.line);
 
     // Step 3: for each entry, decide how many extra pixels need
@@ -953,7 +970,6 @@ function _alignCardsInternal(m, cardsHost) {
     // Shortfall pixels are added as a view zone AFTER this entity's
     // last source line — which is one before the next entity's
     // commentLine.
-    const totalLines = m.getModel()?.getLineCount() || 0;
     const gap = 12;
     const stackGap = 8;
 
@@ -1571,11 +1587,31 @@ function _findEntityLines(source, parsed) {
         // lands on the body the user reads.
         for (const { name, re } of functionPatterns) {
             if (!re.test(text)) continue;
-            const key = `function.${name}`;
+            // DEFINITION-ONLY anchoring (Kemper's rule, 2026-07-08): a
+            // prototype never stamps a data-line — the card belongs to
+            // the .c where the function is DEFINED. Viewing the .h, the
+            // function cards fall to static flow (a plain index list);
+            // viewing the .c, they align to the code. Clearer than
+            // anchoring on prototypes, and it also removes the
+            // prototype-vs-definition ambiguity within one file: the
+            // definition is the only anchor that exists. Go is
+            // unaffected (no prototypes). The `);`-on-the-match-line
+            // heuristic keeps its known limit: a multi-line prototype
+            // whose params spill past the first line reads as a
+            // definition — acceptable, since real headers keep
+            // prototypes on one line and the stale-line clamp still
+            // bounds any damage.
+            //
+            // Português: Ancoragem SÓ-DEFINIÇÃO (regra do Kemper):
+            // protótipo nunca carimba data-line — o card pertence ao .c
+            // onde a função é DEFINIDA. No .h, cards de função caem no
+            // fluxo estático (lista-índice); no .c, alinham ao código.
+            // Go não muda (sem protótipos).
             const isDef = !/\)\s*;/.test(text);
-            const existing = out[key];
-            if (!existing || (isDef && !existing.isDef)) {
-                out[key] = { line: ln, commentLine: _commentStart(i), isDef };
+            if (!isDef) continue;
+            const key = `function.${name}`;
+            if (!out[key]) {
+                out[key] = { line: ln, commentLine: _commentStart(i) };
             }
         }
     }
@@ -1692,6 +1728,11 @@ function _renderMethodCard(def, methodName, fd, incompleteSet, lines) {
         isIncomplete,
         title: `${icon} ${esc(label)}`,
         subtitle: methodName === 'Init' ? 'method · runs first' : 'method',
+        // GoMF provenance: Go methods carry SourceFile since the
+        // multi-file merge — the badge and the tab-aware jump work for
+        // them exactly as for C function devices. Init has no slot by
+        // design (bare FuncDef) and simply carries no badge.
+        fileBadge: (fd && fd.sourceFile) || '',
         body: portRows || `<p class="wiz-card-empty">No ports on this method.</p>`,
     });
 }
@@ -1799,20 +1840,11 @@ function _renderFunctionCard(fn, incompleteSet, lines) {
         commentLine: lines && lines[path] && lines[path].commentLine,
         isIncomplete: deviceIncomplete || incompleteSet.has(path),
         title: `${icon} ${esc(label)}`,
-        // The file badge is the card's provenance — with several tabs,
-        // "which file does this device live in" stops being obvious.
-        // Clicking it activates that file's tab (the tab-aware jump):
-        // the wizard's Monaco switches to the source the card came
-        // from and the card column realigns against it.
-        //
-        // Português: O badge é a proveniência do card; clicá-lo ativa a
-        // aba daquele arquivo (o pulo ciente de abas) e a coluna de
-        // cards realinha contra o fonte novo.
-        subtitle: fn.sourceFile
-            ? `function device — <span onclick="event.stopPropagation();window._projWizardJumpToFile('${esc(fn.sourceFile)}')"
-                 title="Show ${esc(fn.sourceFile)} in the editor"
-                 style="font-family:'Fira Code','Consolas',monospace;cursor:pointer;text-decoration:underline dotted">${esc(fn.sourceFile)}</span>`
-            : 'function device',
+        subtitle: 'function device',
+        // Provenance badge — rendered by the shell's dedicated slot
+        // (plain path in, markup built inside the shell; see the note
+        // there for the escaped-subtitle incident this replaces).
+        fileBadge: fn.sourceFile || '',
         body: portRows || `<p class="wiz-card-empty">No ports on this function.</p>`,
     });
 }
@@ -1976,7 +2008,7 @@ function _renderPortRow(methodPath, dir, port, incompleteSet, opts) {
     });
 }
 
-function _renderCardShell({ kind, path, isIncomplete, title, subtitle, body, line, commentLine }) {
+function _renderCardShell({ kind, path, isIncomplete, title, subtitle, fileBadge, body, line, commentLine }) {
     // Card header is clickable for entity-level modals (struct / method).
     // The dispatcher routes by path shape, so the header just needs to
     // emit the same `projWizardOnRowClick` call as a row would. Without
@@ -2022,7 +2054,19 @@ function _renderCardShell({ kind, path, isIncomplete, title, subtitle, body, lin
                     ? '<span class="wiz-warn-badge"><i class="fa-solid fa-triangle-exclamation"></i> Incomplete</span>'
                     : ''}
                 <div class="wiz-card-title">${title}<span class="wiz-card-edit-hint"><i class="fa-solid fa-pen"></i></span></div>
-                <div class="wiz-card-subtitle">${esc(subtitle)}</div>
+                <div class="wiz-card-subtitle">${esc(subtitle)}${
+                    // fileBadge is the ONLY raw-HTML-ish slot here, and it is
+                    // built RIGHT HERE from an escaped path — callers pass a
+                    // plain string, never markup. (The 6c-4 badge injected
+                    // markup through `subtitle`, which this line escapes — it
+                    // rendered as literal "<span…" text; field report
+                    // 2026-07-08.) Clicking it is the tab-aware jump.
+                    fileBadge
+                        ? ` — <span class="wiz-card-filebadge" onclick="event.stopPropagation();window._projWizardJumpToFile('${esc(fileBadge)}')"
+                             title="Show ${esc(fileBadge)} in the editor"
+                             style="font-family:'Fira Code','Consolas',monospace;cursor:pointer;text-decoration:underline dotted">${esc(fileBadge)}</span>`
+                        : ''
+                }</div>
             </div>
             <div class="wiz-card-body">${body}</div>
         </div>`;
@@ -2272,6 +2316,27 @@ function _hydrateFromRewriteResponse(data) {
 if (typeof window !== 'undefined') {
     window._projWizardJumpToFile = (path) => {
         window._projActivateTabByPath?.(path);
+        _state.code = _readMonacoSource();
+        _renderTab();
+    };
+
+    // The tab strip is SHARED with the editor (6c-2 re-parents one
+    // Monaco host), so the model can change under the wizard's card
+    // column at any click. Cards align against the ACTIVE model's line
+    // tops — stale lines from another tab's source once inflated a
+    // giant view zone (see the clamp in _alignCardsInternal). This hook
+    // — pinged by projects.js on every tab activation — refreshes the
+    // line-lookup source and re-renders, so alignment always speaks the
+    // visible file. No-op while the wizard has never opened.
+    //
+    // Português: A faixa de abas é COMPARTILHADA com o editor — o
+    // modelo troca sob a coluna de cards a qualquer clique. Este gancho
+    // (chamado pelo projects.js a cada ativação) atualiza o fonte do
+    // line-lookup e re-renderiza: o alinhamento sempre fala o arquivo
+    // visível. No-op se o wizard nunca abriu.
+    window._projWizardOnTabSwitch = () => {
+        if (!_state._opened) return;
+        if (!document.querySelector('.wiz-cards')) return;
         _state.code = _readMonacoSource();
         _renderTab();
     };

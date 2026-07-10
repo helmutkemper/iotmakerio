@@ -291,9 +291,28 @@ func (e *DoubleLoopArrowHourglass) Update(x, y, width, height rulesDensity.Densi
 	// This is the exact same position as the stop button connection in
 	// doubleLoopArrow. The small horizontal dash between the wire and the
 	// frame is the connection indicator drawn by factoryConnection.
-	e.intervalConnection.D(rulesConnection.GetPathDraw(width-rulesDensity.Density(57), height-rulesDensity.Density(42)))
-	e.intervalConnectionArea.GetSvgPath().D(rulesConnection.GetPathAreaDraw(width-rulesDensity.Density(57), height-rulesDensity.Density(42)))
-	e.intervalConnectionArea.SetXY(x+width-rulesDensity.Density(57), y+height-rulesDensity.Density(42))
+	// [PIN] the interval input is an INTERIOR connection: it receives its
+	// wire from devices INSIDE the loop (the hourglass is a sub-element).
+	// The standard pin faces LEFT, attached to the hourglass drawing, with
+	// its OUTER TIP at the historical anchor (width-57, height-42). The
+	// helpers take the BODY-SIDE point (tip + KWidth), so the tip lands
+	// exactly on that coordinate and the wire meets the pin's CENTERED tip
+	// (the old GetPathDraw anchored at the top-left corner — the centering
+	// bug).
+	// Português: A entrada de intervalo é uma conexão INTERNA: recebe o fio
+	// de devices DENTRO do loop (a ampulheta é um sub-elemento). O pino
+	// padrão aponta para a ESQUERDA, encostado no desenho da ampulheta, com
+	// a PONTA EXTERNA no anchor histórico (width-57, height-42). Os helpers
+	// recebem o ponto do LADO DO CORPO (ponta + KWidth), então a ponta cai
+	// exatamente nessa coordenada e o fio encontra a ponta CENTRADA do pino
+	// (o GetPathDraw antigo ancorava no canto superior-esquerdo — o bug de
+	// centralização).
+	intervalEdgeX := width - rulesDensity.Density(57) + rulesDensity.Density(rulesConnection.KWidth)
+	intervalEdgeY := height - rulesDensity.Density(42)
+	e.intervalConnection.D(rulesConnection.PinPathDraw(rulesConnection.PinSideLeft, intervalEdgeX, intervalEdgeY))
+	e.intervalConnectionArea.GetSvgPath().D(rulesConnection.PinPathAreaDraw(rulesConnection.PinSideLeft, intervalEdgeX, intervalEdgeY))
+	ix, iy := rulesConnection.PinAnchorD(rulesConnection.PinSideLeft, intervalEdgeX, intervalEdgeY)
+	e.intervalConnectionArea.SetXY(x+ix, y+iy)
 
 	return
 }
