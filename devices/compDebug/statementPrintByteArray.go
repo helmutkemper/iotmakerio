@@ -438,18 +438,31 @@ func (e *StatementPrintByteArray) wireEvents() {
 	// [RESIZE] horizontal-only resize. Move re-pins the height on every
 	// step so the live feedback never bulges vertically; End snaps the
 	// width to the grid, re-renders, saves, and turns the handles off —
-	// one resize per menu toggle, the Chart family's UX. The left pin sits
-	// at x=0, so neither the wire anchor nor the hit boxes move.
+	// one resize per menu toggle, the Chart family's UX. The LEFT handle
+	// moves the element origin, so the pin's WORLD position changes even
+	// though its local x stays 0 — every step and the final snap must ask
+	// the wire manager to recalculate (PositionFunc reads the element
+	// live; only the polylines need refreshing).
 	// Português: Resize só horizontal. Move re-pina a altura a cada passo
 	// para o feedback ao vivo nunca inchar na vertical; End ajusta a
 	// largura ao grid, re-renderiza, salva e apaga os handles — um resize
-	// por toggle do menu, a UX da família Chart. O pino esquerdo fica em
-	// x=0: nem o anchor do fio nem as caixas de clique se movem.
+	// por toggle do menu, a UX da família Chart. O handle ESQUERDO move a
+	// origem do element, então a posição de MUNDO do pino muda mesmo com
+	// x local 0 — cada passo e o snap final precisam pedir o recálculo ao
+	// wire manager (o PositionFunc lê o element ao vivo; só as polilinhas
+	// precisam de refresh).
 	fixedTotalH := e.height + rulesDevice.KLabelHeight
 	e.elem.SetOnResizeStart(func(event sprite.ResizeEvent) {})
 	e.elem.SetOnResizeMove(func(event sprite.ResizeEvent) {
 		wD, _ := e.elem.GetSizeD()
 		e.elem.SetSizeD(wD, fixedTotalH)
+		// [WIRE] live follow: the left handle moves the origin, so the
+		// wire must be re-routed at every step.
+		// Português: Fio segue ao vivo: o handle esquerdo move a origem,
+		// então o fio precisa ser re-roteado a cada passo.
+		if e.wireMgr != nil {
+			e.wireMgr.RecalculateForElement(e.id)
+		}
 	})
 	e.elem.SetOnResizeEnd(func(event sprite.ResizeEvent) {
 		wD, _ := e.elem.GetSizeD()
@@ -459,6 +472,9 @@ func (e *StatementPrintByteArray) wireEvents() {
 		}
 		e.elem.SetSizeD(newW, fixedTotalH)
 		e.width = newW
+		if e.wireMgr != nil {
+			e.wireMgr.RecalculateForElement(e.id)
+		}
 		e.SetResizeEnable(false)
 		e.SetDragEnable(true)
 		go func() {
