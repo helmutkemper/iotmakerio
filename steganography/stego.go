@@ -60,6 +60,24 @@ const (
 //
 // Português: Escreve um payload comprimido nos LSBs de um array RGBA.
 // Retorna erro se o array de pixels for pequeno demais.
+// RequiredBytes returns the EXACT number of payload bytes the given data
+// occupies once embedded: header + gzip-compressed body. Callers can divide
+// the image's pixel budget (3 bits per pixel) by 8 and compare — the
+// pre-flight check then agrees byte-for-byte with Embed, instead of relying
+// on a compression-ratio guess that incompressible content can defeat.
+// Português: Retorna o número EXATO de bytes que o dado ocupa embutido:
+// cabeçalho + corpo gzip. Quem chama divide o orçamento de pixels da imagem
+// (3 bits por pixel) por 8 e compara — a pré-checagem então concorda byte a
+// byte com o Embed, em vez de depender de um chute de taxa de compressão
+// que conteúdo incompressível derrota.
+func RequiredBytes(data []byte) (int, error) {
+	compressed, err := gzipCompress(data)
+	if err != nil {
+		return 0, fmt.Errorf("stego: gzip compress: %w", err)
+	}
+	return headerSize + len(compressed), nil
+}
+
 func Embed(pixels []byte, data []byte) error {
 	// Compress the payload.
 	compressed, err := gzipCompress(data)

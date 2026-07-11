@@ -513,6 +513,9 @@ func (w *Workspace) Init(cfg Config) error {
 	// export. O picker seta w.selectedTarget (SetSelectedTarget); vazio = nenhum,
 	// que o codegen trata como default Arduino UNO. Espelha os callbacks de
 	// câmera/canvas acima.
+	w.SceneMgr.SetLanguageFunc(func() string {
+		return w.Language
+	})
 	w.SceneMgr.SetTargetFunc(func() string {
 		return w.selectedTarget
 	})
@@ -3913,9 +3916,20 @@ func (w *Workspace) exportStageImage() {
 	canvasW, canvasH := w.Stage.GetCanvasSize()
 	pixelCount := canvasW * canvasH
 	capacityBytes := pixelCount * 3 / 8
-	// After gzip the payload shrinks, but the header (10 bytes) is always present.
-	// Use a rough 50% estimate for gzip to warn early.
-	estimatedPayload := len(compactJSON)/2 + 10
+	// EXACT pre-check: compress once up front and compare byte-for-byte with
+	// what Embed will need. The old 50%-gzip estimate could false-pass on
+	// incompressible content (e.g. base64 pasted into a comment field) and
+	// push the failure to a later, less friendly error.
+	// Português: Pré-checagem EXATA: comprime uma vez e compara byte a byte
+	// com o que o Embed vai precisar. A estimativa antiga de 50% de gzip
+	// podia passar falso com conteúdo incompressível (ex. base64 colado num
+	// comentário) e empurrar a falha para um erro tardio menos amigável.
+	estimatedPayload, reqErr := steganography.RequiredBytes(compactJSON)
+	if reqErr != nil {
+		log.Printf("[Workspace:%s] Image export: size check error: %v", w.Name, reqErr)
+		overlay.ShowError("Image Export", fmt.Sprintf("Failed to measure payload:\n%v", reqErr))
+		return
+	}
 	if estimatedPayload > capacityBytes {
 		log.Printf("[Workspace:%s] Image export: project too large (~%d KB) for canvas (%dx%d, ~%d KB capacity)",
 			w.Name, len(compactJSON)/1024, canvasW, canvasH, capacityBytes/1024)
@@ -4311,6 +4325,53 @@ func (w *Workspace) importScene(sceneJSON string) {
 	if err := json.Unmarshal([]byte(sceneJSON), &sc); err != nil {
 		log.Printf("[Workspace:%s] Import parse error: %v", w.Name, err)
 		overlay.ShowError("Import Error", fmt.Sprintf("Failed to parse scene JSON:\n%v", err))
+		w.importing = false
+		return
+	}
+
+	// [LANGUAGE GATE] A scene stamped with a language different from this
+	// project's is refused: Language is a fixed, init-time project property
+	// (menus are filtered by it, devices carry per-language sources), so
+	// importing across languages would silently produce a broken mix. Old
+	// files without the stamp import as before — we cannot know their
+	// origin, and refusing them would break every existing export.
+	// Português: Uma cena carimbada com linguagem diferente da deste
+	// projeto é recusada: Language é propriedade fixa de criação (menus
+	// são filtrados por ela, devices carregam fontes por linguagem), então
+	// importar entre linguagens produziria uma mistura quebrada em
+	// silêncio. Arquivos antigos sem o carimbo importam como antes — não
+	// há como saber a origem, e recusá-los quebraria todo export existente.
+	if sc.Metadata.Language != "" && sc.Metadata.Language != w.Language {
+		fromLabel, toLabel := "Go", "Go"
+		if sc.Metadata.Language == "c" {
+			fromLabel = "C99"
+		}
+		if w.Language == "c" {
+			toLabel = "C99"
+		}
+		log.Printf("[Workspace:%s] Import refused: scene language %q, project language %q",
+			w.Name, sc.Metadata.Language, w.Language)
+		// In dual-workspace mode the ViewManager broadcasts the same scene
+		// to BOTH workspaces (each replays its own stage), so this gate
+		// runs twice — both must REFUSE, but only one may SPEAK, or the
+		// maker gets stacked duplicate overlays. The backend workspace
+		// (the one that owns the menu — the established discriminator)
+		// shows the error; in single-workspace mode (no broadcast) whoever
+		// runs the gate shows it.
+		// Português: No modo dual o ViewManager transmite a mesma cena aos
+		// DOIS workspaces (cada um repõe seu stage), então este portão
+		// roda duas vezes — ambos devem RECUSAR, mas só um pode FALAR, ou
+		// o maker recebe overlays duplicados empilhados. O workspace
+		// backend (o dono do menu — o discriminador consagrado) mostra o
+		// erro; em modo single (sem broadcast) quem rodar o portão mostra.
+		if w.Menu != nil || w.importBroadcastFn == nil {
+			overlay.ShowError(
+				translate.T("importLanguageMismatchTitle", "Incompatible project language"),
+				fmt.Sprintf(translate.T("importLanguageMismatchBody",
+					"This file contains a %s project, but the open project is %s.\nCreate a %s project and import it there."),
+					fromLabel, toLabel, fromLabel),
+			)
+		}
 		w.importing = false
 		return
 	}

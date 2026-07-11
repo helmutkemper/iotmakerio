@@ -90,6 +90,19 @@ type Serializer struct {
 	// (Arduino UNO).
 	targetFunc func() string
 
+	// languageFunc returns the project language token ("c" or "go") at
+	// export time — the workspace's fixed Language property. Injected like
+	// targetFunc, so the Serializer never reaches up. The stamped value
+	// lets the importer refuse a scene whose language differs from the
+	// open project's, instead of silently mixing C99 devices into a Go
+	// project (or vice versa).
+	// Português: Retorna o token da linguagem do projeto ("c" ou "go") no
+	// export — a propriedade fixa Language do workspace. Injetada como a
+	// targetFunc. O valor carimbado permite ao importador recusar uma cena
+	// cuja linguagem difere do projeto aberto, em vez de misturar devices
+	// C99 num projeto Go (ou vice-versa) em silêncio.
+	languageFunc func() string
+
 	// bufferSizeFunc returns the string-buffer override, in bytes, at export
 	// time — the value from the selected board's advanced panel, held by the
 	// workspace. Injected like targetFunc, so the Serializer never reaches up.
@@ -205,6 +218,14 @@ func (s *Serializer) SetCameraFunc(fn func() (float64, float64, float64)) {
 // SetCanvasSizeFunc sets the function used to read canvas dimensions.
 func (s *Serializer) SetCanvasSizeFunc(fn func() (int, int)) {
 	s.canvasSizeFunc = fn
+}
+
+// SetLanguageFunc installs the callback that returns the project language
+// token ("c" / "go") at export time. See the languageFunc field doc.
+// Português: Instala o callback que retorna o token da linguagem do projeto
+// ("c" / "go") no export. Ver o doc do campo languageFunc.
+func (s *Serializer) SetLanguageFunc(fn func() string) {
+	s.languageFunc = fn
 }
 
 // SetTargetFunc installs the callback that returns the selected hardware-target
@@ -758,6 +779,13 @@ func (s *Serializer) buildSceneJSON() SceneJSON {
 		// resolves it to a type profile + string-buffer size; empty is the
 		// Arduino UNO default.
 		sc.Metadata.Target = s.targetFunc()
+	}
+	if s.languageFunc != nil {
+		// The project language token ("c" / "go") — lets the importer gate
+		// cross-language loads.
+		// Português: Token da linguagem ("c" / "go") — permite ao importador
+		// barrar cargas entre linguagens.
+		sc.Metadata.Language = s.languageFunc()
 	}
 	if s.bufferSizeFunc != nil {
 		// The maker's string-buffer override, in bytes; 0 means none, and the

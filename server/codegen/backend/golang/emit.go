@@ -369,6 +369,25 @@ func (e *goEmitter) emitConvert(inst ir.Instruction) {
 	name := goIdent(inst.Dest)
 	targetGoType := goTypeName(inst.Type)
 	src := goOperand(inst.Args[0])
+	// [BOOL→INT] Go has no bool→numeric conversion (`int64(b)` does not
+	// compile), so a bool SOURCE renders as the 0/1 temp pattern — the
+	// same idea the Print "onezero" format uses. Meta["srcType"] is
+	// stamped by the IR lowering; every other pair keeps the plain cast.
+	// Português: Go não tem conversão bool→numérico (`int64(b)` não
+	// compila), então ORIGEM bool renderiza como o padrão temp 0/1 — a
+	// mesma ideia do formato "onezero" do Print. Meta["srcType"] é
+	// carimbado pelo lowering do IR; todos os outros pares mantêm o cast
+	// simples.
+	if inst.Meta["srcType"] == "bool" && inst.Type != "bool" {
+		e.writef("%s := %s(0)\n", name, targetGoType)
+		e.writef("if %s {\n", src)
+		e.indent++
+		e.writef("%s = 1\n", name)
+		e.indent--
+		e.writef("}\n")
+		e.declared[inst.Dest] = true
+		return
+	}
 	e.writef("%s := %s(%s)\n", name, targetGoType, src)
 	e.declared[inst.Dest] = true
 }

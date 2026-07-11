@@ -2298,10 +2298,10 @@ func (e *emitter) emitCmp(node *graph.Node, op Op) {
 			})
 		}
 		if verdict.CastA != "" {
-			argA = e.emitConvert(argA, verdict.CastA)
+			argA = e.emitConvert(argA, typeA, verdict.CastA)
 		}
 		if verdict.CastB != "" {
-			argB = e.emitConvert(argB, verdict.CastB)
+			argB = e.emitConvert(argB, typeB, verdict.CastB)
 		}
 	}
 
@@ -2353,10 +2353,10 @@ func (e *emitter) emitBinOp(node *graph.Node, op Op) {
 			})
 		}
 		if verdict.CastA != "" {
-			argA = e.emitConvert(argA, verdict.CastA)
+			argA = e.emitConvert(argA, typeA, verdict.CastA)
 		}
 		if verdict.CastB != "" {
-			argB = e.emitConvert(argB, verdict.CastB)
+			argB = e.emitConvert(argB, typeB, verdict.CastB)
 		}
 		if verdict.Result != "" {
 			dataType = verdict.Result
@@ -2943,7 +2943,7 @@ func (e *emitter) resolveInputType(nodeID, portName string) string {
 //
 // Português: Insere OpConvert e retorna o nome do registro temporário.
 // Usa contador monotônico para nomes distintos.
-func (e *emitter) emitConvert(src, targetType string) string {
+func (e *emitter) emitConvert(src, srcType, targetType string) string {
 	dest := fmt.Sprintf("conv_%d", e.convertCounter)
 	e.convertCounter++
 	e.program.Append(Instruction{
@@ -2951,6 +2951,14 @@ func (e *emitter) emitConvert(src, targetType string) string {
 		Dest: dest,
 		Type: targetType,
 		Args: []string{src},
+		// [BOOL→INT] the SOURCE type rides Meta so backends whose language
+		// has no direct cast for a pair can pick a different rendering —
+		// Go cannot `int64(someBool)` and needs the 0/1 temp pattern.
+		// Português: O tipo de ORIGEM viaja no Meta para backends cuja
+		// linguagem não tem cast direto para um par escolherem outra
+		// renderização — Go não faz `int64(someBool)` e precisa do padrão
+		// temp 0/1.
+		Meta: map[string]string{"srcType": srcType},
 	})
 	return "%" + dest
 }
