@@ -684,6 +684,21 @@ func (w *Workspace) Init(cfg Config) error {
 		if w.WireMgr.IsConnecting() {
 			return false
 		}
+		// [PIN PRIORITY] A connector under the pointer OUTRANKS the fat
+		// wire corridor: with two outputs a pin apart, the wire already
+		// attached to one passes right through the other pin's corridor
+		// — consuming that click here made the free pin unclickable
+		// without deleting the wire first (field report 2026-07-11).
+		// Yielding lets the normal element routing start the connection.
+		// Português: Conector sob o ponteiro TEM PRECEDÊNCIA sobre o
+		// corredor gordo do wire: com duas saídas vizinhas, o wire da
+		// primeira passa dentro do corredor do pino livre — consumir o
+		// clique aqui tornava o pino inclicável sem apagar o wire antes
+		// (report de campo 2026-07-11). Ceder deixa o roteamento normal
+		// iniciar a conexão.
+		if w.WireMgr.ConnectorNear(event.CanvasX, event.CanvasY) {
+			return false
+		}
 		wr := w.WireMgr.HitTestFat(event.CanvasX, event.CanvasY)
 		if wr == nil {
 			return false
@@ -3415,7 +3430,7 @@ func (w *Workspace) saveBackup(sceneJSON string) {
 
 	if w.backupFileID != "" {
 		// Update existing backup.
-		err := stagefileclient.UpdateFile(w.backupFileID, "", "", "", sceneJSON, "", deviceCount)
+		err := stagefileclient.UpdateFile(w.backupFileID, "", "", "", sceneJSON, "", deviceCount, w.Language)
 		if err != nil {
 			log.Printf("[Workspace:%s] Backup update error: %v", w.Name, err)
 			// Backup might have been deleted by user — clear ID and retry as create.
@@ -3436,7 +3451,7 @@ func (w *Workspace) saveBackup(sceneJSON string) {
 		for _, f := range files {
 			if f.Name == backupName {
 				w.backupFileID = f.ID
-				if err := stagefileclient.UpdateFile(w.backupFileID, "", "", "", sceneJSON, "", deviceCount); err != nil {
+				if err := stagefileclient.UpdateFile(w.backupFileID, "", "", "", sceneJSON, "", deviceCount, w.Language); err != nil {
 					log.Printf("[Workspace:%s] Backup update error: %v", w.Name, err)
 					w.backupFileID = ""
 					return
@@ -3889,6 +3904,63 @@ func (w *Workspace) showBackupAlert(backupName string) {
 //  9. Restore original camera state.
 //
 // Português: Captura PNG do stage completo com JSON embutido.
+// drawExportLanguageBadge paints a pill in the top-right corner of the
+// canvas with the project language ("C99" / "Go") and, when the maker has
+// picked one, the hardware target ("C99 \u00b7 arduino_uno") — the two facts
+// that determine what code this diagram generates. Sized proportionally to
+// the canvas so it reads the same on any export resolution. Screen-space
+// drawing: identity transform, backing-store pixels.
+// Português: Pinta uma pílula no canto superior direito do canvas com a
+// linguagem do projeto ("C99" / "Go") e, quando o maker escolheu, o target
+// de hardware — os dois fatos que determinam o código que este diagrama
+// gera. Tamanho proporcional ao canvas. Espaço de tela: transform
+// identidade, pixels do backing store.
+func (w *Workspace) drawExportLanguageBadge(canvasW int) {
+	label := "Go"
+	if w.Language == "c" {
+		label = "C99"
+	}
+	if w.selectedTarget != "" {
+		label += " \u00b7 " + w.selectedTarget
+	}
+
+	fontPx := float64(canvasW) * 0.011
+	if fontPx < 14 {
+		fontPx = 14
+	}
+	padX := fontPx * 0.8
+	h := fontPx * 2.0
+	margin := fontPx
+
+	ctx := w.CanvasEl.Call("getContext", "2d")
+	ctx.Call("save")
+	ctx.Call("setTransform", 1, 0, 0, 1, 0, 0)
+	ctx.Set("font", fmt.Sprintf("bold %.0fpx sans-serif", fontPx))
+	textW := ctx.Call("measureText", label).Get("width").Float()
+
+	bw := textW + padX*2
+	x := float64(canvasW) - bw - margin
+	y := margin
+	r := h / 2
+
+	// Rounded pill via manual arcs — ctx.roundRect is too new to rely on.
+	// Português: Pílula com arcos manuais (roundRect é recente demais).
+	ctx.Call("beginPath")
+	ctx.Call("moveTo", x+r, y)
+	ctx.Call("lineTo", x+bw-r, y)
+	ctx.Call("arc", x+bw-r, y+r, r, -1.5707963, 1.5707963)
+	ctx.Call("lineTo", x+r, y+h)
+	ctx.Call("arc", x+r, y+r, r, 1.5707963, 4.7123889)
+	ctx.Call("closePath")
+	ctx.Set("fillStyle", "rgba(20, 28, 45, 0.92)")
+	ctx.Call("fill")
+
+	ctx.Set("fillStyle", "#FFFFFF")
+	ctx.Set("textBaseline", "middle")
+	ctx.Call("fillText", label, x+padX, y+h/2+fontPx*0.05)
+	ctx.Call("restore")
+}
+
 func (w *Workspace) exportStageImage() {
 	// Step 1: export compact JSON.
 	// Combined document (both stages) so the PNG round-trips backend logic
@@ -3981,6 +4053,18 @@ func (w *Workspace) exportStageImage() {
 	}
 	waitFrame()
 	waitFrame()
+
+	// Step 5b: stamp the project-language badge onto the canvas BEFORE the
+	// pixel read, so it becomes part of the exported image — and of the
+	// pixels that carry the steganographic payload (drawing after the
+	// embed would corrupt the LSBs). The live canvas shows it for a single
+	// frame; the camera restore at the end re-renders and erases it.
+	// Português: Carimba o selo da linguagem no canvas ANTES da leitura de
+	// pixels, para fazer parte da imagem exportada — e dos pixels que
+	// carregam o payload esteganográfico (desenhar depois do embed
+	// corromperia os LSBs). O canvas ao vivo o mostra por um frame; o
+	// restore da câmera no fim re-renderiza e apaga.
+	w.drawExportLanguageBadge(canvasW)
 
 	// Step 6: getImageData from canvas.
 	ctx := w.CanvasEl.Call("getContext", "2d")

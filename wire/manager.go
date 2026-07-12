@@ -856,6 +856,33 @@ func (m *Manager) SetDraftEndpoint(worldX, worldY float64) {
 // Português: Verifica se um ponto em coordenadas mundo está próximo o suficiente
 // de qualquer conector candidato. Retorna o ID do conector se atingido, nil caso
 // contrário.
+// ConnectorNear reports whether ANY registered connector sits within pin
+// grab distance of the point — mode-agnostic, unlike HitTestConnector
+// (which only answers while picking a connect TARGET). Born for the click
+// interceptor's pin-over-corridor priority: the very FIRST click of a
+// connection happens in idle mode, exactly when HitTestConnector is mute.
+// Português: Diz se QUALQUER conector registrado está a distância de
+// agarre do ponto — agnóstico a modo, ao contrário do HitTestConnector
+// (que só responde escolhendo ALVO). Nasceu para a prioridade
+// pino-sobre-corredor do interceptador: o PRIMEIRO clique de uma conexão
+// acontece em modo ocioso, exatamente quando o HitTestConnector é mudo.
+func (m *Manager) ConnectorNear(worldX, worldY float64) bool {
+	d := rulesDensity.GetDensity()
+	tolerance := m.hitTolerance * d * 1.5
+	for _, c := range m.connectors {
+		if c == nil || c.PositionFunc == nil {
+			continue
+		}
+		cx, cy := c.PositionFunc()
+		dx := worldX - cx
+		dy := worldY - cy
+		if dx*dx+dy*dy <= tolerance*tolerance {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *Manager) HitTestConnector(worldX, worldY float64) *ConnectorID {
 	if m.connectMode != ConnectModeSelectingTarget {
 		return nil

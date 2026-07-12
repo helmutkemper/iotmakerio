@@ -214,6 +214,21 @@ configured three functions and three ports.
 
 ---
 
+### 1.5.1 Scalar pointers: probe wires
+
+When a function **returns** a pointer to a scalar (`int32_t *get_buffer()`)
+or takes one as a **plain input** (`const int32_t *data` without
+`direction:out`), the port exposes a **pointer wire**: same colour as the
+base family, drawn **dashed**. Every integer width collapses to the `int*`
+family token; `float`/`double` become `float*`.
+
+Pointer wires connect **only to the Debug (Print) devices** — they are
+probe wires. The generated code dereferences automatically, and a null
+pointer prints `null pointer` instead of crashing. Three conventions are
+preserved: `char *` is still a C **string value** (no pointer wire),
+struct pointers still travel as **handles** (the resource-chain idiom),
+and `direction:out` pointers still split into value outputs.
+
 ## 1.6 Checking the Preview
 
 Open the **Preview** tab. It shows the blocks exactly as they will appear

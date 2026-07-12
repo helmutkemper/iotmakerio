@@ -98,21 +98,41 @@
  * still has overflow:auto for fallback flow content; in the aligned
  * mode those scroll bars never engage because every card has top: set.
  */
+/* [DEVICE DIRECTORY] Cards flow in the document, grouped by file — the
+ * absolute line-aligned layout is retired (project-wide analysis had no
+ * coordinate space for devices of inactive tabs and they piled at the
+ * top). The panel scrolls independently of Monaco.
+ * Português: Os cards fluem no documento, agrupados por arquivo — o
+ * layout absoluto por linha foi aposentado (a análise é do projeto e
+ * devices de abas inativas não tinham coordenada, empilhando no topo).
+ * O painel rola independente do Monaco. */
 .wiz-cards {
-    position: relative;
     height: 100%;
-    overflow: hidden;
+    overflow-y: auto;
+    padding-right: 4px;
 }
 
-/* Each card with data-line gets sized by the absolute positioning
- * applied at runtime. Cards without it fall back to flow with the
- * gap below — keeps the renderer robust to entities the line
- * finder skipped. */
-.wiz-card[data-line] {
-    margin: 0;
-}
-.wiz-card:not([data-line]) + .wiz-card:not([data-line]) {
+.wiz-card + .wiz-card {
     margin-top: 14px;
+}
+
+.wiz-file-group + .wiz-file-group {
+    margin-top: 26px;
+}
+
+.wiz-file-head {
+    font-family: 'Fira Code', 'Consolas', monospace;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted, #6b7280);
+    border-bottom: 1px solid var(--border, #e5e7eb);
+    padding: 2px 2px 6px;
+    margin-bottom: 10px;
+    cursor: pointer;
+}
+.wiz-file-head:hover {
+    color: var(--text, #111827);
 }
 
 .wiz-card {

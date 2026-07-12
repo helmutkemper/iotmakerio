@@ -652,8 +652,15 @@ function _renderTab() {
                     // the first alignment pass. Doing this AFTER the
                     // layout call means getTopForLineNumber returns
                     // numbers that match what's painted on screen.
-                    _setupScrollSync(m);
-                    _alignCards(m);
+                    // [DEVICE DIRECTORY] cards flow in the document — no
+                    // scroll sync, no view zones, no alignment pass. The
+                    // machinery below (_setupScrollSync/_alignCards/
+                    // _positionCards) is retired; navigation is the file
+                    // badge's tab-aware jump.
+                    // Português: Os cards fluem no documento — sem sync de
+                    // scroll, view zones ou passo de alinhamento. A
+                    // maquinaria abaixo está aposentada; a navegação é o
+                    // pulo do badge de arquivo.
                 }, 0);
             }
         }
@@ -1167,7 +1174,25 @@ export function projWizardBuildCards(parsed, incomplete, source) {
         ? parsed.structs
         : null;
 
+    // [DEVICE DIRECTORY] Cards are collected as (sourceFile, html) entries
+    // and emitted GROUPED BY FILE in normal document flow. This replaced the
+    // line-aligned absolute layout: the analysis is project-wide, but line
+    // alignment only made sense for the ACTIVE tab — devices from other
+    // files had no coordinate and fell back to the top, where active-file
+    // cards scrolled over them (field report 2026-07-11). Groups are sorted
+    // .c first, then .h, then unattributed; clicking a card's file badge
+    // navigates (see _projWizardJumpToFile).
+    // Português: Os cards são coletados como pares (arquivo, html) e
+    // emitidos AGRUPADOS POR ARQUIVO em fluxo normal de documento. Isto
+    // substituiu o layout absoluto alinhado por linha: a análise é do
+    // projeto inteiro, mas o alinhamento só fazia sentido para a aba
+    // ATIVA — devices de outros arquivos não tinham coordenada e caíam no
+    // topo, onde os cards do arquivo ativo rolavam por cima (report de
+    // campo 2026-07-11). Grupos ordenados .c primeiro, depois .h, depois
+    // sem atribuição; o badge de arquivo do card navega.
+    const entries = [];
     let html = '';
+    const push = (file, cardHtml) => { entries.push({ file: file || '', html: cardHtml }); };
 
     if (structs) {
         // Multi-struct path (C99 Slice 2+). Each entry of `structs[]`
@@ -1178,23 +1203,24 @@ export function projWizardBuildCards(parsed, incomplete, source) {
         // (name, init, methods, props) carry through unchanged.
         structs.forEach((sd) => {
             const view = _structDefAsCardView(sd);
-            html += _renderStructCard(view, setOfIncomplete, lines);
+            const f = sd.sourceFile || '';
+            push(f, _renderStructCard(view, setOfIncomplete, lines));
             if (view.init) {
-                html += _renderMethodCard(view, 'Init', view.init, setOfIncomplete, lines);
+                push(f, _renderMethodCard(view, 'Init', view.init, setOfIncomplete, lines));
             }
             (view.methods || []).forEach(m => {
-                html += _renderMethodCard(view, m.name, m, setOfIncomplete, lines);
+                push(m.sourceFile || f, _renderMethodCard(view, m.name, m, setOfIncomplete, lines));
             });
         });
     } else if (parsed.name) {
         // Legacy single-struct path. Go projects + pre-Slice-2 C99
         // dumps live here. Behaviour unchanged.
-        html += _renderStructCard(parsed, setOfIncomplete, lines);
+        push('', _renderStructCard(parsed, setOfIncomplete, lines));
         if (parsed.init) {
-            html += _renderMethodCard(parsed, 'Init', parsed.init, setOfIncomplete, lines);
+            push('', _renderMethodCard(parsed, 'Init', parsed.init, setOfIncomplete, lines));
         }
         (parsed.methods || []).forEach(m => {
-            html += _renderMethodCard(parsed, m.name, m, setOfIncomplete, lines);
+            push('', _renderMethodCard(parsed, m.name, m, setOfIncomplete, lines));
         });
     }
 
@@ -1215,7 +1241,7 @@ export function projWizardBuildCards(parsed, incomplete, source) {
     // type" kinds sit together, above the function devices.
     const wireTypes = Array.isArray(parsed.wireTypes) ? parsed.wireTypes : [];
     wireTypes.forEach((wt) => {
-        html += _renderWireTypeCard(wt, setOfIncomplete, lines);
+        push(wt.sourceFile || '', _renderWireTypeCard(wt, setOfIncomplete, lines));
     });
 
     // Slice C99-6: enum type devices. Each entry of parsed.enums[]
@@ -1226,7 +1252,7 @@ export function projWizardBuildCards(parsed, incomplete, source) {
     // label. The card is "incomplete" until every value has a label.
     const enums = Array.isArray(parsed.enums) ? parsed.enums : [];
     enums.forEach((ed) => {
-        html += _renderEnumCard(ed, setOfIncomplete, lines);
+        push(ed.sourceFile || '', _renderEnumCard(ed, setOfIncomplete, lines));
     });
 
     // Slice C99-8: standalone function devices. Each entry of
@@ -1237,12 +1263,33 @@ export function projWizardBuildCards(parsed, incomplete, source) {
     // method sub-level and NO "runs first" (C99 has neither concept).
     const functions = Array.isArray(parsed.functions) ? parsed.functions : [];
     functions.forEach((fn) => {
-        html += _renderFunctionCard(fn, setOfIncomplete, lines);
+        push(fn.sourceFile || '', _renderFunctionCard(fn, setOfIncomplete, lines));
     });
 
-    if (!html) {
+    if (entries.length === 0) {
         return `<p class="wiz-cards-empty">No device found in source.</p>`;
     }
+
+    // Group by file, keeping first-appearance order inside each group.
+    // Português: Agrupa por arquivo, mantendo a ordem de aparição.
+    const groups = new Map();
+    entries.forEach(({ file, html: h }) => {
+        if (!groups.has(file)) groups.set(file, []);
+        groups.get(file).push(h);
+    });
+    const rank = (f) => (f === '' ? 2 : f.endsWith('.h') ? 1 : 0);
+    const ordered = Array.from(groups.keys()).sort(
+        (a, b) => rank(a) - rank(b) || a.localeCompare(b));
+
+    const single = ordered.length === 1;
+    ordered.forEach((file) => {
+        const head = (single || file === '')
+            ? (file === '' && !single
+                ? `<div class="wiz-file-head">project</div>` : '')
+            : `<div class="wiz-file-head" onclick="window._projWizardJumpToFile('${esc(file)}')"
+                    title="Show ${esc(file)} in the editor">${esc(file)}</div>`;
+        html += `<div class="wiz-file-group">${head}${groups.get(file).join('')}</div>`;
+    });
     return html;
 }
 
@@ -2062,7 +2109,7 @@ function _renderCardShell({ kind, path, isIncomplete, title, subtitle, fileBadge
                     // rendered as literal "<span…" text; field report
                     // 2026-07-08.) Clicking it is the tab-aware jump.
                     fileBadge
-                        ? ` — <span class="wiz-card-filebadge" onclick="event.stopPropagation();window._projWizardJumpToFile('${esc(fileBadge)}')"
+                        ? ` — <span class="wiz-card-filebadge" onclick="event.stopPropagation();window._projWizardJumpToFile('${esc(fileBadge)}','${esc(path)}')"
                              title="Show ${esc(fileBadge)} in the editor"
                              style="font-family:'Fira Code','Consolas',monospace;cursor:pointer;text-decoration:underline dotted">${esc(fileBadge)}</span>`
                         : ''
@@ -2314,10 +2361,55 @@ function _hydrateFromRewriteResponse(data) {
 // atualiza _state.code (o line-lookup lê o fonte ATIVO) e re-renderiza
 // para a coluna realinhar contra o arquivo agora visível.
 if (typeof window !== 'undefined') {
-    window._projWizardJumpToFile = (path) => {
-        window._projActivateTabByPath?.(path);
+    window._projWizardJumpToFile = (path, entityPath) => {
+        // [DEVICE DIRECTORY] Resolve the navigation target with the
+        // .c-over-.h rule: the maker edits BEHAVIOR, so a device whose
+        // badge points at a header jumps to the DEFINITION in a .c file
+        // whenever one exists in the working copy; the header remains the
+        // fallback (header-only constructs). The entity's line is found by
+        // scanning the target file's text — the working copy is already in
+        // memory (_wizardCopy), no network involved.
+        // Português: Resolve o alvo com a regra .c-sobre-.h: o maker edita
+        // COMPORTAMENTO, então um device cujo badge aponta para um header
+        // pula para a DEFINIÇÃO num .c quando ela existe na cópia de
+        // trabalho; o header fica de fallback (construtos só-de-header). A
+        // linha vem de uma varredura no texto do alvo — a cópia já está em
+        // memória, sem rede.
+        let target = path;
+        let line = 0;
+        const entName = (() => {
+            if (!entityPath) return '';
+            const segs = String(entityPath).split('.');
+            return segs[0] === 'function' ? (segs[1] || '') : segs[0];
+        })();
+        if (entName) {
+            const files = _wizardCopy();
+            const defRe = new RegExp('[^;\\n]*\\b' + entName + '\\s*\\([^;]*?\\{');
+            if (typeof target === 'string' && target.endsWith('.h')) {
+                for (const p of Object.keys(files)) {
+                    if (p.endsWith('.c') && defRe.test(files[p] || '')) {
+                        target = p;
+                        break;
+                    }
+                }
+            }
+            const txt = files[target] || '';
+            const idx = txt.search(new RegExp('\\b' + entName + '\\s*\\('));
+            if (idx >= 0) line = txt.slice(0, idx).split('\n').length;
+        }
+        window._projActivateTabByPath?.(target);
         _state.code = _readMonacoSource();
-        _renderTab();
+        if (line > 0) {
+            // A tick lets the tab switch land the model before revealing.
+            // Português: Um tick deixa a troca de aba assentar o model.
+            setTimeout(() => {
+                const m = window._projMonacoInst;
+                if (m && m.revealLineInCenter) {
+                    m.revealLineInCenter(line);
+                    if (m.setPosition) m.setPosition({ lineNumber: line, column: 1 });
+                }
+            }, 60);
+        }
     };
 
     // The tab strip is SHARED with the editor (6c-2 re-parents one

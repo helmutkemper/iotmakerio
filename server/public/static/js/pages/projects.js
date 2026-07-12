@@ -1202,7 +1202,8 @@ ${renderSection(p, 'docs', 'fa-solid fa-file-text', 'Docs',   files.docs, false)
 // renderSection builds the HTML for one file section (code / img / docs).
 //
 // Both the code section and the docs section show a "Create" button that opens
-// a Monaco editor for a new file. The "Upload" button is shown when canAdd is
+// a Monaco editor for a new file. Upload was removed from sections on
+// purpose (single upload door: the editor tab strip) — see the addBtn note.
 // true. The CODE section is a multi-file SNAPSHOT since Slice 6: every upload
 // adds/replaces one file in a new version (the server's snapshot-aware upload
 // endpoint), so Upload stays visible up to the server's per-snapshot cap and
@@ -1217,19 +1218,6 @@ ${renderSection(p, 'docs', 'fa-solid fa-file-text', 'Docs',   files.docs, false)
 // projeto. Create só aparece vazia (abre o Monaco do primeiro arquivo);
 // os demais entram por Upload até as abas (6c).
 function renderSection(p, section, icon, label, fileList, singleFile) {
-    // Mirrors the server's maxCodeFiles (handler/projectapi, the snapshot
-    // contract). Kept in sync by hand — a drift here only hides a button;
-    // the server remains the gate.
-    const CODE_MAX_FILES = 16;
-    const canAdd = section === 'code'
-        ? fileList.length < CODE_MAX_FILES
-        : (!singleFile || fileList.length === 0);
-    const accept = section==='code'
-        ? (_projectLangById(p.id) === 'c'
-            ? '.c,.h,.html,.htm,.tmpl,.txt,.json,.csv,.svg,.md,.css,.gif,.png,.jpg,.jpeg'
-            : '.go,.html,.htm,.tmpl,.txt,.json,.csv,.svg,.md,.css,.gif,.png,.jpg,.jpeg')
-        : section==='img' ? 'image/*' : '.md';
-    const inputId = `finput-${p.id}-${section}`;
 
     let filesHtml = fileList?.length
         ? fileList.map(f => renderFileRow(p, section, f)).join('')
@@ -1261,15 +1249,12 @@ function renderSection(p, section, icon, label, fileList, singleFile) {
 </button>`;
     }
 
-    const addBtn = canAdd ? `
-<button title="Upload" onclick="triggerFileUpload('${p.id}','${section}')"
-  style="padding:3px 8px;background:none;border:1px solid var(--border);
-         border-radius:var(--r);cursor:pointer;color:var(--primary);font-size:11px;
-         display:flex;align-items:center;gap:4px;transition:background var(--tr)"
-  onmouseover="this.style.background='var(--info-bg)'"
-  onmouseout="this.style.background='none'">
-  <i class="fa-solid fa-upload" style="font-size:10px"></i> Upload
-</button>` : '';
+    // [SINGLE UPLOAD DOOR] Card sections are management only (open,
+    // rename, delete) — the upload button was removed on purpose; the
+    // editor tab strip is the one entry for sources and assets alike.
+    // Português: Seções do card são só gestão — o upload foi removido de
+    // propósito; a faixa de abas do editor é a única entrada.
+    const addBtn = '';
 
     return `
 <div style="margin-bottom:8px">
@@ -1279,8 +1264,6 @@ function renderSection(p, section, icon, label, fileList, singleFile) {
     <span style="font-size:12px;font-weight:600;color:var(--text-secondary);flex:1">${label}</span>
     ${createBtn}${addBtn}
   </div>
-  <input type="file" id="${inputId}" accept="${accept}" style="display:none"
-    onchange="onFileSelected(event,'${p.id}','${section}')">
   <div style="padding-left:22px">${filesHtml}</div>
 </div>`;
 }
@@ -1841,8 +1824,9 @@ function renderEditorView(root) {
 
     <div style="margin-left:auto;display:flex;gap:6px">
       <button class="btn btn-ghost btn-sm" id="proj-files-btn"
-              onclick="projOpenFileManager()" title="Open project file manager (markdown / images / examples)">
-        <i class="fa-solid fa-folder-open"></i> Files
+              onclick="projOpenFileManager()"
+              title="Attachments for the device manual — not part of the device sources">
+        <i class="fa-solid fa-book-open"></i> Manual attachments
       </button>
       <button class="btn btn-ghost btn-sm" id="proj-export-btn"
               onclick="projOpenExportFlow()" title="Export the project as a ZIP ready to publish on GitHub">
@@ -2436,12 +2420,36 @@ function _tabsRenderStrip() {
     // projeto Go é um PACOTE Go — multiarquivo deixou de ser privilégio
     // do C.
     const canAddTab = _editorTabs.length < _TAB_MAX_FILES;
+    // [SINGLE UPLOAD DOOR] The editor tab strip is the ONE place files
+    // enter a device: New file (existing flow) + Upload file, side by
+    // side. Upload reuses the snapshot machinery (onFileSelected →
+    // /files/code → editor resync), so sources AND assets land as tabs —
+    // binary ones as base64 placeholders. The card sections and the
+    // manual-attachments modal no longer take uploads (field report
+    // 2026-07-11: two doors named "Files" sent an asset to the manual).
+    // Português: A faixa de abas é a ÚNICA porta de entrada de arquivos
+    // do device: New file + Upload file, lado a lado. O upload reusa a
+    // maquinaria do snapshot, então fontes E assets viram abas — binários
+    // como placeholders base64. As seções do card e o modal de anexos do
+    // manual não recebem mais upload (report 2026-07-11: duas portas
+    // chamadas "Files" mandaram um asset para o manual).
+    const upAccept = (_editProject && _projectLangById(_editProject.id) === 'c')
+        ? '.c,.h,.html,.htm,.tmpl,.txt,.json,.csv,.svg,.md,.css,.gif,.png,.jpg,.jpeg'
+        : '.go,.html,.htm,.tmpl,.txt,.json,.csv,.svg,.md,.css,.gif,.png,.jpg,.jpeg';
     const plus = canAddTab ? `
 <button title="New file" onclick="window._projTabAdd()"
-  style="padding:4px 10px;background:none;border:none;cursor:pointer;
+  style="padding:4px 8px;background:none;border:none;cursor:pointer;
          color:var(--success);font-size:13px">
   <i class="fa-solid fa-plus"></i>
-</button>` : '';
+</button>
+<button title="Upload file — sources and assets become part of the device"
+  onclick="document.getElementById('proj-editor-upload')?.click()"
+  style="padding:4px 8px;background:none;border:none;cursor:pointer;
+         color:var(--primary);font-size:12px">
+  <i class="fa-solid fa-upload"></i>
+</button>
+<input type="file" id="proj-editor-upload" accept="${upAccept}"
+  style="display:none" onchange="window._projTabUploadPick(event)">` : '';
     strip.innerHTML = `<div style="display:flex;align-items:stretch;overflow-x:auto">${parts.join('')}${plus}</div>`;
 }
 
@@ -2477,6 +2485,14 @@ window._projTabDrop = (ev, to) => {
 window._projTabRename   = (i) => { _tabRenameAt(i); };
 window._projTabClose    = (i) => { _tabCloseAt(i); };
 window._projTabAdd      = () => { _tabAdd(); };
+// Upload picked from the editor tab strip: same snapshot pipeline as any
+// code-section upload; the resync inside onFileSelected turns the new
+// file into a tab (binary → base64 placeholder).
+// Português: Upload da faixa de abas: mesmo pipeline de snapshot; o
+// resync do onFileSelected transforma o arquivo em aba.
+window._projTabUploadPick = (ev) => {
+    if (_editProject) onFileSelected(ev, _editProject.id, 'code');
+};
 
 // _resyncOpenEditorFromServer: the tree just changed this project's
 // snapshot (upload / per-path delete / pencil rename) WHILE the editor
@@ -2919,6 +2935,20 @@ function projSetParseStatus(msg, type) {
     _parseStatusType = type;
 
     if (type === 'error') {
+        // [FLOATING STANDARD] The status strip lives at the BOTTOM of the
+        // editor layout — below the fold on tall screens, so errors were
+        // invisible (field report 2026-07-12: the binary-asset save
+        // refusal went unseen). Every error now ALSO fires the floating
+        // page alert, the same pattern every other surface uses; the
+        // strip stays because it carries the Monaco jump-to-line for
+        // parse errors.
+        // Português: A faixa de status vive no RODAPÉ do editor — abaixo
+        // da dobra em telas altas, erros ficavam invisíveis (report
+        // 2026-07-12: a recusa do asset binário digitado passou
+        // despercebida). Todo erro agora TAMBÉM dispara o alerta
+        // flutuante, o padrão das outras superfícies; a faixa fica
+        // porque carrega o pulo-para-linha do Monaco.
+        showPageAlert(msg.replace(/^✗\s*/, ''), 'danger');
         el.style.cssText = 'padding:10px 20px;font-size:13px;min-height:34px;' +
             'background:#FEE2E2;border-top:2px solid var(--danger);color:#991B1B;border-bottom:1px solid var(--border)';
 

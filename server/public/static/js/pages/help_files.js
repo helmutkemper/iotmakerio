@@ -594,7 +594,13 @@ function _renderShell() {
     root.innerHTML = `
         <div class="hf-modal" role="dialog" aria-label="File manager">
             <header class="hf-header">
-                <h2>Files</h2>
+                <h2>Manual attachments</h2>
+                <div style="background:var(--warning-bg,#FEF3CD);color:var(--warning-fg,#8a6d1a);
+                            border-radius:8px;padding:8px 12px;font-size:12.5px;margin:6px 0 4px;">
+                    <i class="fa-solid fa-circle-info" style="font-size:12px"></i>
+                    Images and files for the device manual. Not part of the device
+                    sources — upload sources and assets from the editor tab strip.
+                </div>
                 <div class="hf-header-actions">
                     <div class="hf-action-dropdown">
                         <button class="hf-btn hf-btn-ghost" id="hf-action-toggle">

@@ -665,6 +665,34 @@ func (e *goEmitter) emitPrint(inst ir.Instruction) {
 	}
 	e.addImport("fmt")
 	src := goOperand(inst.Args[0])
+	// [PTR] deref mode: the wire carried a pointer to this scalar. The
+	// value is read through a temp guarded against nil — a nil prints
+	// "null pointer", which is the information the maker wanted.
+	// Português: Modo deref: o fio carregou um ponteiro para este
+	// escalar. O valor é lido por um temp com guarda de nil — nil
+	// imprime "null pointer", que é a informação que o maker queria.
+	if inst.Meta["deref"] == "1" {
+		tmp := goIdent(inst.Dest) + "Val"
+		e.writef("if %s != nil {\n", src)
+		e.indent++
+		e.writef("%s := *%s\n", tmp, src)
+		e.emitPrintValue(inst, tmp)
+		e.indent--
+		e.writef("} else {\n")
+		e.indent++
+		e.writef("fmt.Println(%s)\n", strconv.Quote(printNullText(inst)))
+		e.indent--
+		e.writef("}\n")
+		return
+	}
+	e.emitPrintValue(inst, src)
+}
+
+// emitPrintValue renders the print of an ALREADY-SCALAR expression — the
+// shared tail of both the direct and the deref (pointer wire) paths.
+// Português: Renderiza o print de uma expressão JÁ ESCALAR — a cauda
+// compartilhada dos caminhos direto e deref (fio ponteiro).
+func (e *goEmitter) emitPrintValue(inst ir.Instruction, src string) {
 
 	lead := ""
 	if p := inst.Meta["prefix"]; p != "" {
@@ -725,6 +753,19 @@ func (e *goEmitter) emitPrint(inst ir.Instruction) {
 // =====================================================================
 //  Black-box instruction emitters
 // =====================================================================
+
+// printNullText builds the line printed when a pointer wire is nil/NULL:
+// the maker's prefix (when any) followed by "null pointer" — a null is
+// debug INFORMATION the maker asked to see, not an error condition.
+// Português: Monta a linha impressa quando um fio ponteiro é nil/NULL: o
+// prefixo do maker (se houver) seguido de "null pointer" — nulo é
+// INFORMAÇÃO de debug que o maker pediu para ver, não condição de erro.
+func printNullText(inst ir.Instruction) string {
+	if p := inst.Meta["prefix"]; p != "" {
+		return p + " null pointer"
+	}
+	return "null pointer"
+}
 
 // emitBBDecl emits the struct variable declaration and copies the struct
 // definition + methods to the top level (once per struct type).

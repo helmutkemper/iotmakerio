@@ -19,6 +19,7 @@ package graph
 
 import (
 	"fmt"
+	"strings"
 
 	"server/codegen/diagnostics"
 )
@@ -368,6 +369,26 @@ func Build(scene SceneInput) (*Graph, []diagnostics.Diagnostic) {
 			DataType: w.DataType,
 		}
 		g.Edges[edge.ID] = edge
+
+		// [PTR] The debug family accepts pointer wires and must know it at
+		// codegen time: the RESOLVED wire type is stamped on the print
+		// node as valueType — the IR turns a trailing '*' into
+		// Meta["deref"], and the backends read through the pointer with
+		// the "null pointer" guard. Stamped here (the single place that
+		// sees wire and node together) so no frontend bookkeeping exists.
+		// Português: A família debug aceita fios ponteiro e precisa saber
+		// no codegen: o tipo RESOLVIDO do fio é carimbado no node de print
+		// como valueType — o IR converte '*' final em Meta["deref"], e os
+		// backends leem através do ponteiro com a guarda "null pointer".
+		// Carimbado aqui (o único lugar que vê fio e node juntos), sem
+		// contabilidade no frontend.
+		if to, ok := g.Nodes[w.To.Device]; ok && to != nil &&
+			strings.HasPrefix(to.Type, "StatementPrint") && w.To.Port == "value" {
+			if to.Properties == nil {
+				to.Properties = map[string]interface{}{}
+			}
+			to.Properties["valueType"] = w.DataType
+		}
 	}
 
 	// Pass 4: resolve loop stop ports and interval ports

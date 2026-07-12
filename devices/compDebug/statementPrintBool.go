@@ -620,7 +620,7 @@ func (e *StatementPrintBool) RegisterConnectors() {
 	e.wireMgr.RegisterConnector(wire.ConnectorInfo{
 		ID:                 wire.ConnectorID{ElementID: e.id, PortName: "value"},
 		IsOutput:           false,
-		AllowedTypes:       []string{"bool"},
+		AllowedTypes:       []string{"bool", "bool*"},
 		AcceptNotConnected: true,
 		MaxConnections:     0,
 		Label:              "Value",
@@ -896,6 +896,15 @@ execution of its scope (every loop turn when placed inside a loop).
 
 At code generation it becomes ` + "`fmt.Printf`" + ` in Go and ` + "`printf`" + ` in C99 —
 this device ALWAYS lands in the generated program, unlike display widgets.
+
+## Pointer wires
+
+This device is the stage's **universal probe**: besides plain ` + "`bool`" + `
+wires it also accepts ` + "`bool*`" + ` — the DASHED wires produced by
+black-box functions that return or take a pointer to this type. The
+generated code reads **through** the pointer automatically; when the
+pointer is null, the program prints ` + "`null pointer`" + ` (with your
+prefix) instead of crashing — a null is debug information, not an error.
 
 ## Properties
 

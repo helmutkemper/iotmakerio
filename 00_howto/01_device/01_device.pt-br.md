@@ -209,6 +209,23 @@ configurado três funções e três portas.
 
 ---
 
+### 1.5.1 Ponteiros escalares: fios de sonda
+
+Quando uma função **retorna** um ponteiro para escalar
+(`int32_t *get_buffer()`) ou o recebe como **entrada simples**
+(`const int32_t *data` sem `direction:out`), a porta expõe um **fio
+ponteiro**: mesma cor da família base, desenhado **tracejado**. Toda
+largura inteira colapsa no token de família `int*`; `float`/`double`
+viram `float*`.
+
+Fios ponteiro conectam **apenas nos devices de Debug (Print)** — são fios
+de sonda. O código gerado dereferencia automaticamente, e ponteiro nulo
+imprime `null pointer` em vez de travar. Três convenções ficam
+preservadas: `char *` continua **string por valor** (sem fio ponteiro),
+ponteiros de struct continuam viajando como **handles** (o idioma
+resource-chain), e ponteiros com `direction:out` continuam virando
+outputs de valor.
+
 ## 1.6 Conferindo no Preview
 
 Abra a aba **Preview**. Ela mostra os blocos exatamente como eles vão

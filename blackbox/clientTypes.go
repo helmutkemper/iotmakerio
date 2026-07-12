@@ -322,6 +322,13 @@ type PortDefClient struct {
 
 	// GoType is the Go type string (e.g. "int", "*machine.I2C", "error").
 	GoType string `json:"goType"`
+	// WireType mirrors PortDef.WireType (server): the connector token this
+	// port exposes when it differs from the authored GoType — today the
+	// scalar-pointer family tokens. Empty = use GoType.
+	// Português: Espelha PortDef.WireType (server): o token de conector
+	// que a porta expõe quando difere do GoType autoral — hoje os tokens
+	// de família ponteiro-escalar. Vazio = usar GoType.
+	WireType string `json:"wireType,omitempty"`
 
 	// IsError marks error return ports. Error ports are always optional.
 	IsError bool `json:"isError,omitempty"`

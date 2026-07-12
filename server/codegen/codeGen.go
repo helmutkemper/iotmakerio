@@ -28,6 +28,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"server/codegen/backend/ansic"
@@ -398,6 +399,66 @@ func cancelled(ctx context.Context, resp *Response) bool {
 
 func validate(g *graph.Graph, bbDefs map[string]*blackbox.BlackBoxDef) []Diagnostic {
 	var diags []Diagnostic
+
+	// [INCLUDES] Export-time resolution of quoted includes in authored C
+	// files: a tab-name typo or a forgotten asset must fail HERE, in the
+	// IDE, with the file, the line and a nearest-name suggestion — not
+	// minutes later in the maker's compiler (field report 2026-07-11:
+	// "porta_api.h" tab + missing logo.gif shipped a silently broken
+	// zip). Pure check, see blackbox.MissingLocalIncludes.
+	// Português: Resolução, no export, dos includes entre aspas dos
+	// arquivos C autorais: typo no nome da aba ou asset esquecido deve
+	// falhar AQUI, na IDE, com arquivo, linha e sugestão de nome próximo
+	// — não minutos depois no compilador do maker (report 2026-07-11:
+	// aba "porta_api.h" + logo.gif ausente embarcaram um zip quebrado em
+	// silêncio). Checagem pura: blackbox.MissingLocalIncludes.
+	// The same *BlackBoxDef is keyed once PER FUNCTION in bbDefs (a
+	// two-function device appears under both names), and include issues
+	// are FILE-level — so group the keys by def identity and emit each
+	// issue once, attributed to every device name sharing the def.
+	// Field report 2026-07-11: without this, each issue showed ×2.
+	// Português: O mesmo *BlackBoxDef entra uma vez POR FUNÇÃO no bbDefs
+	// (device de duas funções aparece sob os dois nomes), e os problemas
+	// de include são de ARQUIVO — então agrupa as chaves por identidade
+	// do def e emite cada problema uma vez, atribuído a todos os nomes.
+	// Report de 2026-07-11: sem isto, cada problema aparecia ×2.
+	defKeys := make(map[*blackbox.BlackBoxDef][]string, len(bbDefs))
+	defOrder := make([]*blackbox.BlackBoxDef, 0, len(bbDefs))
+	for defName, def := range bbDefs {
+		if def == nil {
+			continue
+		}
+		if _, seen := defKeys[def]; !seen {
+			defOrder = append(defOrder, def)
+		}
+		defKeys[def] = append(defKeys[def], defName)
+	}
+	for _, def := range defOrder {
+		names := defKeys[def]
+		sort.Strings(names)
+		// A function whose source file is missing from the def is the
+		// parsed-but-never-saved hybrid — block with the remedy spelled
+		// out. Português: Função cujo arquivo-fonte falta no def é o
+		// híbrido parseado-mas-não-salvo — barra com o remédio explícito.
+		for _, sf := range def.MissingFunctionSources() {
+			diags = append(diags, Diagnostic{
+				Kind:     diagnostics.KindBlackBoxFilesInvalid,
+				Severity: diagnostics.SeverityError,
+				Devices:  names,
+				Message: fmt.Sprintf(
+					"%s is not in the saved project version — save the device project and export again",
+					sf),
+			})
+		}
+		for _, issue := range def.MissingLocalIncludes() {
+			diags = append(diags, Diagnostic{
+				Kind:     diagnostics.KindBlackBoxFilesInvalid,
+				Severity: diagnostics.SeverityError,
+				Devices:  names,
+				Message:  issue.Message(),
+			})
+		}
+	}
 
 	// Helper: emit a missing-connection diagnostic for a single port.
 	missingConn := func(deviceID, msg string) Diagnostic {

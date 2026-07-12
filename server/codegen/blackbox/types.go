@@ -843,6 +843,19 @@ type PortDef struct {
 
 	// GoType is the full Go type string.
 	GoType string `json:"goType"`
+	// WireType, when set, is the CONNECTOR token this port exposes on the
+	// stage — decoupled from GoType so the authored C type stays verbatim
+	// for codegen (declarations, casts, the wizard card) while the wire
+	// speaks the IDE's family vocabulary. Today it carries the scalar
+	// pointer family tokens ("int*", "float*", "bool*", "byte*"); empty
+	// means "use GoType", which is every port that existed before.
+	// Português: Quando presente, é o token de CONECTOR que esta porta
+	// expõe no stage — desacoplado do GoType para o tipo C autoral ficar
+	// verbatim no codegen (declarações, casts, o card do wizard) enquanto
+	// o fio fala o vocabulário de famílias da IDE. Hoje carrega os tokens
+	// de ponteiro escalar ("int*", "float*", "bool*", "byte*"); vazio
+	// significa "use GoType" — todo porto pré-existente.
+	WireType string `json:"wireType,omitempty"`
 
 	// IsError is true if this port is an error return.
 	IsError bool `json:"isError,omitempty"`

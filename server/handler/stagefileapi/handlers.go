@@ -245,6 +245,7 @@ func handleUpdateFile(c echo.Context) error {
 		IconID      string `json:"iconId"`
 		SceneJSON   string `json:"sceneJson"`
 		DeviceCount int    `json:"deviceCount"`
+		Language    string `json:"language"`
 	}
 	if err := c.Bind(&body); err != nil {
 		return fail(c, http.StatusBadRequest, "invalid request body")
@@ -263,10 +264,26 @@ func handleUpdateFile(c echo.Context) error {
 		return fail(c, http.StatusBadRequest,
 			"iconId must match [a-z0-9-]+ or be \"__clear__\"")
 	}
+	// Validate language on write. Empty = no change (the norm for
+	// project files, whose language is fixed). Non-empty is sent by
+	// the BACKUP save path only: a backup row follows the session's
+	// language — see store.UpdateStageFile.
+	// Português: Valida language na escrita. Vazio = sem mudança (a
+	// norma para arquivos de projeto, de linguagem fixa). Não-vazio
+	// vem só do save de BACKUP: a linha de backup acompanha a
+	// linguagem da sessão — ver store.UpdateStageFile.
+	switch body.Language {
+	case "", store.StageFileLanguageC, store.StageFileLanguageGo:
+		// accepted
+	default:
+		return fail(c, http.StatusBadRequest,
+			"language must be \"c\" or \"go\"")
+	}
 
 	if err := store.UpdateStageFile(
 		claims.UserID, fileID,
 		body.Name, body.FolderID, body.Kind, body.SceneJSON, body.IconID, body.DeviceCount,
+		body.Language,
 	); err != nil {
 		errMsg := err.Error()
 		if contains(errMsg, "not found") {

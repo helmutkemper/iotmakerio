@@ -606,7 +606,7 @@ func (e *StatementBlackBoxMethod) RegisterConnectors() {
 		e.wireMgr.RegisterConnector(wire.ConnectorInfo{
 			ID:                 wire.ConnectorID{ElementID: e.id, PortName: pp.Name},
 			IsOutput:           false,
-			AllowedTypes:       []string{pp.GoType},
+			AllowedTypes:       []string{portWireToken(pp)},
 			CallbackType:       pp.CallbackType,
 			AcceptNotConnected: pp.IsError,
 			Locked:             false,
@@ -627,7 +627,7 @@ func (e *StatementBlackBoxMethod) RegisterConnectors() {
 		e.wireMgr.RegisterConnector(wire.ConnectorInfo{
 			ID:                 wire.ConnectorID{ElementID: e.id, PortName: pp.Name},
 			IsOutput:           true,
-			AllowedTypes:       []string{pp.GoType},
+			AllowedTypes:       []string{portWireToken(pp)},
 			CallbackType:       pp.CallbackType,
 			AcceptNotConnected: true,
 			Locked:             false,
@@ -944,3 +944,17 @@ func (e *StatementBlackBoxMethod) GetProperties() map[string]interface{} {
 // Português: Recebe o serializer de cena — chamado pelo
 // scene.Serializer.Register por assertion no registro.
 func (e *StatementBlackBoxMethod) SetSceneMgr(mgr *scene.Serializer) { e.sceneMgr = mgr }
+
+// portWireToken returns the connector token a port exposes on the stage:
+// WireType when the parser set one (scalar-pointer family tokens), else the
+// authored GoType — the pre-existing behaviour for every other port.
+// Português: Retorna o token de conector que a porta expõe no stage:
+// WireType quando o parser definiu (tokens de família ponteiro-escalar),
+// senão o GoType autoral — o comportamento pré-existente de todas as
+// outras portas.
+func portWireToken(pp blackbox.PortDefClient) string {
+	if pp.WireType != "" {
+		return pp.WireType
+	}
+	return pp.GoType
+}

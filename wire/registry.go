@@ -94,6 +94,16 @@ import (
 // Português: Monta o WireStyle de um tipo escalar a partir da cor canônica da
 // paleta. O destaque "selected" é DERIVADO (mistura com branco), então a
 // paleta nunca precisa de uma tabela paralela de cores claras mantida à mão.
+// pointerStyle derives the pointer-wire look from the family color: the
+// scalar style plus a dash pattern. See the [PTR] note in the style table.
+// Português: Deriva o visual do fio ponteiro da cor da família: o estilo
+// escalar mais o tracejado. Ver a nota [PTR] na tabela.
+func pointerStyle(colorHex string) WireStyle {
+	s := scalarStyle(colorHex)
+	s.DashPattern = []float64{6, 4}
+	return s
+}
+
 func scalarStyle(colorHex string) WireStyle {
 	return WireStyle{
 		StrokeColor:   colorHex,
@@ -172,8 +182,20 @@ var DefaultTypeStyles = map[string]WireStyle{
 	"float32": scalarStyle(rulesDevice.KColorTypeFloat32),
 
 	// ── Text, boolean, temporal ─────────────────────────────────────────
-	"string":        scalarStyle(rulesDevice.KColorTypeString),
-	"bool":          scalarStyle(rulesDevice.KColorTypeBool),
+	"string": scalarStyle(rulesDevice.KColorTypeString),
+	"bool":   scalarStyle(rulesDevice.KColorTypeBool),
+
+	// [PTR] Pointer-wire family tokens: same color as the base family,
+	// DASHED — the stage-visible "this is a reference" cue. Only the debug
+	// devices list these in AllowedTypes, so the dash also reads as "probe
+	// wire". Português: Tokens de fio ponteiro: mesma cor da família base,
+	// TRACEJADO — a marca visível de "isto é uma referência". Só os devices
+	// de debug os listam em AllowedTypes, então o traço também lê como "fio
+	// de sonda".
+	"int*":          pointerStyle(rulesDevice.KColorTypeInt),
+	"float*":        pointerStyle(rulesDevice.KColorTypeFloat64),
+	"bool*":         pointerStyle(rulesDevice.KColorTypeBool),
+	"byte*":         pointerStyle(rulesDevice.KColorTypeByte),
 	"time.Duration": scalarStyle(rulesDevice.KColorTypeDuration),
 
 	// ── Error — red dashed: "handle me" ─────────────────────────────────

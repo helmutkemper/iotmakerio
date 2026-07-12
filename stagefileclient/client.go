@@ -282,7 +282,11 @@ func saveFileInternal(name, folderID, kind, language, sceneJSON, iconID string, 
 //
 // Português: Atualiza campos. "" = manter; "__clear__" em iconID
 // reseta para NULL (UI aplica ícone default no render).
-func UpdateFile(fileID, name, folderID, kind, sceneJSON, iconID string, deviceCount int) error {
+// language: "" = keep (project files); the backup save path passes the
+// session language so backup rows follow it — see the server-side doc.
+// Português: language: "" = manter (arquivos de projeto); o save de
+// backup passa a linguagem da sessão — ver doc do server.
+func UpdateFile(fileID, name, folderID, kind, sceneJSON, iconID string, deviceCount int, language string) error {
 	url := rulesServer.ServerURL + rulesServer.EndpointStageFiles + "/" + fileID
 
 	// Build JSON body with only non-empty fields. Writes look like:
@@ -307,6 +311,7 @@ func UpdateFile(fileID, name, folderID, kind, sceneJSON, iconID string, deviceCo
 	addField("name", name)
 	addField("folderId", folderID)
 	addField("kind", kind)
+	addField("language", language)
 	addField("iconId", iconID)
 
 	if sceneJSON != "" {

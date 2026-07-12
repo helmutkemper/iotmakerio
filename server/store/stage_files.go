@@ -538,10 +538,26 @@ func GetStageFile(userID, fileID string) (*StageFile, error) {
 // "convert" a project, they create a new project in the target
 // language and rebuild — there is no shortcut.
 //
+// Language: "" keeps the stored value — the right behaviour for PROJECT
+// files, whose language is fixed and irreversible by design. BACKUP rows
+// are different: a backup is a shadow of the CURRENT session, and the
+// "unsaved files backup" row in particular is shared across sessions of
+// any language — so the backup save path passes the session language on
+// every update, and the row follows it. (Field report 2026-07-11: a
+// backup row born in a Go session showed — and would have restored — a
+// C99 project as Go.)
+// Português: Language: "" mantém o valor gravado — o certo para arquivos
+// de PROJETO, cuja linguagem é fixa e irreversível por design. Linhas de
+// BACKUP são diferentes: backup é sombra da sessão ATUAL, e a linha
+// "unsaved files backup" em particular é compartilhada entre sessões de
+// qualquer linguagem — então o caminho de save de backup passa a
+// linguagem da sessão a cada update, e a linha a acompanha. (Report de
+// campo 2026-07-11: uma linha de backup nascida numa sessão Go mostrava —
+// e restauraria — um projeto C99 como Go.)
+//
 // Português: Atualiza campos de um arquivo. "" = manter; "__root__" e
-// "__clear__" são sentinelas para limpar folder_id e icon_id
-// respectivamente. Language não está aqui — é fixa por design.
-func UpdateStageFile(userID, fileID string, name, folderID, kind, sceneJSON, iconID string, deviceCount int) error {
+// "__clear__" são sentinelas para limpar folder_id e icon_id.
+func UpdateStageFile(userID, fileID string, name, folderID, kind, sceneJSON, iconID string, deviceCount int, language string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	// Build the SET clause dynamically so we only touch changed columns.
@@ -566,6 +582,10 @@ func UpdateStageFile(userID, fileID string, name, folderID, kind, sceneJSON, ico
 	if sceneJSON != "" {
 		setClauses = append(setClauses, "scene_json = ?", "device_count = ?")
 		args = append(args, sceneJSON, deviceCount)
+	}
+	if language != "" {
+		setClauses = append(setClauses, "language = ?")
+		args = append(args, language)
 	}
 	if iconID == "__clear__" {
 		// Reset to NULL so the UI falls back to its default icon.

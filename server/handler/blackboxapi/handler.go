@@ -148,10 +148,23 @@ func sanitizeDoc(s string) string {
 // blackboxes table.
 
 type clientPortDef struct {
-	Name    string `json:"name"`
-	GoType  string `json:"goType"`
-	IsError bool   `json:"isError,omitempty"`
-	Doc     string `json:"doc,omitempty"`
+	Name   string `json:"name"`
+	GoType string `json:"goType"`
+	// WireType mirrors PortDef.WireType: the connector token the stage
+	// exposes when it differs from the authored GoType — the scalar
+	// pointer family ("int*"…) and the out-param VALUE tokens ("int32"…).
+	// Every clientPortDef copy site below MUST forward it: this DTO is
+	// copied field by field, and the 2026-07-11 field report was exactly
+	// this field dying here while the parser and the WASM were both ready.
+	// Português: Espelha PortDef.WireType: o token de conector que o stage
+	// expõe quando difere do GoType autoral — a família ponteiro ("int*"…)
+	// e os tokens de VALOR de out-param ("int32"…). Todo ponto de cópia de
+	// clientPortDef abaixo DEVE encaminhá-lo: este DTO é copiado campo a
+	// campo, e o report de 2026-07-11 era exatamente este campo morrendo
+	// aqui com parser e WASM já prontos.
+	WireType string `json:"wireType,omitempty"`
+	IsError  bool   `json:"isError,omitempty"`
+	Doc      string `json:"doc,omitempty"`
 	// PassThrough marks a synthesized C99 handle pass-through output (the
 	// republished wire-type input, for chaining resource blocks LabVIEW-
 	// style). Set only by the Functions synthesis in toClientDef via
@@ -528,10 +541,11 @@ func toClientDef(def *bbparser.BlackBoxDef) clientBlackBoxDef {
 				cd.Methods[i].Inputs = make([]clientPortDef, len(m.FuncDef.Inputs))
 				for j, p := range m.FuncDef.Inputs {
 					cd.Methods[i].Inputs[j] = clientPortDef{
-						Name:    p.Name,
-						GoType:  p.GoType,
-						IsError: p.IsError,
-						Doc:     sanitizeDoc(p.Doc),
+						Name:     p.Name,
+						GoType:   p.GoType,
+						WireType: p.WireType,
+						IsError:  p.IsError,
+						Doc:      sanitizeDoc(p.Doc),
 					}
 				}
 			}
@@ -539,10 +553,11 @@ func toClientDef(def *bbparser.BlackBoxDef) clientBlackBoxDef {
 				cd.Methods[i].Outputs = make([]clientPortDef, len(m.FuncDef.Outputs))
 				for j, p := range m.FuncDef.Outputs {
 					cd.Methods[i].Outputs[j] = clientPortDef{
-						Name:    p.Name,
-						GoType:  p.GoType,
-						IsError: p.IsError,
-						Doc:     sanitizeDoc(p.Doc),
+						Name:     p.Name,
+						GoType:   p.GoType,
+						WireType: p.WireType,
+						IsError:  p.IsError,
+						Doc:      sanitizeDoc(p.Doc),
 					}
 				}
 			}
@@ -576,6 +591,7 @@ func toClientDef(def *bbparser.BlackBoxDef) clientBlackBoxDef {
 					cd.Functions[i].Inputs[j] = clientPortDef{
 						Name:         p.Name,
 						GoType:       p.GoType,
+						WireType:     p.WireType,
 						IsError:      p.IsError,
 						Doc:          sanitizeDoc(p.Doc),
 						CallbackType: p.CallbackType,
@@ -589,6 +605,7 @@ func toClientDef(def *bbparser.BlackBoxDef) clientBlackBoxDef {
 					cd.Functions[i].Outputs[j] = clientPortDef{
 						Name:         p.Name,
 						GoType:       p.GoType,
+						WireType:     p.WireType,
 						IsError:      p.IsError,
 						Doc:          sanitizeDoc(p.Doc),
 						PassThrough:  p.PassThrough,
@@ -693,10 +710,11 @@ func toClientFuncDef(fd bbparser.FuncDef) clientFuncDef {
 		cf.Inputs = make([]clientPortDef, len(fd.Inputs))
 		for i, p := range fd.Inputs {
 			cf.Inputs[i] = clientPortDef{
-				Name:    p.Name,
-				GoType:  p.GoType,
-				IsError: p.IsError,
-				Doc:     sanitizeDoc(p.Doc),
+				Name:     p.Name,
+				GoType:   p.GoType,
+				WireType: p.WireType,
+				IsError:  p.IsError,
+				Doc:      sanitizeDoc(p.Doc),
 			}
 		}
 	}
@@ -704,10 +722,11 @@ func toClientFuncDef(fd bbparser.FuncDef) clientFuncDef {
 		cf.Outputs = make([]clientPortDef, len(fd.Outputs))
 		for i, p := range fd.Outputs {
 			cf.Outputs[i] = clientPortDef{
-				Name:    p.Name,
-				GoType:  p.GoType,
-				IsError: p.IsError,
-				Doc:     sanitizeDoc(p.Doc),
+				Name:     p.Name,
+				GoType:   p.GoType,
+				WireType: p.WireType,
+				IsError:  p.IsError,
+				Doc:      sanitizeDoc(p.Doc),
 			}
 		}
 	}

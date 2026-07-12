@@ -633,9 +633,37 @@ func funcDefFromRaw(fn *rawCFunc, limits ParserLimits) *FuncDef {
 	// synthesise the port name "return". The specialist can attach a
 	// label like any other port. `void` yields no output port.
 	if !isVoidReturn(fn.ReturnType) {
+		// [PTR] A scalar-pointer return (`int32_t *get_buffer()`) becomes a
+		// POINTER WIRE with the abstract family token: int8..uint64 → "int*",
+		// float/double → "float*", bool → "bool*", uint8 stays in the int
+		// family. `char *` keeps the existing VALUE convention (a C string
+		// IS char*, so it stays "string" — no star). Non-scalar pointers
+		// (struct handles) keep the verbatim type: the resource-chain idiom
+		// is untouched. The debug family dereferences these wires; nothing
+		// else accepts them (AllowedTypes intersection is the gate).
+		// Português: Retorno ponteiro-escalar vira FIO PONTEIRO com o token
+		// abstrato da família: int8..uint64 → "int*", float/double →
+		// "float*", bool → "bool*". `char *` mantém a convenção de VALOR
+		// (string C É char*, então fica "string" — sem estrela). Ponteiros
+		// não-escalares (handles de struct) mantêm o tipo verbatim: o
+		// idioma resource-chain fica intocado. A família debug dereferencia
+		// esses fios; nada mais os aceita (a interseção de AllowedTypes é o
+		// portão).
+		retType := normaliseReturnType(fn.ReturnType)
+		wireType := ""
+		if elem := cPointerElemToIDE(retType); elem != "" && elem != "string" {
+			// GoType stays the AUTHORED C type (the return capture is
+			// declared with it — `int32_t *ret = f();`); only the WIRE
+			// speaks the family token.
+			// Português: GoType fica o tipo C AUTORAL (a captura de
+			// retorno é declarada com ele); só o FIO fala o token de
+			// família.
+			wireType = cPointerFamilyToken(elem)
+		}
 		fd.Outputs = append(fd.Outputs, PortDef{
 			Name:        "return",
-			GoType:      normaliseReturnType(fn.ReturnType),
+			GoType:      retType,
+			WireType:    wireType,
 			Label:       returnLabel,
 			Connection:  "optional",
 			MissingConn: false,
@@ -643,6 +671,95 @@ func funcDefFromRaw(fn *rawCFunc, limits ParserLimits) *FuncDef {
 	}
 
 	return fd
+}
+
+// fixedWidthPointerElem is the STRICT pointee mapping: only C types whose
+// bit-width is part of the authored contract (stdint fixed-width, float,
+// double). The slice: collapse uses it exclusively — a collection's element
+// width defines an array ABI, so platform-width elements (plain int, long)
+// stay invalid there (pinned by TestParseC_SliceDirective_InvalidDropped),
+// while still being perfectly fine as VALUE/probe wire tokens.
+// Português: Mapeamento ESTRITO do apontado: só tipos C cuja largura faz
+// parte do contrato autoral (stdint, float, double). O colapso de slice: o
+// usa exclusivamente — a largura do elemento define ABI de array, então
+// elementos de largura-de-plataforma (int puro, long) seguem inválidos lá
+// (pinado pelo TestParseC_SliceDirective_InvalidDropped), continuando
+// perfeitamente válidos como tokens de fio de VALOR/sonda.
+func fixedWidthPointerElem(t string) string {
+	switch t {
+	case "int8_t":
+		return "int8"
+	case "int16_t":
+		return "int16"
+	case "int32_t":
+		return "int32"
+	case "int64_t":
+		return "int64"
+	case "uint8_t":
+		return "uint8"
+	case "uint16_t":
+		return "uint16"
+	case "uint32_t":
+		return "uint32"
+	case "uint64_t":
+		return "uint64"
+	case "float":
+		return "float32"
+	case "double":
+		return "float64"
+	}
+	return ""
+}
+
+// cPointerElemFixedWidthOf normalises a pointer C type exactly like
+// cPointerElemToIDE (const strip, star count, char** string case) but maps
+// the pointee through the STRICT fixed-width table only.
+// Português: Normaliza um tipo C de ponteiro exatamente como o
+// cPointerElemToIDE (const, contagem de estrelas, caso char**) mas mapeia o
+// apontado só pela tabela ESTRITA fixed-width.
+func cPointerElemFixedWidthOf(cType string) string {
+	t := strings.TrimSpace(cType)
+	t = strings.TrimPrefix(t, "const ")
+	t = strings.TrimSpace(t)
+	stars := 0
+	for strings.HasSuffix(t, "*") {
+		t = strings.TrimSpace(strings.TrimSuffix(t, "*"))
+		stars++
+	}
+	if stars == 2 && (t == "char" || t == "const char") {
+		return "string"
+	}
+	if stars != 1 {
+		return ""
+	}
+	return fixedWidthPointerElem(t)
+}
+
+// cPointerFamilyToken maps a pointer's IDE element type to the abstract
+// pointer-wire token of its FAMILY. Width is irrelevant on the wire — the
+// only consumers are the debug devices, which widen on print anyway — so
+// every integer width collapses to "int*". "string" means the pointer was
+// `char *`: that is a C string by convention and travels as a VALUE.
+// Português: Mapeia o tipo-elemento IDE de um ponteiro para o token
+// abstrato de fio da FAMÍLIA. Largura é irrelevante no fio — os únicos
+// consumidores são os devices de debug, que alargam no print — então toda
+// largura inteira colapsa para "int*". "string" significa que o ponteiro
+// era `char *`: string C por convenção, viaja como VALOR.
+func cPointerFamilyToken(elem string) string {
+	switch elem {
+	case "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64", "int":
+		return "int*"
+	case "float", "float32", "float64":
+		return "float*"
+	case "bool":
+		return "bool*"
+	case "byte":
+		return "byte*"
+	case "string":
+		return "string"
+	default:
+		return elem + "*"
+	}
 }
 
 // isVoidReturn reports whether a return-type string is `void`
@@ -1015,6 +1132,44 @@ func portFromParamToken(t paramToken) *paramPort {
 	}
 
 	isOutput := wantOut && canBeOutput(typ)
+
+	// [PTR] A scalar-pointer INPUT (`const int32_t *data`, or a mutable
+	// pointer the specialist did NOT mark direction:out) exposes the
+	// abstract pointer-family token on the WIRE while GoType stays the
+	// authored C type (declarations and call-site casts read GoType — see
+	// the WireType field doc). Three guards: outputs are handled by the
+	// out-param split; slice-paired pointers must keep collapsing into a
+	// collection (collapseSliceParams reads the authored type later); and
+	// `char *` keeps the C-string VALUE convention.
+	// Português: Uma ENTRADA ponteiro-escalar (`const int32_t *data`, ou
+	// ponteiro mutável que o especialista NÃO marcou direction:out) expõe
+	// o token abstrato da família no FIO enquanto GoType fica o tipo C
+	// autoral (declarações e casts leem GoType — ver doc do campo
+	// WireType). Três guardas: outputs vão pelo split de out-param;
+	// ponteiros pareados por slice: precisam continuar colapsando em
+	// coleção; e `char *` mantém a convenção de VALOR de string C.
+	if port.SliceLenName == "" {
+		if elem := cPointerElemToIDE(typ); elem != "" && elem != "string" {
+			if isOutput {
+				// [PTR] An out-param IS a value source on the stage: the
+				// pointer is a calling convention, not wire semantics —
+				// the wire carries the VALUE token (field report
+				// 2026-07-11: out-params exposed the verbatim C type and
+				// connected to nothing). Declarations keep the authored
+				// type via cDerefType.
+				// Português: Out-param É fonte de valor no stage: o
+				// ponteiro é convenção de chamada, não semântica de fio —
+				// o fio carrega o token de VALOR (report 2026-07-11:
+				// out-params expunham o tipo C verbatim e não conectavam
+				// em nada). Declarações mantêm o tipo autoral via
+				// cDerefType.
+				port.WireType = elem
+			} else {
+				port.WireType = cPointerFamilyToken(elem)
+			}
+		}
+	}
+
 	return &paramPort{
 		portDef:  port,
 		isOutput: isOutput,
@@ -1146,7 +1301,13 @@ func collapseSliceParams(fd *FuncDef) {
 			continue
 		}
 
-		elem := cPointerElemToIDE(fd.Inputs[i].GoType)
+		// STRICT: collections demand fixed-width elements (see
+		// fixedWidthPointerElem) — platform-width pointees stay invalid
+		// here even though they are valid probe-wire tokens.
+		// Português: ESTRITO: coleções exigem elementos fixed-width —
+		// apontados de largura-de-plataforma seguem inválidos aqui mesmo
+		// sendo tokens de fio de sonda válidos.
+		elem := cPointerElemFixedWidthOf(fd.Inputs[i].GoType)
 		lenPos := -1
 		for j := range fd.Inputs {
 			if j != i && !consumed[j] && fd.Inputs[j].Name == lenName {
@@ -1207,28 +1368,52 @@ func cPointerElemToIDE(cType string) string {
 		return ""
 	}
 
-	switch t {
-	case "int8_t":
-		return "int8"
-	case "int16_t":
-		return "int16"
-	case "int32_t":
-		return "int32"
-	case "int64_t":
-		return "int64"
-	case "uint8_t":
-		return "uint8"
-	case "uint16_t":
-		return "uint16"
-	case "uint32_t":
-		return "uint32"
-	case "uint64_t":
-		return "uint64"
-	case "float":
-		return "float32"
-	case "double":
-		return "float64"
+	if elem := fixedWidthPointerElem(t); elem != "" {
+		return elem
 	}
+
+	switch t {
+	// [K&R] Plain C integer types. Their bit-width belongs to the PLATFORM
+	// (the target profile), so they map to wire-vocabulary tokens only —
+	// never to a declaration: out-param temps and return captures are
+	// always declared with the AUTHORED type (cDerefType / GoType), which
+	// keeps the ABI honest on every target. Field report 2026-07-11: an
+	// `int *size_bytes` out-param exposed the verbatim "int *" on the
+	// wire and connected to nothing.
+	// Português: Tipos inteiros do C puro. A largura pertence à PLATAFORMA
+	// (o target profile), então eles mapeiam para tokens de vocabulário de
+	// fio apenas — nunca para declaração: temps de out-param e capturas de
+	// retorno são sempre declarados com o tipo AUTORAL (cDerefType /
+	// GoType), o que mantém o ABI honesto em todo target. Report de campo
+	// 2026-07-11: um out-param `int *size_bytes` expunha "int *" verbatim
+	// no fio e não conectava em nada.
+	case "int", "signed", "signed int":
+		return "int"
+	case "long", "long int", "signed long", "signed long int":
+		// Abstract on purpose: long is 32-bit on AVR, 64 elsewhere.
+		// Português: Abstrato de propósito: long é 32 no AVR, 64 fora.
+		return "int"
+	case "long long", "long long int", "signed long long", "signed long long int":
+		return "int64"
+	case "short", "short int", "signed short", "signed short int":
+		return "int16"
+	case "unsigned char":
+		return "uint8"
+	case "unsigned short", "unsigned short int":
+		return "uint16"
+	case "unsigned", "unsigned int", "unsigned long", "unsigned long int":
+		return "uint32"
+	case "unsigned long long", "unsigned long long int":
+		return "uint64"
+	case "bool", "_Bool":
+		return "bool"
+	}
+	// `char *` (one star) deliberately falls through to "": a single-star
+	// char pointer is a C STRING and is handled by the string-value
+	// convention elsewhere — mapping it here would collide with it.
+	// Português: `char *` (uma estrela) cai de propósito no "": ponteiro
+	// simples de char é STRING C, tratada pela convenção de valor em outro
+	// lugar — mapear aqui colidiria com ela.
 	return ""
 }
 

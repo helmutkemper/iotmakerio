@@ -287,6 +287,38 @@ func Parse(src []byte, limits ParserLimits) (*BlackBoxDef, error) {
 //  Import extraction
 // =====================================================================
 
+// goScalarPointerToken maps a Go scalar-pointer type to the abstract
+// pointer-family WIRE token — the Go twin of the C parser's
+// cPointerFamilyToken, so both languages speak the same wire vocabulary:
+// every integer width collapses to "int*", floats to "float*", and the
+// only consumers are the debug devices (which dereference with the
+// "null pointer" guard). Struct pointers return "" and keep the handle
+// (resource-chain) idiom; *string is deliberately out of v1.
+// Português: Mapeia um ponteiro-escalar Go para o token abstrato de
+// família do FIO — o gêmeo Go do cPointerFamilyToken do parser C, para as
+// duas linguagens falarem o mesmo vocabulário: toda largura inteira
+// colapsa em "int*", floats em "float*", e os únicos consumidores são os
+// devices de debug (que dereferenciam com a guarda "null pointer").
+// Ponteiros de struct retornam "" e mantêm o idioma handle
+// (resource-chain); *string fica deliberadamente fora da v1.
+func goScalarPointerToken(goType string) string {
+	if !strings.HasPrefix(goType, "*") {
+		return ""
+	}
+	switch strings.TrimPrefix(goType, "*") {
+	case "int", "int8", "int16", "int32", "int64",
+		"uint", "uint8", "uint16", "uint32", "uint64", "rune":
+		return "int*"
+	case "float32", "float64":
+		return "float*"
+	case "bool":
+		return "bool*"
+	case "byte":
+		return "byte*"
+	}
+	return ""
+}
+
 func extractImports(file *ast.File) []string {
 	var imports []string
 	for _, imp := range file.Imports {
@@ -744,7 +776,7 @@ func extractFuncDef(fset *token.FileSet, file *ast.File, funcDecl *ast.FuncDecl,
 				if inputIdx < len(paramsDoc) {
 					meta = mergePortMeta(meta, paramsDoc[inputIdx])
 				}
-				p := PortDef{Name: name.Name, GoType: goType}
+				p := PortDef{Name: name.Name, GoType: goType, WireType: goScalarPointerToken(goType)}
 				applyPortMeta(&p, meta)
 				def.Inputs = append(def.Inputs, p)
 				inputIdx++
@@ -774,7 +806,7 @@ func extractFuncDef(fset *token.FileSet, file *ast.File, funcDecl *ast.FuncDecl,
 					if outputIdx < len(returnsDoc) {
 						meta = mergePortMeta(meta, returnsDoc[outputIdx])
 					}
-					p := PortDef{Name: name.Name, GoType: goType, IsError: isErr}
+					p := PortDef{Name: name.Name, GoType: goType, IsError: isErr, WireType: goScalarPointerToken(goType)}
 					applyPortMeta(&p, meta)
 					def.Outputs = append(def.Outputs, p)
 					outputIdx++
@@ -791,7 +823,7 @@ func extractFuncDef(fset *token.FileSet, file *ast.File, funcDecl *ast.FuncDecl,
 				if outputIdx < len(returnsDoc) {
 					meta = mergePortMeta(meta, returnsDoc[outputIdx])
 				}
-				p := PortDef{Name: portName, GoType: goType, IsError: isErr}
+				p := PortDef{Name: portName, GoType: goType, IsError: isErr, WireType: goScalarPointerToken(goType)}
 				applyPortMeta(&p, meta)
 				def.Outputs = append(def.Outputs, p)
 				outputIdx++

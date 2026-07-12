@@ -1563,6 +1563,24 @@ func (e *cEmitter) emitPrint(inst ir.Instruction) {
 		lead = cPrintfText(p) + " "
 	}
 
+	// [PTR] deref mode: the wire carried a pointer to this scalar. A NULL
+	// prints "null pointer" (debug information, not an error); otherwise
+	// the pointee is read into src and the normal rendering runs.
+	// Português: Modo deref: o fio carregou um ponteiro para este escalar.
+	// NULL imprime "null pointer" (informação de debug, não erro); senão o
+	// apontado é lido para src e a renderização normal segue.
+	closeDeref := false
+	if inst.Meta["deref"] == "1" {
+		e.writef("if (%s == NULL) {\n", src)
+		e.indent++
+		e.writef("%s\n", `printf("`+lead+`null pointer\n");`)
+		e.indent--
+		e.writef("} else {\n")
+		e.indent++
+		src = "(*" + src + ")"
+		closeDeref = true
+	}
+
 	var line string
 	switch inst.Type {
 	case "float":
@@ -1607,6 +1625,10 @@ func (e *cEmitter) emitPrint(inst ir.Instruction) {
 		}
 	}
 	e.writef("%s\n", line)
+	if closeDeref {
+		e.indent--
+		e.writef("}\n")
+	}
 }
 
 // cPrintfText escapes maker-typed free text for use INSIDE a C printf format

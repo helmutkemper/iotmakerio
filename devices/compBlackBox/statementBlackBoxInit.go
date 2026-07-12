@@ -578,7 +578,7 @@ func (e *StatementBlackBoxInit) RegisterConnectors() {
 		e.wireMgr.RegisterConnector(wire.ConnectorInfo{
 			ID:                 wire.ConnectorID{ElementID: e.id, PortName: pp.Name},
 			IsOutput:           false,
-			AllowedTypes:       []string{pp.GoType},
+			AllowedTypes:       []string{portWireToken(pp)},
 			AcceptNotConnected: pp.IsError,
 			Locked:             false,
 			MaxConnections:     1,
@@ -599,7 +599,7 @@ func (e *StatementBlackBoxInit) RegisterConnectors() {
 		e.wireMgr.RegisterConnector(wire.ConnectorInfo{
 			ID:                 wire.ConnectorID{ElementID: e.id, PortName: pp.Name},
 			IsOutput:           true,
-			AllowedTypes:       []string{pp.GoType},
+			AllowedTypes:       []string{portWireToken(pp)},
 			AcceptNotConnected: true,
 			Locked:             false,
 			MaxConnections:     0, // unlimited outputs

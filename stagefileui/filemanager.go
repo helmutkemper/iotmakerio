@@ -203,7 +203,7 @@ func QuickSave(cfg Config) bool {
 		deviceCount = cfg.GetDeviceCount()
 	}
 
-	err := stagefileclient.UpdateFile(currentID, "", "", "", sceneJSON, "", deviceCount)
+	err := stagefileclient.UpdateFile(currentID, "", "", "", sceneJSON, "", deviceCount, "")
 	if err != nil {
 		log.Printf("[StageFileUI] QuickSave error: %v", err)
 		return false
@@ -471,7 +471,7 @@ func Show(cfg Config) {
 					if cfg.GetDeviceCount != nil {
 						deviceCount = cfg.GetDeviceCount()
 					}
-					err := stagefileclient.UpdateFile(currentID, "", "", "", sceneJSON, "", deviceCount)
+					err := stagefileclient.UpdateFile(currentID, "", "", "", sceneJSON, "", deviceCount, "")
 					if err != nil {
 						showToast(doc, backdrop, err.Error(), colRed)
 						return
@@ -1358,7 +1358,7 @@ func showSaveDialog(doc js.Value, parent js.Value, cfg Config, currentDir string
 									// maker change their mind about the glyph
 									// when "saving over" a previous version.
 									updateErr := stagefileclient.UpdateFile(
-										f.ID, "", "", "", sceneJSON, iconID, deviceCount,
+										f.ID, "", "", "", sceneJSON, iconID, deviceCount, "",
 									)
 									if updateErr != nil {
 										showToast(doc, parent, updateErr.Error(), colRed)
@@ -1649,7 +1649,7 @@ func showEditDialog(doc js.Value, parent js.Value, file stagefileclient.StageFil
 				return nil
 			}
 			go func() {
-				err := stagefileclient.UpdateFile(file.ID, nameArg, folderArg, "", "", iconArg, 0)
+				err := stagefileclient.UpdateFile(file.ID, nameArg, folderArg, "", "", iconArg, 0, "")
 				if err != nil {
 					showToast(doc, parent, err.Error(), colRed)
 					return

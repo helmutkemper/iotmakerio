@@ -2469,12 +2469,26 @@ func (e *emitter) emitPrint(node *graph.Node, dataType string) {
 	}
 	prefix, _ := node.Properties["prefix"].(string)
 	format, _ := node.Properties["format"].(string)
+	meta := map[string]string{"prefix": prefix, "format": format}
+	// [PTR] The debug family is the universal probe: it also accepts a
+	// pointer to its scalar type. The frontend stamps the RESOLVED wire
+	// type at connection time as valueType; a trailing '*' means the
+	// backends must dereference — with a null guard that prints
+	// "null pointer" (a null is debug INFORMATION, not an error).
+	// Português: A família debug é a lupa universal: aceita também um
+	// ponteiro para seu tipo escalar. O frontend carimba o tipo RESOLVIDO
+	// do fio na conexão como valueType; '*' no fim significa que os
+	// backends devem dereferenciar — com guarda de nulo imprimindo
+	// "null pointer" (nulo é INFORMAÇÃO de debug, não erro).
+	if vt, _ := node.Properties["valueType"].(string); strings.HasSuffix(vt, "*") {
+		meta["deref"] = "1"
+	}
 	e.program.Append(Instruction{
 		Op:   OpPrint,
 		Dest: node.ID,
 		Type: dataType,
 		Args: []string{src},
-		Meta: map[string]string{"prefix": prefix, "format": format},
+		Meta: meta,
 	})
 }
 
