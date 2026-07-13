@@ -14,6 +14,7 @@ package codegen
 // decision or the interval math fails loudly.
 
 import (
+	"server/codegen/blackbox"
 	"strings"
 	"testing"
 
@@ -241,7 +242,7 @@ func TestCases_WiredIntoValidate(t *testing.T) {
 		},
 	}
 
-	diags := validate(g, nil)
+	diags := validate(g, nil, blackbox.MinTargetPosix)
 
 	var found *Diagnostic
 	for i := range diags {

@@ -705,6 +705,40 @@ type FuncDef struct {
 	// reserved—position (Back button), and we must distinguish "not set" from
 	// "intentionally set to zero".
 	MenuPosSet bool `json:"menuPosSet,omitempty"`
+	// MinTarget is the smallest hardware class this function's code runs
+	// on, declared via `// min-target:<class>.` (avr | mcu32 | posix) in
+	// the leading comment. Empty = runs anywhere. See target_class.go for
+	// the ladder and the ordinal comparison the IDE applies.
+	// Português: A menor classe de hardware onde o código desta função
+	// roda, declarada via `// min-target:<classe>.` no comentário de
+	// cabeçalho. Vazio = roda em qualquer lugar. Ver target_class.go.
+	MinTarget string `json:"minTarget,omitempty"`
+
+	// NoDevice marks a PUBLIC function that must NOT become a device:
+	// an internal helper other device functions call. Declared via
+	// `// device:false.` (tag or the wizard's checkbox). The function
+	// stays in def.Functions (the wizard shows its card, the source
+	// ships in the export) but the menu never offers it and the
+	// incomplete rules skip it — a helper owes no label or ports.
+	// Português: Marca função PÚBLICA que NÃO vira device: helper
+	// interno que outras funções-device chamam. Declarado via
+	// `// device:false.`. A função fica em def.Functions (o wizard
+	// mostra o card, o fonte embarca no export) mas o menu nunca a
+	// oferece e as regras de incompleto a pulam.
+	NoDevice bool `json:"noDevice,omitempty"`
+
+	// AssetSlots are MAKER-file slots declared by `asset:<slot>.` on a
+	// `const unsigned char *` parameter followed by its `unsigned long`
+	// length: the pair never becomes ports — the stage shows a file
+	// property instead, and the export emits a per-INSTANCE flash array
+	// on the maker's side, passed as pointer+len in the call. See
+	// docs/c99_ide_integration.md (maker assets).
+	// Português: Slots de arquivo do MAKER declarados por `asset:<slot>.`
+	// num parâmetro `const unsigned char *` seguido do `unsigned long` de
+	// tamanho: o par nunca vira porta — o stage mostra uma propriedade de
+	// arquivo, e o export emite um array de flash por INSTÂNCIA no lado
+	// do maker, passado como ponteiro+len na chamada.
+	AssetSlots []AssetSlotDef `json:"assetSlots,omitempty"`
 
 	// Inputs are the function parameters — become input ports (wires arriving).
 	Inputs []PortDef `json:"inputs,omitempty"`
@@ -945,7 +979,16 @@ type PortDef struct {
 	// O par (ponteiro, tamanho) vira UMA porta "[]T"; o parâmetro de
 	// tamanho some da lista e fica registrado aqui (nome + posição na
 	// assinatura) para o codegen reconstruir a chamada.
-	SliceLenName  string `json:"sliceLenName,omitempty"`
+	SliceLenName string `json:"sliceLenName,omitempty"`
+	// AssetSlot is the TRANSIT of the `asset:<slot>.` directive between
+	// the param parser and collapseAssetSlots — a well-formed pair is
+	// removed from Inputs entirely (the slot lives in FuncDef.AssetSlots)
+	// and a malformed one has this cleared, so the field never survives
+	// into a serialized port. Português: TRÂNSITO da diretiva entre o
+	// parser de parâmetro e o collapseAssetSlots — par bem-formado sai de
+	// Inputs (o slot vive em FuncDef.AssetSlots) e malformado tem isto
+	// limpo; o campo nunca sobrevive numa porta serializada.
+	AssetSlot     string `json:"assetSlot,omitempty"`
 	SliceLenIndex int    `json:"sliceLenIndex,omitempty"`
 
 	// CallbackType is set when this port carries a function-pointer typedef
@@ -1194,6 +1237,19 @@ type ManualPage struct {
 type FileEntry struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
+}
+
+// AssetSlotDef is one maker-file slot of a C99 function device — the
+// parsed form of `asset:<slot>.` (see FuncDef.AssetSlots).
+// Português: Um slot de arquivo do maker — a forma parseada de
+// `asset:<slot>.`.
+type AssetSlotDef struct {
+	Slot      string `json:"slot"`
+	Doc       string `json:"doc,omitempty"`
+	DataParam string `json:"dataParam"`
+	LenParam  string `json:"lenParam"`
+	DataIndex int    `json:"dataIndex"`
+	LenIndex  int    `json:"lenIndex"`
 }
 
 // AssetEntry is one non-source file riding a black-box def: templates,

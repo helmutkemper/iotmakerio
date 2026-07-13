@@ -2434,8 +2434,8 @@ function _tabsRenderStrip() {
     // manual não recebem mais upload (report 2026-07-11: duas portas
     // chamadas "Files" mandaram um asset para o manual).
     const upAccept = (_editProject && _projectLangById(_editProject.id) === 'c')
-        ? '.c,.h,.html,.htm,.tmpl,.txt,.json,.csv,.svg,.md,.css,.gif,.png,.jpg,.jpeg'
-        : '.go,.html,.htm,.tmpl,.txt,.json,.csv,.svg,.md,.css,.gif,.png,.jpg,.jpeg';
+        ? '.c,.h,.html,.htm,.tmpl,.txt,.json,.csv,.svg,.md,.css,.gif,.png,.jpg,.jpeg,.bin,.dat,.ico'
+        : '.go,.html,.htm,.tmpl,.txt,.json,.csv,.svg,.md,.css,.gif,.png,.jpg,.jpeg,.bin,.dat,.ico';
     const plus = canAddTab ? `
 <button title="New file" onclick="window._projTabAdd()"
   style="padding:4px 8px;background:none;border:none;cursor:pointer;
@@ -2490,8 +2490,50 @@ window._projTabAdd      = () => { _tabAdd(); };
 // file into a tab (binary → base64 placeholder).
 // Português: Upload da faixa de abas: mesmo pipeline de snapshot; o
 // resync do onFileSelected transforma o arquivo em aba.
-window._projTabUploadPick = (ev) => {
-    if (_editProject) onFileSelected(ev, _editProject.id, 'code');
+window._projTabUploadPick = async (ev) => {
+    if (!_editProject) return;
+    // [CAPTURE BEFORE AWAIT] projSave()'s success path re-renders the tab
+    // strip — which DESTROYS the very <input> that fired this event. A
+    // detached input keeps .files only by browser goodwill; grabbing the
+    // File object first makes the flow immune to any re-render (field
+    // report 2026-07-12: tabs vanishing / intermittent failures after
+    // image uploads). Português: O projSave() re-renderiza a faixa —
+    // DESTRUINDO o próprio <input> do evento. Input destacado mantém
+    // .files só por boa vontade do browser; capturar o File antes torna o
+    // fluxo imune a qualquer re-render (report 2026-07-12).
+    const file = ev.target.files?.[0];
+    ev.target.value = '';
+    if (!file) return;
+    // [UPLOAD NEEDS A BASELINE] The upload endpoint composes the new
+    // snapshot as SAVED-latest + the uploaded file — unsaved tabs are
+    // invisible to it. On a fresh project ("No saved versions") that
+    // baseline is EMPTY, so uploading a PNG alone tripped the "a C
+    // project needs at least one .c file" rule (field report
+    // 2026-07-12). The door now guarantees the baseline: dirty tabs or
+    // no versions → save first (posts every tab), then upload. A failed
+    // save shows its own floating error and the upload aborts.
+    // Português: O endpoint de upload compõe o snapshot novo como
+    // ÚLTIMO-SALVO + o arquivo — abas não salvas são invisíveis para
+    // ele. Em projeto novo ("No saved versions") a base é VAZIA, e subir
+    // só um PNG derrubava a regra "projeto C precisa de ≥1 .c" (report
+    // 2026-07-12). A porta agora garante a base: abas sujas ou nenhuma
+    // versão → salva primeiro (posta todas as abas) e então sobe. Save
+    // falho mostra seu próprio erro flutuante e o upload aborta.
+    try {
+        if (_codeVersions.length === 0 || _isProjectDirty()) {
+            await projSave();
+            if (_codeVersions.length === 0) {
+                return; // save did not land — its error is already on screen
+            }
+        }
+        await uploadProjectFile(_editProject.id, 'code', file);
+    } catch (e) {
+        // A silent death here leaves a half-dead editor ("sometimes I
+        // can't save") — every failure must be VISIBLE.
+        // Português: Morte silenciosa aqui deixa o editor meio-morto
+        // ("às vezes não consigo salvar") — toda falha deve ser VISÍVEL.
+        showPageAlert('Upload failed: ' + (e?.message || e), 'danger');
+    }
 };
 
 // _resyncOpenEditorFromServer: the tree just changed this project's
@@ -2515,8 +2557,17 @@ async function _resyncOpenEditorFromServer(projectId) {
     }
     try {
         const r = await api('GET', `/api/v1/projects/${projectId}/files/code`);
-        if (r?.metadata?.status === 200) {
-            _tabsInit(r.data?.files || [], _editorTabs[_activeTabIdx]?.path);
+        // An empty/malformed snapshot while the editor holds content is
+        // ALWAYS wrong to obey — _tabsInit([]) would dispose every tab
+        // and blank the editor (field report 2026-07-12). Warn and keep
+        // the buffers instead. Português: Snapshot vazio/malformado com o
+        // editor cheio é SEMPRE errado de obedecer — _tabsInit([])
+        // descartaria todas as abas e apagaria o editor (report
+        // 2026-07-12). Avisa e preserva os buffers.
+        if (r?.metadata?.status === 200 && Array.isArray(r.data?.files) && r.data.files.length > 0) {
+            _tabsInit(r.data.files, _editorTabs[_activeTabIdx]?.path);
+        } else if (r?.metadata?.status === 200) {
+            showPageAlert('The server returned an empty snapshot — keeping your open tabs untouched.', 'warning');
         }
     } catch (e) {
         console.warn('[projects] editor resync failed:', e);
@@ -3569,6 +3620,11 @@ function projBuildFunctionBlock(fn) {
 // "both" when absent (a bare `callback:T.` directive). See
 // docs/CODEGEN_C99_CALLBACKS.md.
 function _fnPreviewVariants(fn) {
+    // `device:false.` — a helper offers NO device variants at all: the
+    // single authority for both the counter and the card render loops.
+    // Português: Helper não oferece variante alguma — a autoridade única
+    // para o contador e o loop de render dos cards.
+    if (fn.noDevice) return [];
     if (!fn || !fn.handlerType) return ['callable'];
     return fn.callbackMode === 'ref' ? ['ref'] : ['callable', 'ref'];
 }
@@ -5750,6 +5806,16 @@ export async function onFileSelected(event, projectId, section) {
     const file = event.target.files?.[0];
     if (!file) return;
     event.target.value = '';
+    return uploadProjectFile(projectId, section, file);
+}
+
+// uploadProjectFile: the File-first core of every upload path. Taking the
+// File (not the event) makes callers immune to DOM re-renders between the
+// pick and the POST — see _projTabUploadPick's capture note.
+// Português: O núcleo File-first de todo upload. Receber o File (não o
+// evento) torna os chamadores imunes a re-renders do DOM entre a escolha
+// e o POST — ver a nota de captura do _projTabUploadPick.
+export async function uploadProjectFile(projectId, section, file) {
     const form = new FormData();
     form.append('file', file);
     const opts = { method: 'POST', body: form };

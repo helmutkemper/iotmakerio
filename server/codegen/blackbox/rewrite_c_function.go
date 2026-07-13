@@ -102,6 +102,8 @@ func planCFunctionDirectives(source, fnName string, e WizardEdit) (cSplicePlan, 
 		ReturnLabel    string `json:"returnLabel"`
 		Callback       string `json:"callback"`
 		CallbackMode   string `json:"callbackMode"`
+		MinTarget      string `json:"minTarget"`
+		NoDevice       bool   `json:"noDevice"`
 	}
 	if err := json.Unmarshal(e.Args, &args); err != nil {
 		return cSplicePlan{}, fmt.Errorf("invalid args: %w", err)
@@ -152,6 +154,27 @@ func planCFunctionDirectives(source, fnName string, e WizardEdit) (cSplicePlan, 
 	// wires. Kept identical to Go so the C99 and Go wizards behave the same.
 	if args.ExecutionOrder != nil {
 		directives = append(directives, "executionOrder:"+strconv.Itoa(*args.ExecutionOrder)+".")
+	}
+	// min-target declares the smallest hardware class the function's code
+	// runs on (avr | mcu32 | posix — see target_class.go). Chosen by the
+	// wizard's dropdown; omitting it (the "— any board —" option) clears
+	// the directive, since the whole block is rebuilt from args. The
+	// planner writes whatever it is told — an invalid value survives to
+	// the export validator, which names it with the valid classes.
+	// Português: min-target declara a menor classe de hardware onde o
+	// código roda. Escolhido no dropdown do wizard; omitir (opção "— any
+	// board —") limpa a diretiva, pois o bloco é reconstruído dos args. O
+	// planner escreve o que recebe — valor inválido sobrevive até o
+	// validador de export, que o nomeia com as classes válidas.
+	if args.MinTarget != "" {
+		directives = append(directives, "min-target:"+args.MinTarget+".")
+	}
+	// device:false — the wizard checkbox's opt-out for a public helper;
+	// omitted (unchecked) simply clears it, block rebuilt from args.
+	// Português: O opt-out do checkbox; desmarcado limpa (bloco
+	// reconstruído dos args).
+	if args.NoDevice {
+		directives = append(directives, "device:false.")
 	}
 	// C99 return-value label. The synthetic `return` output has no
 	// source position, so its human label rides in the function's

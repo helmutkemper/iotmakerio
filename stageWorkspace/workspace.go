@@ -325,6 +325,14 @@ type Config struct {
 	// "c" ou "go". Vazio é tolerado e resolve pra "c" — tolerância
 	// pra fase de bring-up; produção deve sempre informar.
 	Language string
+	// Target is the hardware-target registry id chosen at project
+	// creation ("" = none picked; the export dropdown can change it
+	// later). Feeds w.selectedTarget so the serializer stamps
+	// Metadata.Target from the very first save.
+	// Português: O id de target escolhido na criação ("" = nenhum; o
+	// dropdown do export pode trocar depois). Alimenta w.selectedTarget
+	// para o serializer carimbar Metadata.Target desde o primeiro save.
+	Target string
 }
 
 // Init creates the canvas, stage, all managers, factory, and menu.
@@ -345,6 +353,12 @@ func (w *Workspace) Init(cfg Config) error {
 	// is in place every call site should pass a non-empty value;
 	// the default here is the safety net, not the intended path.
 	w.Language = cfg.Language
+	// Creation-time board choice — through the setter so the menu's
+	// min-target gate learns it too (the setter only writes state, safe
+	// before any UI exists). Português: Escolha da criação — pelo setter,
+	// para o portão do menu conhecê-la (o setter só grava estado, seguro
+	// antes de existir UI).
+	w.SetSelectedTarget(cfg.Target)
 	if w.Language == "" {
 		w.Language = stagefileclient.StageFileLanguageC
 	}
@@ -3219,6 +3233,11 @@ func (w *Workspace) SetSiblingSceneFn(fn func() string) {
 // escolha de volta ao default (Arduino UNO). Idempotente.
 func (w *Workspace) SetSelectedTarget(id string) {
 	w.selectedTarget = id
+	// The menu's min-target gate follows the board — one choke point for
+	// every path that changes it (creation, scene load, export picker).
+	// Português: O portão de min-target do menu segue a placa — um ponto
+	// único para todo caminho que a muda (criação, load, picker).
+	mainMenu.SetProjectTargetID(id)
 }
 
 // SelectedTarget returns the currently-selected hardware-target id, or "" when

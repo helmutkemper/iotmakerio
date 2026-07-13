@@ -32,6 +32,7 @@ package overlay
 // é armazenado em um <input> oculto para coleta pelo doSave().
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"syscall/js"
@@ -110,8 +111,23 @@ func buildFileField(doc js.Value, field Field) (container js.Value, hiddenInput 
 			"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;",
 		colSubtext))
 
-	// Set initial label based on whether a value already exists.
-	if field.Value != "" && strings.HasPrefix(field.Value, "data:") {
+	// Set initial label based on whether a value already exists. A
+	// StoreName value is JSON {"name","dataUrl"} — surface the NAME.
+	// Português: Valor StoreName é JSON {"name","dataUrl"} — mostra o NOME.
+	initialDataURL := field.Value
+	if field.StoreName && field.Value != "" {
+		var v struct {
+			Name    string `json:"name"`
+			DataURL string `json:"dataUrl"`
+		}
+		if json.Unmarshal([]byte(field.Value), &v) == nil && v.DataURL != "" {
+			fileLabel.Set("textContent", v.Name)
+			initialDataURL = v.DataURL
+		} else {
+			initialDataURL = ""
+			fileLabel.Set("textContent", "No file selected")
+		}
+	} else if field.Value != "" && strings.HasPrefix(field.Value, "data:") {
 		fileLabel.Set("textContent", "Image loaded")
 	} else {
 		fileLabel.Set("textContent", "No file selected")
@@ -131,8 +147,8 @@ func buildFileField(doc js.Value, field Field) (container js.Value, hiddenInput 
 		colSurface1, colMantle))
 
 	// If a data URL already exists, show the preview immediately.
-	if field.Value != "" && strings.HasPrefix(field.Value, "data:") {
-		showPreview(doc, preview, field.Value)
+	if initialDataURL != "" && strings.HasPrefix(initialDataURL, "data:") {
+		showPreview(doc, preview, initialDataURL)
 	} else {
 		// Empty state placeholder.
 		placeholder := doc.Call("createElement", "div")
@@ -163,7 +179,35 @@ func buildFileField(doc js.Value, field Field) (container js.Value, hiddenInput 
 			reader.Call("addEventListener", "load",
 				js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 					dataURL := reader.Get("result").String()
-					hiddenInput.Set("value", dataURL)
+
+					// MaxBytes: reject an oversized pick INLINE and keep
+					// the previous value — the codegen validator would
+					// catch it later, but the maker deserves the error at
+					// the click. Decoded size ≈ base64 length × 3/4.
+					// Português: MaxBytes: recusa arquivo grande INLINE e
+					// mantém o valor anterior — o maker merece o erro no
+					// clique, não no export.
+					if field.MaxBytes > 0 {
+						if comma := strings.Index(dataURL, ","); comma >= 0 {
+							decoded := (len(dataURL) - comma - 1) * 3 / 4
+							if decoded > field.MaxBytes {
+								fileLabel.Set("textContent", fmt.Sprintf(
+									"Too big (%d KB > %d KB limit)",
+									decoded/1024, field.MaxBytes/1024))
+								return nil
+							}
+						}
+					}
+
+					if field.StoreName {
+						payload, _ := json.Marshal(map[string]string{
+							"name":    fileName,
+							"dataUrl": dataURL,
+						})
+						hiddenInput.Set("value", string(payload))
+					} else {
+						hiddenInput.Set("value", dataURL)
+					}
 
 					// Update preview.
 					preview.Set("innerHTML", "")

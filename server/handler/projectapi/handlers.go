@@ -677,6 +677,10 @@ var textAssetExts = map[string]bool{
 	".csv": true, ".svg": true, ".md": true, ".css": true,
 }
 var binaryAssetExts = map[string]bool{
+	// Generic embedded blobs — fonts, ML models, calibration tables — plus
+	// the favicon. Português: Blobs embarcados genéricos — fontes, modelos,
+	// tabelas de calibração — e o favicon.
+	".bin": true, ".dat": true, ".ico": true,
 	".gif": true, ".png": true, ".jpg": true, ".jpeg": true,
 }
 

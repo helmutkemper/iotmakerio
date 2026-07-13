@@ -2016,6 +2016,14 @@ func (b *MenuBuilder) blackBoxFuncSubmenu(def *blackbox.BlackBoxDefClient) []hex
 	for _, fn := range def.Functions {
 		d := def
 		fnc := fn
+		// `device:false.` — a public helper the specialist opted out of
+		// device generation: the maker's menu never offers it (its source
+		// still ships in the export for the sibling devices to call).
+		// Português: Helper público com opt-out: o menu do maker nunca o
+		// oferece (o fonte embarca no export para os irmãos chamarem).
+		if fnc.NoDevice {
+			continue
+		}
 		// Callback duality: a handler in "both" mode offers BOTH the callable
 		// and the reference (ƒ); "ref" mode offers only the ƒ; a plain function
 		// offers only the callable. Mirrors the Preview (_fnPreviewVariants).
@@ -2029,6 +2037,10 @@ func (b *MenuBuilder) blackBoxFuncSubmenu(def *blackbox.BlackBoxDefClient) []hex
 				MenuCol:    fnc.MenuCol,
 				MenuRow:    fnc.MenuRow,
 				MenuPosSet: fnc.MenuPosSet,
+				// Min-target gate input — the sprite menu turns this into
+				// the disabled state. Português: Entrada do portão de
+				// min-target — o sprite converte em estado desabilitado.
+				MinTarget: fnc.MinTarget,
 				OnClick: func() {
 					b.factory.SafeRun("CreateBBFunction_"+d.Name+"_"+fnc.Name, func() {
 						b.factory.CreateBlackBoxFunction(d, fnc.Name)
@@ -2046,9 +2058,10 @@ func (b *MenuBuilder) blackBoxFuncSubmenu(def *blackbox.BlackBoxDefClient) []hex
 			// (MenuPosSet stays false) so it auto-places beside the callable
 			// rather than colliding with the callable's cell in "both" mode.
 			refItem := hexMenu.MenuItem{
-				ID:    "bb_" + d.Name + "_" + fnc.Name + "_cbref",
-				Label: fnc.EffectiveLabel() + " \u0192",
-				Type:  hexMenu.ItemAction,
+				ID:        "bb_" + d.Name + "_" + fnc.Name + "_cbref",
+				Label:     fnc.EffectiveLabel() + " \u0192",
+				Type:      hexMenu.ItemAction,
+				MinTarget: fnc.MinTarget,
 				OnClick: func() {
 					b.factory.SafeRun("CreateBBCallbackRef_"+d.Name+"_"+fnc.Name, func() {
 						b.factory.CreateBlackBoxCallbackRef(d, fnc.Name)

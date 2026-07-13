@@ -399,6 +399,21 @@ type Field struct {
 	// Usa a sintaxe padrão do atributo HTML accept.
 	Accept string `json:"accept,omitempty"`
 
+	// MaxBytes caps a FieldFile's DECODED size (0 = unlimited): an
+	// oversized pick shows an inline error and keeps the previous value.
+	// Português: Teto do tamanho DECODIFICADO de um FieldFile (0 = sem
+	// limite): arquivo grande mostra erro inline e mantém o valor antigo.
+	MaxBytes int `json:"maxBytes,omitempty"`
+
+	// StoreName makes a FieldFile's value a JSON object
+	// {"name","dataUrl"} instead of the bare data URL — for consumers
+	// that need the FILENAME (asset slots stamp it into generated code
+	// comments). Backward-compatible: existing image fields stay bare.
+	// Português: Faz o valor virar JSON {"name","dataUrl"} em vez do data
+	// URL puro — para quem precisa do NOME (slots de asset o carimbam nos
+	// comentários do código gerado). Retrocompatível.
+	StoreName bool `json:"storeName,omitempty"`
+
 	// ConnectionColor, when non-empty, overrides the input border and adds a
 	// subtle glow in that colour. Used by prop fields that carry a
 	// connection:"ROLE" tag — the colour creates a visual link between the

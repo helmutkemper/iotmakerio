@@ -1832,6 +1832,11 @@ function _functionPortMissing(p, dir) {
 }
 
 function _functionDeviceIncomplete(fn) {
+    // A helper (`device:false.`) owes no label, icon or port directives —
+    // it will never be a card the maker configures.
+    // Português: Helper não deve label/ícone/diretivas — nunca será um
+    // card que o maker configura.
+    if (fn.noDevice) return false;
     if (!fn.label || !fn.icon) return true;
     if ((fn.inputs || []).some(p => _functionPortMissing(p, 'in'))) return true;
     if ((fn.outputs || []).some(p => _functionPortMissing(p, 'out'))) return true;
@@ -1873,6 +1878,21 @@ function _renderFunctionCard(fn, incompleteSet, lines) {
 
     const deviceIncomplete = _functionDeviceIncomplete(fd);
 
+    // Maker-file slots (asset:<slot>. pairs) render as their OWN rows —
+    // they are not ports (no wires) and owe no connection directives; the
+    // maker picks the file on the stage. Inert on purpose: v1 is
+    // display-only, the directive is authored in the source.
+    // Português: Slots de arquivo do maker viram linhas PRÓPRIAS — não
+    // são portas e não devem connection:; o maker escolhe o arquivo no
+    // stage. Inertes de propósito: v1 é só exibição.
+    const slotRows = (fd.assetSlots || []).map(s => _renderRow({
+        path: `${path}.asset.${s.slot}`,
+        inert: true,
+        inertReason: `Authored as asset:${s.slot}. on the parameter`,
+        primary: `<i class="fa-solid fa-file-import"></i> asset slot · <strong>${esc(s.slot)}</strong>`,
+        secondary: `${esc(s.doc || '')}${s.doc ? ' — ' : ''}file chosen by the maker on the stage`,
+    })).join('');
+
     const portRows = [
         ...(fd.inputs || []).map(p => _renderPortRow(path, 'in', p, incompleteSet,
             { forceIncomplete: _functionPortMissing(p, 'in'), isFunctionDevice: true })),
@@ -1887,12 +1907,13 @@ function _renderFunctionCard(fn, incompleteSet, lines) {
         commentLine: lines && lines[path] && lines[path].commentLine,
         isIncomplete: deviceIncomplete || incompleteSet.has(path),
         title: `${icon} ${esc(label)}`,
-        subtitle: 'function device',
+        subtitle: fd.noDevice ? 'helper — not a device' : 'function device',
+        minTarget: fd.minTarget || '',
         // Provenance badge — rendered by the shell's dedicated slot
         // (plain path in, markup built inside the shell; see the note
         // there for the escaped-subtitle incident this replaces).
         fileBadge: fn.sourceFile || '',
-        body: portRows || `<p class="wiz-card-empty">No ports on this function.</p>`,
+        body: (slotRows + portRows) || `<p class="wiz-card-empty">No ports on this function.</p>`,
     });
 }
 
@@ -2055,7 +2076,7 @@ function _renderPortRow(methodPath, dir, port, incompleteSet, opts) {
     });
 }
 
-function _renderCardShell({ kind, path, isIncomplete, title, subtitle, fileBadge, body, line, commentLine }) {
+function _renderCardShell({ kind, path, isIncomplete, title, subtitle, fileBadge, minTarget, body, line, commentLine }) {
     // Card header is clickable for entity-level modals (struct / method).
     // The dispatcher routes by path shape, so the header just needs to
     // emit the same `projWizardOnRowClick` call as a row would. Without
@@ -2112,6 +2133,33 @@ function _renderCardShell({ kind, path, isIncomplete, title, subtitle, fileBadge
                         ? ` — <span class="wiz-card-filebadge" onclick="event.stopPropagation();window._projWizardJumpToFile('${esc(fileBadge)}','${esc(path)}')"
                              title="Show ${esc(fileBadge)} in the editor"
                              style="font-family:'Fira Code','Consolas',monospace;cursor:pointer;text-decoration:underline dotted">${esc(fileBadge)}</span>`
+                        : ''
+                }${
+                    // minTarget chip — the `// min-target:<class>.` tag made
+                    // visible: the specialist declared the smallest board
+                    // class this device runs on, and the card confirms the
+                    // parser read it. Same shell-built-markup rule as the
+                    // file badge above. Unknown values render in warning
+                    // amber — the export validator will name the typo.
+                    // Português: Chip do min-target — a tag visível: o
+                    // especialista declarou a menor classe de placa, e o
+                    // card confirma que o parser a leu. Valor desconhecido
+                    // rende em âmbar — o validador de export nomeia o typo.
+                    minTarget
+                        ? (() => {
+                            const known = {
+                                avr:   ['#b45309', '#fef3c7', 'AVR class — runs on Arduino Uno and up'],
+                                mcu32: ['#0f766e', '#ccfbf1', '32-bit MCU class — needs ESP32/STM32 or bigger'],
+                                posix: ['#1d4ed8', '#dbeafe', 'POSIX class — needs Linux or a PC'],
+                            }[minTarget];
+                            const [fg, bg, tip] = known
+                                || ['#b45309', '#fef3c7', `Unknown class "${esc(minTarget)}" — the export will flag it`];
+                            return ` <span title="${esc(tip)}"
+                                style="background:${bg};color:${fg};border-radius:8px;
+                                       padding:1px 8px;font-size:11px;font-weight:600;
+                                       vertical-align:1px">
+                                <i class="fa-solid fa-microchip" style="font-size:10px"></i> min: ${esc(minTarget)}</span>`;
+                        })()
                         : ''
                 }</div>
             </div>
@@ -3463,6 +3511,30 @@ function _openFunctionModal(path) {
     // DISABLED when this function matches none (so e.g. an `int(void)` function
     // never gets offered a `void(const char*)` callback). See
     // CODEGEN_C99_CALLBACKS.md §3.3.
+    // Minimum hardware class — the `// min-target:<class>.` tag as a
+    // dropdown. The modal ALWAYS echoes the current value on save (the
+    // whole comment block is rebuilt from args — see the returnLabel
+    // note above), which is also the fix for the wipe: a hand-typed tag
+    // used to die on any unrelated modal save. An unknown current value
+    // is kept visible/selected so saving never silently drops it
+    // (mirrors the callback dropdown's defensive option).
+    // Português: A classe mínima como dropdown. O modal SEMPRE ecoa o
+    // valor atual no save (o bloco é reconstruído dos args), o que
+    // também é o conserto do apagamento: tag digitada morria em
+    // qualquer save alheio do modal. Valor desconhecido fica visível e
+    // selecionado para o save nunca o derrubar em silêncio.
+    const initialMinTarget = fn.minTarget || '';
+    const initialNoDevice = !!fn.noDevice;
+    const mtKnown = ['', 'avr', 'mcu32', 'posix'];
+    let mtOptions = `
+        <option value=""${initialMinTarget === '' ? ' selected' : ''}>— any board —</option>
+        <option value="avr"${initialMinTarget === 'avr' ? ' selected' : ''}>avr — Arduino Uno class (2 KB)</option>
+        <option value="mcu32"${initialMinTarget === 'mcu32' ? ' selected' : ''}>mcu32 — ESP32 / STM32 class</option>
+        <option value="posix"${initialMinTarget === 'posix' ? ' selected' : ''}>posix — Linux / PC</option>`;
+    if (!mtKnown.includes(initialMinTarget)) {
+        mtOptions += `<option value="${esc(initialMinTarget)}" selected>${esc(initialMinTarget)} (unknown class)</option>`;
+    }
+
     const compatibleCallbacks = fn.compatibleCallbacks || [];
     const initialHandler = fn.handlerType || '';
     const hasCompatible = compatibleCallbacks.length > 0;
@@ -3540,6 +3612,18 @@ function _openFunctionModal(path) {
                 </p>
             </div>
             <div class="wiz-form-row">
+                <label class="wiz-form-label">Minimum target</label>
+                <select id="wiz-fn-mintarget" class="wiz-form-input">${mtOptions}</select>
+                <div class="wiz-form-hint">Smallest board class this device runs on — the menu disables it on smaller targets.</div>
+            </div>
+            <div class="wiz-form-row">
+                <label class="wiz-form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                    <input id="wiz-fn-nodevice" type="checkbox"${initialNoDevice ? ' checked' : ''}>
+                    Not a device — internal helper
+                </label>
+                <div class="wiz-form-hint">Sibling devices may still call it, but the maker's menu never offers it (writes <code>device:false.</code>).</div>
+            </div>
+            <div class="wiz-form-row">
                 <label class="wiz-form-label" for="wiz-fn-comment">Comment <span class="wiz-form-req">*</span></label>
                 <textarea id="wiz-fn-comment" class="wiz-form-input wiz-form-textarea"
                           rows="3" placeholder="What does this function do? Required.">${esc(initialComment)}</textarea>
@@ -3589,6 +3673,12 @@ function _openFunctionModal(path) {
                 // number = set). returnLabel is preserved so editing the
                 // device doesn't wipe a label set on the return port.
                 const args = { label, icon, comment, returnLabel: currentReturnLabel };
+                // min-target: echo-or-clear (see the dropdown note above).
+                const mt = backdrop.querySelector('#wiz-fn-mintarget')?.value || '';
+                if (mt) args.minTarget = mt;
+                // device:false — checked writes the opt-out; unchecked
+                // omits it (the rebuild clears the tag).
+                if (backdrop.querySelector('#wiz-fn-nodevice')?.checked) args.noDevice = true;
                 if (orderStr.trim() !== '') {
                     const order = Number(orderStr);
                     if (!Number.isInteger(order) || order < 0) {

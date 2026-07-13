@@ -51,6 +51,17 @@ type Result struct {
 	// Mode is always set.
 	Mode Mode
 
+	// Target is the hardware-target REGISTRY id ("arduino_uno",
+	// "esp32_c6", "pc_tablet") chosen on the C99 board step, or "" when
+	// no board was picked (Go projects, dismissal, ModeOpen — the scene
+	// carries its own). The ids mirror server/codegen/target/registry.go,
+	// the single source of truth; the trio below is a hand-kept copy.
+	// Português: O id de REGISTRO do target escolhido no passo de placa
+	// do C99, ou "" quando nenhum (projetos Go, fechamento, ModeOpen). Os
+	// ids espelham server/codegen/target/registry.go, a fonte única; o
+	// trio abaixo é cópia mantida à mão.
+	Target string
+
 	// Language is always set ("c" or "go"). For ModeOpen it mirrors
 	// the language of the chosen project; for ModeNew it mirrors the
 	// card the user clicked; for ModeRestore it mirrors the backup's
@@ -346,18 +357,61 @@ func Show() Result {
 			})
 			return nil
 		}))
+	// The C99 card opens a SECOND step — the board picker — instead of
+	// resolving immediately: the maker's flow is "choose C99, choose the
+	// board", and the min-target gate downstream needs the choice. The
+	// trio mirrors server/codegen/target/registry.go (ladder classes:
+	// avr < mcu32 < posix). "Back" restores the language step.
+	// Português: O card C99 abre um SEGUNDO passo — o seletor de placa —
+	// em vez de resolver na hora: o fluxo do maker é "escolhe C99,
+	// escolhe a placa", e o portão de min-target adiante precisa da
+	// escolha. O trio espelha o registro do server. "Back" volta.
+	targetGrid := buildCardGrid(doc)
+	targetGrid.Get("style").Set("display", "none")
+	targetGrid.Get("style").Set("flexDirection", "column")
+	type boardOpt struct{ id, title, desc string }
+	boards := []boardOpt{
+		{"pc_tablet", "PC / tablet",
+			"Desktop program — try it on your computer first. POSIX class."},
+		{"esp32_c6", "ESP32-C6",
+			"RISC-V, 512 KB RAM — Wi-Fi and networked projects. 32-bit MCU class."},
+		{"arduino_uno", "Arduino UNO",
+			"8-bit AVR, 2 KB RAM — classic boards, tight memory. AVR class."},
+	}
+	for _, b := range boards {
+		id := b.id
+		card := buildTargetCard(doc, b.title, b.desc)
+		card.Call("addEventListener", "click",
+			js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+				send(Result{
+					Mode:     ModeNew,
+					Language: stagefileclient.StageFileLanguageC,
+					Target:   id,
+				})
+				return nil
+			}))
+		targetGrid.Call("appendChild", card)
+	}
+	backLink := buildBackLink(doc)
+	backLink.Call("addEventListener", "click",
+		js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+			targetGrid.Get("style").Set("display", "none")
+			cardGrid.Get("style").Set("display", "flex")
+			return nil
+		}))
+	targetGrid.Call("appendChild", backLink)
+
 	cCard.Call("addEventListener", "click",
 		js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-			send(Result{
-				Mode:     ModeNew,
-				Language: stagefileclient.StageFileLanguageC,
-			})
+			cardGrid.Get("style").Set("display", "none")
+			targetGrid.Get("style").Set("display", "flex")
 			return nil
 		}))
 
 	cardGrid.Call("appendChild", goCard)
 	cardGrid.Call("appendChild", cCard)
 	panel.Call("appendChild", cardGrid)
+	panel.Call("appendChild", targetGrid)
 
 	body := doc.Get("body")
 
@@ -977,6 +1031,61 @@ func buildCardGrid(doc js.Value) js.Value {
 
 // buildLanguageCard creates a single clickable card for one language.
 // Hover lifts the card by 1px and bumps the shadow — pure visual.
+// buildTargetCard renders one board option of the C99 second step: a bold
+// title line and a muted one-line description — richer than the language
+// card because the maker is choosing HARDWARE, and the RAM/class hint is
+// the whole point of the step.
+// Português: Um cartão de placa do segundo passo do C99: título em negrito
+// e descrição de uma linha — mais rico que o cartão de linguagem porque o
+// maker está escolhendo HARDWARE, e a dica de RAM/classe é o ponto do
+// passo.
+func buildTargetCard(doc js.Value, title, desc string) js.Value {
+	card := doc.Call("createElement", "button")
+	style := card.Get("style")
+	style.Set("width", "100%")
+	style.Set("padding", "12px 16px")
+	style.Set("background", cardBgC)
+	style.Set("color", cardColorC)
+	style.Set("border", "1px solid "+cardBorderC)
+	style.Set("borderRadius", "10px")
+	style.Set("cursor", "pointer")
+	style.Set("textAlign", "left")
+	style.Set("fontFamily", "inherit")
+	style.Set("marginBottom", "8px")
+
+	t := doc.Call("createElement", "div")
+	t.Set("textContent", title)
+	t.Get("style").Set("fontWeight", "700")
+	t.Get("style").Set("fontSize", "15px")
+	card.Call("appendChild", t)
+
+	d := doc.Call("createElement", "div")
+	d.Set("textContent", desc)
+	d.Get("style").Set("fontSize", "12px")
+	d.Get("style").Set("opacity", "0.75")
+	d.Get("style").Set("marginTop", "3px")
+	card.Call("appendChild", d)
+	return card
+}
+
+// buildBackLink is the target step's escape hatch back to the language
+// choice. Português: A volta do passo de placa para a escolha de linguagem.
+func buildBackLink(doc js.Value) js.Value {
+	link := doc.Call("createElement", "button")
+	link.Set("textContent", "\u2190 back")
+	style := link.Get("style")
+	style.Set("background", "none")
+	style.Set("border", "none")
+	style.Set("color", cardColorC)
+	style.Set("cursor", "pointer")
+	style.Set("fontSize", "13px")
+	style.Set("padding", "6px 0 0")
+	style.Set("textAlign", "center")
+	style.Set("width", "100%")
+	style.Set("fontFamily", "inherit")
+	return link
+}
+
 func buildLanguageCard(doc js.Value, label, bg, color, border string) js.Value {
 	card := doc.Call("createElement", "button")
 	card.Set("textContent", label)

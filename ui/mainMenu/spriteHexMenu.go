@@ -244,6 +244,12 @@ func (m *SpriteHexMenu) showPage(items []hexMenu.MenuItem) {
 		if m.tutorialActive && !m.isTutorialTarget(item.ID) {
 			initialState = hexMenu.PipelineDisabled
 		}
+		// Min-target gate: same disabled visual the tutorial uses. See
+		// targetGate.go. Português: Portão de min-target: mesmo visual
+		// desabilitado do tutorial.
+		if itemTargetGated(item) {
+			initialState = hexMenu.PipelineDisabled
+		}
 
 		// Pixel position (screen coordinates, density-scaled via Density).
 		// [VIEWPORT-FIX] Use HexSvgWidth/Height (ceiled) so the sprite element
@@ -307,6 +313,13 @@ func (m *SpriteHexMenu) wireElemClick(me *spriteHexMenuElem) {
 
 		// Tutorial mode: only target item is clickable
 		if m.tutorialActive && !m.isTutorialTarget(capturedItem.ID) {
+			return
+		}
+
+		// Min-target gate: the device needs a bigger board than the
+		// project targets — visible but not clickable (see targetGate.go).
+		// Português: Portão de min-target — visível, porém não clicável.
+		if itemTargetGated(capturedItem) {
 			return
 		}
 

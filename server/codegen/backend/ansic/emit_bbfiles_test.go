@@ -517,8 +517,8 @@ func TestBBFiles_AssetsShipWithCompanionHeaders(t *testing.T) {
 		t.Errorf("binary asset must ship DECODED; got %q", got)
 	}
 	hdr := out[dir+"/templates/portal_html_data.h"]
-	if !strings.Contains(hdr, "asset_templates_portal_html[] = {") ||
-		!strings.Contains(hdr, "asset_templates_portal_html_len = 15;") {
+	if !strings.Contains(hdr, "asset_templates_portal_html[] IOTM_ASSET_ATTR = {") ||
+		!strings.Contains(hdr, "asset_templates_portal_html_len = 15ul;") {
 		t.Errorf("companion header missing/incomplete:\n%s", hdr)
 	}
 	if gif := out[dir+"/logo_gif_data.h"]; !strings.Contains(gif, "0x47,") {

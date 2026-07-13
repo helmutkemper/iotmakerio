@@ -239,7 +239,7 @@ func Generate(ctx context.Context, req Request) Response {
 	}
 
 	// Step 3: Validate (basic checks + black-box checks)
-	valDiags := validate(g, req.BlackBoxDefs)
+	valDiags := validate(g, req.BlackBoxDefs, projectTargetClass(&scene))
 	if len(valDiags) > 0 {
 		resp.addDiagnostics(valDiags)
 		return resp
@@ -397,8 +397,85 @@ func cancelled(ctx context.Context, resp *Response) bool {
 //  Validation
 // =====================================================================
 
-func validate(g *graph.Graph, bbDefs map[string]*blackbox.BlackBoxDef) []Diagnostic {
+// projectTargetClass resolves the scene's target choice to a ladder class:
+// a picked board (Metadata.Target, resolved via the registry) wins, then a
+// directly named profile (Metadata.TargetProfile); a scene that never
+// chose maps to posix — the permissive default documented in
+// blackbox.ClassOfProfile.
+// Português: Resolve a escolha de target da cena para uma classe da
+// escada: placa escolhida (Metadata.Target, via registro) vence, depois
+// profile nomeado (Metadata.TargetProfile); cena sem escolha vira posix —
+// o default permissivo documentado em blackbox.ClassOfProfile.
+func projectTargetClass(scene *graph.SceneInput) string {
+	if scene == nil {
+		return blackbox.MinTargetPosix
+	}
+	name := scene.Metadata.TargetProfile
+	if scene.Metadata.Target != "" {
+		name = target.ResolveTarget(scene.Metadata.Target).ProfileName
+	}
+	return blackbox.ClassOfProfile(name)
+}
+
+// minTargetDiagnostics compares every scene-used function's declared
+// minimum hardware class against the project's target class (one ordinal
+// comparison — see blackbox/target_class.go). Unknown declared values get
+// their own diagnostic listing the valid classes, so a specialist's typo
+// surfaces at export instead of silently gating nothing.
+// Português: Compara a classe mínima declarada de cada função usada na
+// cena com a classe do target do projeto (uma comparação ordinal — ver
+// blackbox/target_class.go). Valor desconhecido ganha diagnóstico próprio
+// listando as classes válidas: typo aparece no export em vez de não
+// portar nada em silêncio.
+func minTargetDiagnostics(bbDefs map[string]*blackbox.BlackBoxDef, projectClass string) []Diagnostic {
+	projOrd, _ := blackbox.MinTargetOrdinal(projectClass)
 	var diags []Diagnostic
+	for fnName, def := range bbDefs {
+		if def == nil {
+			continue
+		}
+		var mt string
+		for i := range def.Functions {
+			if def.Functions[i].Name == fnName {
+				mt = def.Functions[i].MinTarget
+				break
+			}
+		}
+		if mt == "" {
+			continue
+		}
+		ord, ok := blackbox.MinTargetOrdinal(mt)
+		if !ok {
+			diags = append(diags, Diagnostic{
+				Kind:     diagnostics.KindBlackBoxFilesInvalid,
+				Severity: diagnostics.SeverityError,
+				Devices:  []string{fnName},
+				Message: fmt.Sprintf(
+					"%s declares unknown min-target %q — use avr, mcu32 or posix",
+					fnName, mt),
+			})
+			continue
+		}
+		if ord > projOrd {
+			diags = append(diags, Diagnostic{
+				Kind:     diagnostics.KindBlackBoxFilesInvalid,
+				Severity: diagnostics.SeverityError,
+				Devices:  []string{fnName},
+				Message: fmt.Sprintf(
+					"%s requires a %s-class target; the project targets %s",
+					fnName, mt, projectClass),
+			})
+		}
+	}
+	return diags
+}
+
+func validate(g *graph.Graph, bbDefs map[string]*blackbox.BlackBoxDef, projectClass string) []Diagnostic {
+	var diags []Diagnostic
+
+	// [MIN-TARGET] the hardware-class gate — see minTargetDiagnostics.
+	// Português: O portão de classe de hardware.
+	diags = append(diags, minTargetDiagnostics(bbDefs, projectClass)...)
 
 	// [INCLUDES] Export-time resolution of quoted includes in authored C
 	// files: a tab-name typo or a forgotten asset must fail HERE, in the

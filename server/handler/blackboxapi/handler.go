@@ -267,16 +267,26 @@ type clientMethodDef struct {
 // it; C99 projects never populate Init/Methods, so the two paths stay
 // disjoint on the wire.
 type clientFunctionDef struct {
-	Name           string          `json:"name"`
-	Doc            string          `json:"doc,omitempty"`
-	ExecutionOrder int             `json:"executionOrder,omitempty"`
-	Icon           string          `json:"icon,omitempty"`
-	Label          string          `json:"label,omitempty"`
-	MenuCol        int             `json:"menuCol,omitempty"`
-	MenuRow        int             `json:"menuRow,omitempty"`
-	MenuPosSet     bool            `json:"menuPosSet,omitempty"`
-	Inputs         []clientPortDef `json:"inputs,omitempty"`
-	Outputs        []clientPortDef `json:"outputs,omitempty"`
+	Name           string `json:"name"`
+	Doc            string `json:"doc,omitempty"`
+	ExecutionOrder int    `json:"executionOrder,omitempty"`
+	Icon           string `json:"icon,omitempty"`
+	Label          string `json:"label,omitempty"`
+	// MinTarget mirrors FuncDef.MinTarget — menu gating input. Every copy
+	// site must forward it (DTO lesson of 2026-07-11). Português: Espelha
+	// o MinTarget — entrada do gating; todo ponto de cópia encaminha.
+	MinTarget string `json:"minTarget,omitempty"`
+	NoDevice  bool   `json:"noDevice,omitempty"`
+	// AssetSlots mirror FuncDef.AssetSlots — the stage's file-property
+	// renderer reads them. Every copy site must forward (DTO lesson).
+	// Português: Espelham FuncDef.AssetSlots — o render da propriedade de
+	// arquivo do stage os lê. Todo ponto de cópia encaminha.
+	AssetSlots []bbparser.AssetSlotDef `json:"assetSlots,omitempty"`
+	MenuCol    int                     `json:"menuCol,omitempty"`
+	MenuRow    int                     `json:"menuRow,omitempty"`
+	MenuPosSet bool                    `json:"menuPosSet,omitempty"`
+	Inputs     []clientPortDef         `json:"inputs,omitempty"`
+	Outputs    []clientPortDef         `json:"outputs,omitempty"`
 	// HandlerType marks this C99 function as a CALLBACK HANDLER (the value is
 	// the function-pointer typedef it implements). CallbackMode refines it:
 	// "both" → the IDE offers BOTH a callable device and a separate callback
@@ -579,6 +589,9 @@ func toClientDef(def *bbparser.BlackBoxDef) clientBlackBoxDef {
 				ExecutionOrder: fn.FuncDef.ExecutionOrder,
 				Icon:           fn.FuncDef.Icon,
 				Label:          fn.FuncDef.Label,
+				MinTarget:      fn.FuncDef.MinTarget,
+				NoDevice:       fn.FuncDef.NoDevice,
+				AssetSlots:     fn.FuncDef.AssetSlots,
 				MenuCol:        fn.FuncDef.MenuCol,
 				MenuRow:        fn.FuncDef.MenuRow,
 				MenuPosSet:     fn.FuncDef.MenuPosSet,

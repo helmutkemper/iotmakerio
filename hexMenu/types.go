@@ -247,7 +247,16 @@ func DefaultStyles() [5]IconStyle {
 
 // MenuItem defines one hexagon in the menu.
 type MenuItem struct {
-	ID           string
+	ID string
+
+	// MinTarget is the device's declared minimum hardware class ("",
+	// "avr", "mcu32", "posix" — see blackbox.MinTargetOrdinal). The
+	// sprite menu disables the item when the project's board sits below
+	// it. Set only for black-box function entries today.
+	// Português: Classe mínima de hardware declarada pelo device. O menu
+	// desabilita o item quando a placa do projeto fica abaixo dela. Hoje
+	// só entradas de função de black-box a preenchem.
+	MinTarget    string
 	Col          int
 	Row          int
 	AdjustIconX  int

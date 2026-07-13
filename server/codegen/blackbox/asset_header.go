@@ -96,7 +96,36 @@ func RenderAssetHeader(assetPath string, data []byte) []byte {
 	b.WriteString(" * export, edições aqui sempre se perdem.\n")
 	b.WriteString(" */\n")
 	fmt.Fprintf(&b, "#ifndef %s\n#define %s\n\n", guard, guard)
-	fmt.Fprintf(&b, "static const unsigned char %s[] = {", sym)
+	// AVR flash placement — the compiler decides, not the export: on AVR,
+	// `const` alone lands the array in SRAM (2 KB on an Uno; a 12 KB
+	// asset cannot even exist there). PROGMEM keeps it in flash, but then
+	// direct indexing reads the wrong address space — hence the portable
+	// accessor. Every target compiles the SAME header: ASSET attribute
+	// empties out and the accessor becomes plain indexing everywhere
+	// else. The block is #ifndef-guarded because every asset header of a
+	// box repeats it (multi-include safe, identical definitions).
+	// Contract for specialists: read bytes via iotm_asset_read(arr, i) —
+	// direct arr[i] works on every target EXCEPT AVR.
+	// Português: Colocação em flash no AVR — o compilador decide, não o
+	// export: no AVR, `const` sozinho põe o array na SRAM (2 KB num Uno).
+	// PROGMEM o mantém na flash, mas aí indexação direta lê o espaço de
+	// endereço errado — daí o acessor portável. Todo alvo compila o MESMO
+	// header. Bloco com guarda #ifndef porque cada header de asset o
+	// repete. Contrato para especialistas: leia bytes via
+	// iotm_asset_read(arr, i) — arr[i] direto funciona em todo alvo
+	// EXCETO AVR.
+	b.WriteString("#ifndef IOTM_ASSET_HELPERS\n")
+	b.WriteString("#define IOTM_ASSET_HELPERS\n")
+	b.WriteString("#ifdef __AVR__\n")
+	b.WriteString("#include <avr/pgmspace.h>\n")
+	b.WriteString("#define IOTM_ASSET_ATTR PROGMEM\n")
+	b.WriteString("#define iotm_asset_read(arr, i) pgm_read_byte(&(arr)[(i)])\n")
+	b.WriteString("#else\n")
+	b.WriteString("#define IOTM_ASSET_ATTR\n")
+	b.WriteString("#define iotm_asset_read(arr, i) ((arr)[(i)])\n")
+	b.WriteString("#endif\n")
+	b.WriteString("#endif /* IOTM_ASSET_HELPERS */\n\n")
+	fmt.Fprintf(&b, "static const unsigned char %s[] IOTM_ASSET_ATTR = {", sym)
 	for i, by := range data {
 		if i%12 == 0 {
 			b.WriteString("\n    ")
@@ -109,7 +138,14 @@ func RenderAssetHeader(assetPath string, data []byte) []byte {
 		b.WriteByte('\n')
 	}
 	b.WriteString("};\n")
-	fmt.Fprintf(&b, "static const unsigned int %s_len = %d;\n\n", sym, len(data))
+	// unsigned long, NOT unsigned int: C99 guarantees long >= 32 bits on
+	// every target, while int is 16 on AVR — an asset past 64 KB would
+	// silently truncate its length there. No include needed, stays
+	// self-contained. Português: unsigned long, NÃO unsigned int: C99
+	// garante long >= 32 bits em todo alvo; int é 16 no AVR e um asset
+	// acima de 64 KB truncaria o tamanho em silêncio. Sem include,
+	// autocontido.
+	fmt.Fprintf(&b, "static const unsigned long %s_len = %dul;\n\n", sym, len(data))
 	fmt.Fprintf(&b, "#endif /* %s */\n", guard)
 	return []byte(b.String())
 }
