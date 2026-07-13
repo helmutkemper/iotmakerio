@@ -58,6 +58,20 @@ const (
 	// O backend C emite também o símbolo de comprimento `<dest>_len`, que
 	// sobrevive ao decaimento do array para ponteiro na chamada de função.
 	// Literal de tempo de compilação: sem malloc, seguro para embarcados.
+	// OpDataBlob declares one maker-data byte array (the Data · File /
+	// Data · Text devices): Dest is the node id (symbol + `_len`
+	// companion, slice `#` protocol compatible), Meta carries the
+	// payload ("base64"), the logical length ("lenNoNul" — a Text NUL is
+	// appended but never counted), the origin ("kind": file|text) and
+	// the human name ("sourceName"). The C backend renders it at FILE
+	// scope with IOTM_ASSET_ATTR (flash on AVR).
+	// Português: Declara um array de bytes de dados do maker. Dest é o
+	// id do nó (símbolo + companion `_len`, compatível com o protocolo
+	// `#` do slice); Meta carrega o payload em base64, o tamanho lógico
+	// (NUL de Text anexado mas nunca contado), a origem e o nome humano.
+	// O backend C o renderiza em ESCOPO DE ARQUIVO com IOTM_ASSET_ATTR.
+	OpDataBlob Op = "DATA_BLOB"
+
 	OpConstArray Op = "CONST_ARRAY" // CONST_ARRAY %dest elemType v1 v2 v3 …
 
 	// OpIndex reads ONE element from a constant collection by integer index,

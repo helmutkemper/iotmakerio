@@ -625,11 +625,6 @@ func funcDefFromRaw(fn *rawCFunc, limits ParserLimits) *FuncDef {
 	// numa única porta de coleção "[]T".
 	collapseSliceParams(fd)
 
-	// Maker-file slots: resolve every `asset:<slot>.` pairing after the
-	// port loop, mirroring collapseSliceParams. Português: Resolve os
-	// slots de arquivo do maker, espelhando o collapseSliceParams.
-	collapseAssetSlots(fd)
-
 	// Return value → a typed output port.
 	//
 	// C99 is the source of truth here: a function has a return type,
@@ -1210,10 +1205,7 @@ func portFromParamToken(t paramToken) *paramPort {
 		doc, wantOut = extractDirectionDirective(doc)
 		var sliceLen string
 		doc, sliceLen = extractSliceDirective(doc)
-		var assetSlot string
-		doc, assetSlot = extractAssetDirective(doc)
 		port.SliceLenName = sliceLen
-		port.AssetSlot = assetSlot
 		meta := parsePortMetaString(doc)
 		applyPortMeta(&port, meta)
 	}
@@ -1325,36 +1317,6 @@ type paramPort struct {
 // parâmetro PONTEIRO. Diverge do rascunho do plano de propósito: as
 // diretivas por-parâmetro vivem no comentário do próprio parâmetro —
 // repetir o nome do ponteiro seria redundante.
-// extractAssetDirective pulls `asset:<slotName>.` from a POINTER
-// parameter's comment — the maker-file slot declaration. Pairing is
-// POSITIONAL (the next parameter must be the `unsigned long` length),
-// resolved by collapseAssetSlots; here we only capture the slot name.
-// Português: Extrai `asset:<nomeDoSlot>.` do comentário do parâmetro
-// PONTEIRO — a declaração de slot de arquivo do maker. O pareamento é
-// POSICIONAL (o próximo parâmetro deve ser o `unsigned long` de
-// tamanho), resolvido no collapseAssetSlots; aqui só capturamos o nome.
-func extractAssetDirective(doc string) (cleaned string, slot string) {
-	var prose []string
-	for _, line := range strings.Split(doc, "\n") {
-		var keptSegs []string
-		for _, segment := range strings.Split(line, ".") {
-			seg := strings.TrimSpace(segment)
-			if seg == "" {
-				continue
-			}
-			if strings.HasPrefix(strings.ToLower(seg), "asset:") {
-				slot = strings.TrimSpace(seg[len("asset:"):])
-				continue
-			}
-			keptSegs = append(keptSegs, seg)
-		}
-		if len(keptSegs) > 0 {
-			prose = append(prose, strings.Join(keptSegs, ". ")+".")
-		}
-	}
-	return strings.Join(prose, "\n"), slot
-}
-
 func extractSliceDirective(doc string) (cleaned string, lenName string) {
 	var prose []string
 	for _, line := range strings.Split(doc, "\n") {
@@ -1405,72 +1367,6 @@ func extractSliceDirective(doc string) (cleaned string, lenName string) {
 // vira UMA porta de coleção "[]T" e o parâmetro de tamanho some da lista.
 // Tolerante a erro de autoria: diretiva inválida é descartada e as portas
 // ficam como estavam. Elementos exigem largura fixa (int32_t, não int).
-// collapseAssetSlots resolves every `asset:<slot>.` directive: the marked
-// `const unsigned char *` input plus the POSITIONALLY NEXT parameter (its
-// `unsigned long` length) leave Inputs entirely and become ONE
-// FuncDef.AssetSlots entry — the stage renders a file property for it, and
-// the export emits a per-instance flash array on the maker's side.
-// Malformed pairings (data param not a byte pointer, next param missing or
-// not integral) mirror collapseSliceParams: the directive is dropped and
-// both ports stay, so nothing vanishes silently — the odd pointer port in
-// the wizard is the specialist's cue.
-// Português: Resolve cada `asset:<slot>.`: o input `const unsigned char *`
-// marcado mais o parâmetro POSICIONALMENTE SEGUINTE (o `unsigned long` de
-// tamanho) saem de Inputs e viram UMA entrada de FuncDef.AssetSlots.
-// Pareamento malformado espelha o collapseSliceParams: diretiva cai e as
-// duas portas ficam — a porta de ponteiro estranha no wizard é a pista.
-func collapseAssetSlots(fd *FuncDef) {
-	consumed := map[int]bool{}
-
-	for i := range fd.Inputs {
-		slot := fd.Inputs[i].AssetSlot
-		if slot == "" {
-			continue
-		}
-
-		lower := strings.ToLower(fd.Inputs[i].GoType)
-		isBytePtr := strings.Contains(lower, "*") &&
-			(strings.Contains(lower, "unsigned char") ||
-				strings.Contains(lower, "uint8_t"))
-
-		lenPos := -1
-		for j := range fd.Inputs {
-			if j != i && !consumed[j] &&
-				fd.Inputs[j].ParamIndex == fd.Inputs[i].ParamIndex+1 {
-				lenPos = j
-				break
-			}
-		}
-
-		if !isBytePtr || lenPos < 0 || !isIntegralCType(fd.Inputs[lenPos].GoType) {
-			fd.Inputs[i].AssetSlot = ""
-			continue
-		}
-
-		fd.AssetSlots = append(fd.AssetSlots, AssetSlotDef{
-			Slot:      slot,
-			Doc:       fd.Inputs[i].Doc,
-			DataParam: fd.Inputs[i].Name,
-			LenParam:  fd.Inputs[lenPos].Name,
-			DataIndex: fd.Inputs[i].ParamIndex,
-			LenIndex:  fd.Inputs[lenPos].ParamIndex,
-		})
-		consumed[i] = true
-		consumed[lenPos] = true
-	}
-
-	if len(consumed) == 0 {
-		return
-	}
-	kept := fd.Inputs[:0]
-	for j := range fd.Inputs {
-		if !consumed[j] {
-			kept = append(kept, fd.Inputs[j])
-		}
-	}
-	fd.Inputs = kept
-}
-
 func collapseSliceParams(fd *FuncDef) {
 	// Two phases on purpose: resolving and REMOVING in the same range
 	// loop would index past the shrunk slice (range captures the

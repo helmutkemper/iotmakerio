@@ -104,6 +104,7 @@ func SeedMenuTree() error {
 		{"SysConst", "system", "submenu", 1, "menuMainConst", "Const", "bars", "0 0 448 512", "", ""},
 		{"SysVar", "system", "submenu", 1, "menuMainVar", "Variables", "suitcase", "0 0 512 512", "", ""},
 		{"SysDisplay", "system", "submenu", 1, "menuMainDisplay", "Display", "desktop", "0 0 576 512", "", ""},
+		{"SysData", "system", "submenu", 1, "menuMainData", "Data", "file-export", "0 0 512 512", "", ""},
 		{"SysMyItems", "system", "submenu", 1, "menuMainMyItems", "My Items", "box-open", "0 0 640 512", "", ""},
 		{"SysExport", "system", "submenu", 1, "menuMainExport", "Export", "file-export", "0 0 576 512", "", ""},
 		{"SysSettings", "system", "action", 1, "menuMainSettings", "Settings", "gear", "0 0 512 512", "", ""},
@@ -137,6 +138,10 @@ func SeedMenuTree() error {
 		{"SysConstArrayInt", "system", "action", 1, "menuMainConstArrayInt", "Int Array", "layer-group", "0 0 512 512", "", ""},
 		{"SysConstArrayFloat", "system", "action", 1, "menuMainConstArrayFloat", "Float Array", "layer-group", "0 0 512 512", "", ""},
 		{"SysConstArrayString", "system", "action", 1, "menuMainConstArrayString", "String Array", "layer-group", "0 0 512 512", "", ""},
+
+		// ── Data children ────────────────────────────────────────────────
+		{"SysDataFile", "system", "action", 1, "menuDataFile", "File", "file-export", "0 0 512 512", "", ""},
+		{"SysDataText", "system", "action", 1, "menuDataText", "Text", "pen", "0 0 512 512", "", ""},
 
 		// ── Variables children ───────────────────────────────────────────
 		{"SysGetVarInt", "system", "action", 1, "menuMainGetVarInt", "Get Int", "bars", "0 0 448 512", "", ""},
@@ -222,10 +227,15 @@ func SeedMenuTree() error {
 		{"SysConst", "", 4},
 		{"SysVar", "", 5},
 		{"SysDisplay", "", 6},
-		{"SysExport", "", 7},
-		{"SysSettings", "", 8},
-		{"SysMyItems", "", 9},
-		{"SysExit", "", 10},
+		{"SysData", "", 7},
+		{"SysExport", "", 8},
+		{"SysSettings", "", 9},
+		{"SysMyItems", "", 10},
+		{"SysExit", "", 11},
+
+		// Data children
+		{"SysDataFile", "SysData", 1},
+		{"SysDataText", "SysData", 2},
 
 		// Math children
 		{"SysAdd", "SysMath", 1},
@@ -1333,5 +1343,174 @@ func MigrateMenuTreeDebugPosition() error {
 			return err
 		}
 	}
+	return nil
+}
+
+// MigrateMenuTreeData ensures the DATA category (SysData submenu) and its
+// first child (SysDataFile) exist on databases seeded before the category
+// was born (2026-07-13). Fresh installs get both from the seed above;
+// SeedMenuTree deliberately skips populated tables, so — exactly like
+// MigrateMenuTreeVariables — this always-run, INSERT-OR-IGNORE migration
+// closes the gap for existing databases. The SysData root lands after the
+// last existing root; Exit stays visually last because buildFromTree
+// defers it regardless of position.
+//
+// Called from migrate() in db.go after MigrateMenuTreeVariables().
+//
+// Português: Garante a categoria DATA (submenu SysData) e seu primeiro
+// filho (SysDataFile) em bancos semeados antes da categoria nascer.
+// Instalações novas ganham ambos do seed acima; esta migração idempotente
+// fecha a lacuna dos bancos existentes. A raiz SysData cai após a última
+// raiz existente; o Exit segue visualmente por último porque o
+// buildFromTree o adia independentemente da posição.
+func MigrateMenuTreeData() error {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// ── Catalog entries ───────────────────────────────────────────────────
+	if _, err := DB.Exec(`
+		INSERT OR IGNORE INTO menu_items
+			(slot_id, slot_type, item_type, locked, label_key, label_fallback,
+			 icon_fa, icon_viewbox, created_at)
+		VALUES ('SysData', 'system', 'submenu', 1, 'menuMainData', 'Data',
+		        'file-export', '0 0 512 512', ?)`,
+		now,
+	); err != nil {
+		return err
+	}
+	if _, err := DB.Exec(`
+		INSERT OR IGNORE INTO menu_items
+			(slot_id, slot_type, item_type, locked, label_key, label_fallback,
+			 icon_fa, icon_viewbox, created_at)
+		VALUES ('SysDataFile', 'system', 'action', 1, 'menuDataFile', 'File',
+		        'file-export', '0 0 512 512', ?)`,
+		now,
+	); err != nil {
+		return err
+	}
+	if _, err := DB.Exec(`
+		INSERT OR IGNORE INTO menu_items
+			(slot_id, slot_type, item_type, locked, label_key, label_fallback,
+			 icon_fa, icon_viewbox, created_at)
+		VALUES ('SysDataText', 'system', 'action', 1, 'menuDataText', 'Text',
+		        'pen', '0 0 512 512', ?)`,
+		now,
+	); err != nil {
+		return err
+	}
+
+	// ── Layout entries (all existing profiles) ────────────────────────────
+	rows, err := DB.Query(`SELECT profile_id, is_default FROM menu_profiles`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type prof struct {
+		id        string
+		isDefault bool
+	}
+	var profiles []prof
+	for rows.Next() {
+		var p prof
+		var isDef int
+		if err := rows.Scan(&p.id, &isDef); err != nil {
+			return err
+		}
+		p.isDefault = isDef == 1
+		profiles = append(profiles, p)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, p := range profiles {
+		visible := 0
+		if p.isDefault {
+			visible = 1
+		}
+
+		// SysData root — after the last existing root (parent IS NULL).
+		var maxRoot int
+		if err := DB.QueryRow(`
+			SELECT COALESCE(MAX(position), 0) FROM menu_layout
+			WHERE profile_id = ? AND parent_id IS NULL`, p.id,
+		).Scan(&maxRoot); err != nil {
+			return err
+		}
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO menu_layout
+				(profile_id, slot_id, parent_id, position, visible)
+			VALUES (?, 'SysData', NULL, ?, ?)`,
+			p.id, maxRoot+1, visible,
+		); err != nil {
+			return err
+		}
+
+		// SysDataFile — first child of SysData.
+		var maxChild int
+		if err := DB.QueryRow(`
+			SELECT COALESCE(MAX(position), 0) FROM menu_layout
+			WHERE profile_id = ? AND parent_id = 'SysData'`, p.id,
+		).Scan(&maxChild); err != nil {
+			return err
+		}
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO menu_layout
+				(profile_id, slot_id, parent_id, position, visible)
+			VALUES (?, 'SysDataFile', 'SysData', ?, ?)`,
+			p.id, maxChild+1, visible,
+		); err != nil {
+			return err
+		}
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO menu_layout
+				(profile_id, slot_id, parent_id, position, visible)
+			VALUES (?, 'SysDataText', 'SysData', ?, ?)`,
+			p.id, maxChild+2, visible,
+		); err != nil {
+			return err
+		}
+	}
+
+	// ── i18n keys (fill-if-absent — never overwrites admin edits) ─────────
+	for _, loc := range []struct{ locale string }{{"en-US"}, {"pt-BR"}} {
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO i18n_bundles (locale, bundle_id, updated_at)
+			VALUES (?, ?, ?)`,
+			loc.locale, loc.locale+"-custom", now,
+		); err != nil {
+			return err
+		}
+		catMsg, fileMsg, textMsg := "Data", "File", "Text"
+		if loc.locale == "pt-BR" {
+			catMsg, fileMsg, textMsg = "Dados", "Arquivo", "Texto"
+		}
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO i18n_messages
+				(locale, message_id, other, one, description)
+			VALUES (?, 'menuMainData', ?, '', '')`,
+			loc.locale, catMsg,
+		); err != nil {
+			return err
+		}
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO i18n_messages
+				(locale, message_id, other, one, description)
+			VALUES (?, 'menuDataFile', ?, '', '')`,
+			loc.locale, fileMsg,
+		); err != nil {
+			return err
+		}
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO i18n_messages
+				(locale, message_id, other, one, description)
+			VALUES (?, 'menuDataText', ?, '', '')`,
+			loc.locale, textMsg,
+		); err != nil {
+			return err
+		}
+	}
+
+	log.Printf("[menu_tree_seed] migrated Data category (SysData + SysDataFile + SysDataText)")
 	return nil
 }

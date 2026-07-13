@@ -123,6 +123,12 @@ const (
 	FieldCheckbox FieldType = "checkbox"
 	FieldTextarea FieldType = "textarea"
 	FieldColor    FieldType = "color"
+	// FieldMonaco is an EDITABLE Monaco editor inside a form — value
+	// collected by doSave via the hidden-input pattern; Field.Language
+	// selects the syntax. Português: Editor Monaco EDITÁVEL dentro do
+	// form — valor coletado pelo doSave via input oculto; Field.Language
+	// escolhe a sintaxe.
+	FieldMonaco FieldType = "monaco"
 
 	// FieldFile renders a file upload input with an image preview area.
 	// The file is read as a data URL (base64) using the FileReader API and
@@ -370,10 +376,19 @@ type Field struct {
 	Value       string    `json:"value,omitempty"`       // current value
 	Placeholder string    `json:"placeholder,omitempty"` // input placeholder
 	Options     []Option  `json:"options,omitempty"`     // options for FieldSelect
-	Min         string    `json:"min,omitempty"`         // min for FieldNumber
-	Max         string    `json:"max,omitempty"`         // max for FieldNumber
-	Rows        int       `json:"rows,omitempty"`        // rows for FieldTextarea (default: 4)
-	ReadOnly    bool      `json:"readOnly,omitempty"`    // makes the field non-editable
+	// Language is the Monaco language id for FieldMonaco ("yaml", "xml",
+	// "json", …). Português: Id de linguagem do Monaco para FieldMonaco.
+	Language string `json:"language,omitempty"`
+	// MonacoLanguageTarget, on a FieldSelect, is the Key of a sibling
+	// FieldMonaco whose highlighting follows this select LIVE — pick
+	// "html" and the editor re-highlights instantly. Português: Num
+	// FieldSelect, a Key de um FieldMonaco irmão cujo highlight segue
+	// este select AO VIVO.
+	MonacoLanguageTarget string `json:"monacoLanguageTarget,omitempty"`
+	Min                  string `json:"min,omitempty"`      // min for FieldNumber
+	Max                  string `json:"max,omitempty"`      // max for FieldNumber
+	Rows                 int    `json:"rows,omitempty"`     // rows for FieldTextarea (default: 4)
+	ReadOnly             bool   `json:"readOnly,omitempty"` // makes the field non-editable
 
 	// InputFilter restricts what the user can type into a FieldText input,
 	// enforced live (on every input event, including paste). Supported values:

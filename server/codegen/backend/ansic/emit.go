@@ -56,6 +56,7 @@
 package ansic
 
 import (
+	"encoding/base64"
 	"fmt"
 	"sort"
 	"strings"
@@ -359,6 +360,18 @@ type cEmitter struct {
 	// runtime symbol means setting the flag wherever the symbol
 	// is emitted.
 	//
+	// dataBlobs collects the FILE-SCOPE renderings of every DATA_BLOB
+	// (maker Data · File / Data · Text instances): big constant byte
+	// arrays belong outside main() — and PROGMEM placement is only
+	// dependable at file scope on older avr-gcc. wrapMain flushes them
+	// (with the shared IOTM helpers block once) right after the
+	// includes. Português: Coleta as renderizações em ESCOPO DE ARQUIVO
+	// de cada DATA_BLOB: arrays grandes vivem fora do main() — e o
+	// PROGMEM só é confiável em escopo de arquivo em avr-gcc antigos. O
+	// wrapMain os descarrega (com o bloco de helpers uma vez) logo após
+	// os includes.
+	dataBlobs []string
+
 	// Read by wrapMain (to gate the `#include` line) and by Emit
 	// (to gate the runtime header and stub files in the output
 	// map). When false, the generated project consists of main.c
@@ -461,6 +474,8 @@ func (e *cEmitter) emit() {
 			e.emitVar(inst)
 		case ir.OpAssign:
 			e.emitAssign(inst)
+		case ir.OpDataBlob:
+			e.emitDataBlob(inst)
 		case ir.OpConstArray:
 			e.emitConstArray(inst)
 		case ir.OpIndex:
@@ -727,6 +742,70 @@ func (e *cEmitter) emitAssign(inst ir.Instruction) {
 // `_len = 0`, porque `{}` não é C99 válido — compila sempre e o contrato
 // (ponteiro, comprimento) continua exato. O include <stddef.h> é emitido
 // somente quando um array existe (flag usesStddef).
+// emitDataBlob renders one maker-data byte array — Data · File / Data ·
+// Text — as a FILE-SCOPE declaration collected into e.dataBlobs (wrapMain
+// flushes them after the includes, preceded once by the shared
+// blackbox.AssetHelpersC block):
+//
+//	/* Data · File "iotmaker.png" (dataFile_0) */
+//	static const unsigned char dataFile_0[] IOTM_ASSET_ATTR = {
+//	    0x89, 0x50, ...
+//	};
+//	static const unsigned long dataFile_0_len = 12358ul;
+//
+// The `_len` companion carries Meta["lenNoNul"] — a Text NUL is present in
+// the bytes but never counted — and uses unsigned long (>= 32 bits on
+// every C99 target; AVR's 16-bit int would truncate past 64 KB), matching
+// the generated asset headers. The `#` slice protocol resolves the pair.
+// Zero-length stance mirrors emitConstArray: `{0}` slot + `_len = 0ul`.
+//
+// Português: Renderiza um array de dados do maker em ESCOPO DE ARQUIVO,
+// coletado em e.dataBlobs (o wrapMain os descarrega após os includes, com
+// o bloco blackbox.AssetHelpersC uma vez). O companion `_len` carrega o
+// tamanho lógico (NUL de Text presente nos bytes mas nunca contado) em
+// unsigned long, casando com os headers de asset. Postura de tamanho-zero
+// espelha o emitConstArray.
+func (e *cEmitter) emitDataBlob(inst ir.Instruction) {
+	name := cIdent(inst.Dest)
+	data, _ := base64.StdEncoding.DecodeString(inst.Meta["base64"])
+	lenNoNul := inst.Meta["lenNoNul"]
+	if lenNoNul == "" {
+		lenNoNul = "0"
+	}
+
+	var b strings.Builder
+	kind := "Text"
+	if inst.Meta["kind"] == "file" {
+		kind = "File"
+	}
+	src := inst.Meta["sourceName"]
+	if src != "" {
+		fmt.Fprintf(&b, "/* Data \u00b7 %s %q (%s) */\n", kind, src, name)
+	} else {
+		fmt.Fprintf(&b, "/* Data \u00b7 %s (%s) */\n", kind, name)
+	}
+
+	if len(data) == 0 {
+		fmt.Fprintf(&b, "static const unsigned char %s[1] IOTM_ASSET_ATTR = {0}; /* empty: see %s_len */\n",
+			name, name)
+	} else {
+		fmt.Fprintf(&b, "static const unsigned char %s[] IOTM_ASSET_ATTR = {", name)
+		for i, by := range data {
+			if i%12 == 0 {
+				b.WriteString("\n    ")
+			} else {
+				b.WriteString(" ")
+			}
+			fmt.Fprintf(&b, "0x%02x,", by)
+		}
+		b.WriteString("\n};\n")
+	}
+	fmt.Fprintf(&b, "static const unsigned long %s_len = %sul;\n\n", name, lenNoNul)
+
+	e.dataBlobs = append(e.dataBlobs, b.String())
+	e.declared[inst.Dest] = true
+}
+
 func (e *cEmitter) emitConstArray(inst ir.Instruction) {
 	name := cIdent(inst.Dest)
 	elemC := cTypeName(inst.Type, e.profile)
@@ -2123,6 +2202,19 @@ func (e *cEmitter) wrapMain() string {
 		sb.WriteString("#include \"iotmaker_runtime.h\"\n")
 	}
 	sb.WriteString("\n")
+
+	// Maker-data blobs (Data · File / Data · Text instances) — file
+	// scope, after the includes, preceded once by the shared helpers
+	// block (flash placement + portable accessor; single source:
+	// blackbox.AssetHelpersC). Português: Blobs de dados do maker — em
+	// escopo de arquivo, após os includes, precedidos uma vez pelo bloco
+	// de helpers compartilhado.
+	if len(e.dataBlobs) > 0 {
+		sb.WriteString(blackbox.AssetHelpersC)
+		for _, blob := range e.dataBlobs {
+			sb.WriteString(blob)
+		}
+	}
 
 	// Multi-file black-boxes: one `#include "iotm_47/iotm_47.h"` per box.
 	// The header carries the box's public surface under its FINAL (prefixed)

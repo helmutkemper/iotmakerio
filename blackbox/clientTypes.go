@@ -212,18 +212,6 @@ type BlackBoxDefClient struct {
 	ProgrammingLanguage string `json:"programmingLanguage,omitempty"`
 }
 
-// AssetSlotClient mirrors blackbox.AssetSlotDef — one maker-file slot
-// (asset:<slot>. on a byte-pointer + length pair). Português: Espelha
-// AssetSlotDef — um slot de arquivo do maker.
-type AssetSlotClient struct {
-	Slot      string `json:"slot"`
-	Doc       string `json:"doc,omitempty"`
-	DataParam string `json:"dataParam"`
-	LenParam  string `json:"lenParam"`
-	DataIndex int    `json:"dataIndex"`
-	LenIndex  int    `json:"lenIndex"`
-}
-
 // MethodDefClient describes one non-Init method (Run, Log, Step, …).
 type MethodDefClient struct {
 	// Name is the Go method name (e.g. "Run", "Log", "Step").
@@ -254,12 +242,6 @@ type MethodDefClient struct {
 	// NoDevice mirrors the server flag: public helper, never a menu item.
 	// Português: Espelha o flag do server: helper público, nunca item de menu.
 	NoDevice bool `json:"noDevice,omitempty"`
-
-	// AssetSlots mirror the server's maker-file slots (asset:<slot>. on a
-	// byte-pointer + length pair): the stage renders a file property per
-	// slot instead of ports. Português: Espelham os slots de arquivo do
-	// maker: o stage renderiza uma propriedade de arquivo por slot.
-	AssetSlots []AssetSlotClient `json:"assetSlots,omitempty"`
 
 	// MenuCol is the column offset from the Back button center in the hex menu.
 	// Populated from the "menu:col,row." directive in the method doc comment.

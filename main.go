@@ -255,6 +255,7 @@ func main() {
 		GridAdjust:    hex,
 		LiveConfigFn:  func() { liveClient.ShowConfigDialog() },
 		Language:      projectLanguage,
+		Target:        welcomeResult.Target,
 	}
 
 	if err := vm.Init(sharedCfg); err != nil {

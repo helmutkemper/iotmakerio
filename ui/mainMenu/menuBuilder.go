@@ -72,6 +72,8 @@ type DeviceCreator interface {
 	CreateLoopDuration()
 	CreateCase()
 	CreateConstInt()
+	CreateDataFile()
+	CreateDataText()
 	CreateBool()
 	CreateConstFloat()
 	CreateConstString()
@@ -1084,6 +1086,23 @@ func (b *MenuBuilder) buildLegacy() []hexMenu.MenuItem {
 			Styles:          styles,
 		},
 		{
+			// Data — maker data sources (File upload, Text/Monaco), the
+			// category approved on 2026-07-12: files and authored text as
+			// first-class wireable devices. Português: Fontes de dados do
+			// maker (upload de arquivo, texto/Monaco), a categoria
+			// aprovada em 2026-07-12: arquivos e texto autorado como
+			// devices de primeira classe ligáveis por fio.
+			ID:              "SysData",
+			Col:             3,
+			Row:             5,
+			Label:           translate.T("menuMainData", "Data"),
+			FontAwesomePath: rulesIcon.KFAFileExport,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemSubmenu,
+			Submenu:         b.dataSubmenu(),
+			Styles:          styles,
+		},
+		{
 			ID:              "SysSettings",
 			Col:             1,
 			Row:             5,
@@ -1350,6 +1369,45 @@ func (b *MenuBuilder) loopSubmenu() []hexMenu.MenuItem {
 			ViewBox:         "0 0 384 512",
 			Type:            hexMenu.ItemAction,
 			OnClick:         func() { b.factory.SafeRun("CreateLoopDuration", b.factory.CreateLoopDuration) },
+			Styles:          styles,
+		},
+	}
+}
+
+// dataSubmenu is the DATA category page: maker data sources emitted as
+// wires. v1 ships File (upload → []uint8); Text (Monaco) follows.
+// Português: A página da categoria DATA: fontes de dados do maker
+// emitidas como fios. v1 traz File (upload → []uint8); Text (Monaco) vem
+// a seguir.
+func (b *MenuBuilder) dataSubmenu() []hexMenu.MenuItem {
+	styles := rulesMainMenu.MenuStyles()
+	back := hexMenu.GoBackItem(3, 3)
+	back.Styles = styles
+
+	return []hexMenu.MenuItem{
+		back,
+		{
+			// File — a maker-uploaded file as []uint8 bytes.
+			ID:              "DataFile",
+			Col:             2,
+			Row:             2,
+			Label:           translate.T("menuDataFile", "File"),
+			FontAwesomePath: rulesIcon.KFAFileExport,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemAction,
+			OnClick:         func() { b.factory.SafeRun("CreateDataFile", b.factory.CreateDataFile) },
+			Styles:          styles,
+		},
+		{
+			// Text — maker-authored text (Monaco) as []uint8 bytes.
+			ID:              "DataText",
+			Col:             3,
+			Row:             2,
+			Label:           translate.T("menuDataText", "Text"),
+			FontAwesomePath: rulesIcon.KFAPen,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemAction,
+			OnClick:         func() { b.factory.SafeRun("CreateDataText", b.factory.CreateDataText) },
 			Styles:          styles,
 		},
 	}
@@ -2302,6 +2360,23 @@ func (b *MenuBuilder) registerFactories() {
 			Styles:          styles,
 		}
 	}
+	// Data — the maker-data category PARENT. System SUBMENU slots need a
+	// factory too (buildSystemNode skips unknown slot_ids — the 2026-07-13
+	// field lesson: only the leaf was registered and the whole category
+	// vanished from the rail); children are attached from the tree.
+	// Português: O PAI da categoria de dados. Submenus de sistema também
+	// exigem factory (buildSystemNode pula slot_ids desconhecidos — a
+	// lição de campo de 2026-07-13: só a folha foi registrada e a
+	// categoria inteira sumiu do rail); os filhos vêm da árvore.
+	b.factories["SysData"] = func(label string) hexMenu.MenuItem {
+		return hexMenu.MenuItem{
+			ID: "SysData", Label: label,
+			FontAwesomePath: rulesIcon.KFAFileExport,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemSubmenu,
+			Styles:          styles,
+		}
+	}
 	b.factories["SysConst"] = func(label string) hexMenu.MenuItem {
 		return hexMenu.MenuItem{
 			ID: "SysConst", Label: label,
@@ -2528,6 +2603,28 @@ func (b *MenuBuilder) registerFactories() {
 			ViewBox:         "0 0 384 512",
 			Type:            hexMenu.ItemAction,
 			OnClick:         func() { b.factory.SafeRun("CreateLoopDuration", b.factory.CreateLoopDuration) },
+			Styles:          styles,
+		}
+	}
+
+	// ── Data children ─────────────────────────────────────────────────────
+	b.factories["SysDataFile"] = func(label string) hexMenu.MenuItem {
+		return hexMenu.MenuItem{
+			ID: "SysDataFile", Label: label,
+			FontAwesomePath: rulesIcon.KFAFileExport,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemAction,
+			OnClick:         func() { b.factory.SafeRun("CreateDataFile", b.factory.CreateDataFile) },
+			Styles:          styles,
+		}
+	}
+	b.factories["SysDataText"] = func(label string) hexMenu.MenuItem {
+		return hexMenu.MenuItem{
+			ID: "SysDataText", Label: label,
+			FontAwesomePath: rulesIcon.KFAPen,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemAction,
+			OnClick:         func() { b.factory.SafeRun("CreateDataText", b.factory.CreateDataText) },
 			Styles:          styles,
 		}
 	}

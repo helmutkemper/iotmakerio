@@ -19,6 +19,7 @@ package golang
 // declarações de struct no nível superior, e chamadas Init/Run em main().
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -114,6 +115,13 @@ func (e *goEmitter) emit(prog *ir.Program) string {
 			e.emitVar(inst)
 		case ir.OpAssign:
 			e.emitAssign(inst)
+		case ir.OpDataBlob:
+			// Maker-data blob (Data · File / Text): Go parity is a plain
+			// byte-slice var — Go slice params take one argument, so no
+			// `_len` companion is needed. Português: Paridade Go é um var
+			// []byte simples — parâmetro slice em Go recebe um argumento
+			// só, sem companion.
+			e.emitDataBlob(inst)
 		case ir.OpConstArray:
 			e.emitConstArray(inst)
 		case ir.OpIndex:
@@ -1708,4 +1716,24 @@ func encodeSliceLiteral(goType, jsonValue string) (string, error) {
 	}
 	b.WriteString("}")
 	return b.String(), nil
+}
+
+// emitDataBlob renders a maker-data byte array as a Go var. See the ANSI C
+// twin for the full contract; here the bytes (Text NUL included when the
+// device asked for it) become one []byte literal.
+// Português: Renderiza um array de dados do maker como var Go. Ver o gêmeo
+// ANSI C para o contrato completo.
+func (e *goEmitter) emitDataBlob(inst ir.Instruction) {
+	name := goIdent(inst.Dest)
+	data, _ := base64.StdEncoding.DecodeString(inst.Meta["base64"])
+	var parts []string
+	for _, b := range data {
+		parts = append(parts, fmt.Sprintf("0x%02x", b))
+	}
+	src := inst.Meta["sourceName"]
+	if src != "" {
+		e.writef("// Data blob %q\n", src)
+	}
+	e.writef("var %s = []byte{%s}\n", name, strings.Join(parts, ", "))
+	e.declared[inst.Dest] = true
 }

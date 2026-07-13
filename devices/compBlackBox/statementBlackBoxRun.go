@@ -97,18 +97,6 @@ type StatementBlackBoxMethod struct {
 
 	instanceId string // shared with Init device and sibling method devices
 
-	// assetFiles holds the maker-picked file per asset slot of this
-	// instance: slot name → the FieldFile StoreName payload (JSON
-	// {"name","dataUrl"}). Serialized into the scene as properties
-	// "asset:<slot>"; the codegen decodes each into a per-instance
-	// flash array on the maker's side. Per-INSTANCE on purpose — two
-	// placements of the same device carry two different files.
-	// Português: O arquivo escolhido pelo maker por slot desta
-	// instância: slot → payload StoreName do FieldFile (JSON
-	// {"name","dataUrl"}). Serializa na cena como "asset:<slot>"; o
-	// codegen decodifica cada um num array de flash por instância no
-	// lado do maker. Por INSTÂNCIA de propósito.
-	assetFiles  map[string]string
 	sceneNotify func()
 	// [SCENEGRAPH] injected by scene.Serializer.Register (self-injection by
 	// interface assertion). DragEnd reports through it so the scenegraph
@@ -681,35 +669,6 @@ func (e *StatementBlackBoxMethod) GetInspectConfig() interface{} {
 	}
 	eoPlaceholder := translate.T("propExecutionOrderUnordered", "no specific order")
 
-	// One FieldFile per maker-asset slot of this function (asset:<slot>.
-	// pairs in the source) — the stage-side half of the maker-assets
-	// model. StoreName keeps the filename for generated-code comments;
-	// MaxBytes mirrors the server's 512 KB per-asset cap so the error
-	// lands at the click, not at export.
-	// Português: Um FieldFile por slot de asset do maker — a metade do
-	// stage do modelo. StoreName preserva o nome; MaxBytes espelha o teto
-	// de 512 KB do server para o erro nascer no clique, não no export.
-	var slotFields []overlay.Field
-	if e.method != nil {
-		for _, s := range e.method.AssetSlots {
-			slot := s
-			hint := slot.Doc
-			if hint == "" {
-				hint = "File embedded into the generated app for this instance"
-			}
-			slotFields = append(slotFields, overlay.Field{
-				Key:         "asset:" + slot.Slot,
-				Label:       "Asset · " + slot.Slot,
-				Type:        overlay.FieldFile,
-				Value:       e.assetFiles[slot.Slot],
-				Accept:      ".html,.htm,.tmpl,.txt,.json,.csv,.svg,.md,.css,.gif,.png,.jpg,.jpeg,.bin,.dat,.ico",
-				MaxBytes:    512 * 1024,
-				StoreName:   true,
-				Placeholder: hint,
-			})
-		}
-	}
-
 	fields := []overlay.Field{
 		{Key: "label", Label: translate.T("propLabel", "Label"), Type: overlay.FieldText, Value: e.label},
 		{
@@ -729,7 +688,6 @@ func (e *StatementBlackBoxMethod) GetInspectConfig() interface{} {
 			Placeholder: eoPlaceholder,
 		},
 	}
-	fields = append(fields, slotFields...)
 
 	tabs := []overlay.Tab{
 		{
@@ -788,24 +746,6 @@ func (e *StatementBlackBoxMethod) GetInspectConfig() interface{} {
 		Width: "540px",
 		Tabs:  tabs,
 		OnSave: func(values map[string]string) {
-			// Maker-asset slots: store each picked file on the instance
-			// (empty value = slot cleared). sceneNotify below persists.
-			// Português: Slots de asset: grava cada arquivo na instância
-			// (vazio = slot limpo).
-			if e.method != nil {
-				for _, s := range e.method.AssetSlots {
-					if v, ok := values["asset:"+s.Slot]; ok {
-						if e.assetFiles == nil {
-							e.assetFiles = map[string]string{}
-						}
-						if v == "" {
-							delete(e.assetFiles, s.Slot)
-						} else {
-							e.assetFiles[s.Slot] = v
-						}
-					}
-				}
-			}
 			// [COMMENT] the form's comment must be stored here too: this
 			// OnSave handles its keys inline (it does not route through
 			// ApplyProperties, unlike the math family), so without this
@@ -877,16 +817,6 @@ func (e *StatementBlackBoxMethod) GetInspectConfig() interface{} {
 func (e *StatementBlackBoxMethod) ApplyProperties(values map[string]string) {
 	if v, ok := values["comment"]; ok {
 		e.comment = v
-	}
-	// Maker-asset slots round-trip from the scene ("asset:<slot>" keys).
-	// Português: Slots de asset fazem o round-trip da cena.
-	for k, v := range values {
-		if slot, ok := strings.CutPrefix(k, "asset:"); ok && v != "" {
-			if e.assetFiles == nil {
-				e.assetFiles = map[string]string{}
-			}
-			e.assetFiles[slot] = v
-		}
 	}
 	changed := false
 
@@ -1005,12 +935,6 @@ func (e *StatementBlackBoxMethod) GetProperties() map[string]interface{} {
 	// keeps the default fresh if the source changes later.
 	if e.executionOrderOverride != nil {
 		props["executionOrderOverride"] = *e.executionOrderOverride
-	}
-
-	// Maker-asset slots ride the scene as "asset:<slot>" properties.
-	// Português: Slots de asset viajam na cena como "asset:<slot>".
-	for slot, payload := range e.assetFiles {
-		props["asset:"+slot] = payload
 	}
 
 	return props

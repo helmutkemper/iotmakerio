@@ -32,6 +32,27 @@ import (
 	"strings"
 )
 
+// AssetHelpersC is the multi-include-safe C block giving every embedded
+// byte array flash placement on AVR (IOTM_ASSET_ATTR → PROGMEM) and the
+// portable accessor iotm_asset_read. SINGLE SOURCE for the asset headers
+// (RenderAssetHeader) and the maker-data blobs the ANSI C backend emits
+// into main.c — the two must never drift.
+// Português: Bloco C multi-include-safe que dá a todo array embutido a
+// colocação em flash no AVR e o acessor portável. FONTE ÚNICA para os
+// headers de asset e para os blobs de dados do maker que o backend C
+// emite no main.c — os dois nunca podem divergir.
+const AssetHelpersC = "#ifndef IOTM_ASSET_HELPERS\n" +
+	"#define IOTM_ASSET_HELPERS\n" +
+	"#ifdef __AVR__\n" +
+	"#include <avr/pgmspace.h>\n" +
+	"#define IOTM_ASSET_ATTR PROGMEM\n" +
+	"#define iotm_asset_read(arr, i) pgm_read_byte(&(arr)[(i)])\n" +
+	"#else\n" +
+	"#define IOTM_ASSET_ATTR\n" +
+	"#define iotm_asset_read(arr, i) ((arr)[(i)])\n" +
+	"#endif\n" +
+	"#endif /* IOTM_ASSET_HELPERS */\n\n"
+
 // assetSymbolBase converts an authored asset path into the C identifier
 // stem shared by the array, its _len companion and the include guard:
 // lowercase, every non-alphanumeric byte folded to '_', prefixed with
@@ -114,17 +135,7 @@ func RenderAssetHeader(assetPath string, data []byte) []byte {
 	// repete. Contrato para especialistas: leia bytes via
 	// iotm_asset_read(arr, i) — arr[i] direto funciona em todo alvo
 	// EXCETO AVR.
-	b.WriteString("#ifndef IOTM_ASSET_HELPERS\n")
-	b.WriteString("#define IOTM_ASSET_HELPERS\n")
-	b.WriteString("#ifdef __AVR__\n")
-	b.WriteString("#include <avr/pgmspace.h>\n")
-	b.WriteString("#define IOTM_ASSET_ATTR PROGMEM\n")
-	b.WriteString("#define iotm_asset_read(arr, i) pgm_read_byte(&(arr)[(i)])\n")
-	b.WriteString("#else\n")
-	b.WriteString("#define IOTM_ASSET_ATTR\n")
-	b.WriteString("#define iotm_asset_read(arr, i) ((arr)[(i)])\n")
-	b.WriteString("#endif\n")
-	b.WriteString("#endif /* IOTM_ASSET_HELPERS */\n\n")
+	b.WriteString(AssetHelpersC)
 	fmt.Fprintf(&b, "static const unsigned char %s[] IOTM_ASSET_ATTR = {", sym)
 	for i, by := range data {
 		if i%12 == 0 {

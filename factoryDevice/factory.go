@@ -28,6 +28,7 @@ import (
 	"github.com/helmutkemper/iotmakerio/devices/block"
 	"github.com/helmutkemper/iotmakerio/devices/compArray"
 	"github.com/helmutkemper/iotmakerio/devices/compConsts"
+	"github.com/helmutkemper/iotmakerio/devices/compData"
 	"github.com/helmutkemper/iotmakerio/devices/compDebug"
 	"github.com/helmutkemper/iotmakerio/devices/compFlow"
 	"github.com/helmutkemper/iotmakerio/devices/compFrontend"
@@ -936,6 +937,63 @@ func (f *DeviceFactory) CreateConstInt() {
 	stm.SetDragEnable(true)
 	stm.Append()
 	log.Printf("[Factory] Created StatementConstInt at (%v, %v)", cx, cy)
+}
+
+// CreateDataFile creates a Data · File device on the stage — a maker-
+// uploaded file emitted as []uint8 bytes (first device of the DATA
+// category). Português: Cria um device Data · File — arquivo do maker
+// emitido como bytes []uint8 (primeiro device da categoria DATA).
+func (f *DeviceFactory) CreateDataFile() {
+	stm := new(compData.StatementDataFile)
+	stm.SetStage(f.Stage)
+	stm.SetWireManager(f.WireMgr)
+	stm.SetResizerButton(f.ResizeButton)
+	stm.SetGridAdjust(f.GridAdjust)
+	stm.SetContextMenu(f.ContextMenu)
+
+	if err := stm.Init(); err != nil {
+		log.Printf("[Factory] StatementDataFile.Init: %v", err)
+		return
+	}
+
+	stm.RegisterConnectors()
+	f.SceneMgr.Register(stm)
+	stm.SetSceneNotify(f.SceneNotifyFn)
+	stm.SetOnRemove(f.makeOnRemove())
+
+	cx, cy := f.devicePosition()
+	stm.SetPosition(cx, cy)
+	stm.SetDragEnable(true)
+	stm.Append()
+	log.Printf("[Factory] Created StatementDataFile at (%v, %v)", cx, cy)
+}
+
+// CreateDataText creates a Data · Text device on the stage — maker-
+// authored text (Monaco) emitted as []uint8 bytes. Português: Cria um
+// device Data · Text — texto autorado (Monaco) emitido como bytes.
+func (f *DeviceFactory) CreateDataText() {
+	stm := new(compData.StatementDataText)
+	stm.SetStage(f.Stage)
+	stm.SetWireManager(f.WireMgr)
+	stm.SetResizerButton(f.ResizeButton)
+	stm.SetGridAdjust(f.GridAdjust)
+	stm.SetContextMenu(f.ContextMenu)
+
+	if err := stm.Init(); err != nil {
+		log.Printf("[Factory] StatementDataText.Init: %v", err)
+		return
+	}
+
+	stm.RegisterConnectors()
+	f.SceneMgr.Register(stm)
+	stm.SetSceneNotify(f.SceneNotifyFn)
+	stm.SetOnRemove(f.makeOnRemove())
+
+	cx, cy := f.devicePosition()
+	stm.SetPosition(cx, cy)
+	stm.SetDragEnable(true)
+	stm.Append()
+	log.Printf("[Factory] Created StatementDataText at (%v, %v)", cx, cy)
 }
 
 // CreateGetVarInt creates a get-variable device (int) on the stage.
@@ -2148,6 +2206,10 @@ func (f *DeviceFactory) CreateByType(deviceType string, x, y float64) bool {
 		f.CreateCase()
 	case "StatementConstInt":
 		f.CreateConstInt()
+	case "StatementDataFile":
+		f.CreateDataFile()
+	case "StatementDataText":
+		f.CreateDataText()
 	case "StatementBool":
 		f.CreateBool()
 	case "StatementConstFloat":

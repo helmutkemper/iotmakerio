@@ -39,6 +39,8 @@ package ir
 //   Se TODOS os métodos estão dentro do laço, a declaração fica no topo do laço.
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -1323,6 +1325,12 @@ func (e *emitter) emitNode(nodeID string) {
 		// emitConstArray stays fully parametric. Mirrors the scalar const
 		// family (ConstInt / ConstFloat / ConstString are separate devices).
 		e.emitConstArray(node)
+	case node.Type == "StatementDataFile",
+		node.Type == "StatementDataText":
+		// Maker-data devices: one embedded byte array per INSTANCE — see
+		// emitDataBlob. Português: Devices de dados do maker: um array de
+		// bytes embutido por INSTÂNCIA.
+		e.emitDataBlob(node)
 	case node.Type == "StatementBool":
 		e.emitConstBool(node)
 	case node.Type == "StatementGetVarInt",
@@ -2090,6 +2098,79 @@ func (e *emitter) emitConstBool(node *graph.Node) {
 // formatados (decimal puro para números, strings pré-citadas). Aceita values
 // como array JSON ou string CSV do campo do Inspect. Lista vazia e promoção
 // entre escopos geram warning (promoção de coleção fica para a Task 6).
+// emitDataBlob turns a Data · File / Data · Text device into ONE
+// DATA_BLOB instruction. The payload is decoded here from the scene
+// properties into raw bytes and re-packed as base64 in Meta — the IR stays
+// language-neutral, and the backends never touch scene shapes:
+//
+//   - File: properties["file"] is the FieldFile StoreName JSON
+//     {"name","dataUrl"}; the bytes are the dataUrl's base64 section.
+//   - Text: properties["text"] as UTF-8; properties["nullTerminated"]
+//     "true" (the device default) APPENDS a trailing NUL so C consumers
+//     can treat the pointer as a string — the logical length in
+//     Meta["lenNoNul"] NEVER counts it (decision 2026-07-12).
+//
+// An empty payload (no file picked / empty editor) gets an authoring
+// warning and an empty blob — the backend's zero-length stance keeps the
+// artefact compiling, mirroring the const-array precedent.
+//
+// Português: Transforma um device Data · File / Text em UMA instrução
+// DATA_BLOB. O payload é decodificado AQUI das propriedades da cena para
+// bytes crus e reempacotado em base64 no Meta — o IR fica neutro e os
+// backends nunca tocam formas de cena. Text com null-terminated ANEXA o
+// NUL mas o tamanho lógico NUNCA o conta. Payload vazio ganha warning
+// autoral e blob vazio — a postura de tamanho-zero do backend mantém o
+// artefato compilando.
+func (e *emitter) emitDataBlob(node *graph.Node) {
+	var data []byte
+	var lenNoNul int
+	kind := "text"
+	sourceName := ""
+
+	if node.Type == "StatementDataFile" {
+		kind = "file"
+		if raw, ok := node.Properties["file"].(string); ok && raw != "" {
+			var v struct {
+				Name    string `json:"name"`
+				DataURL string `json:"dataUrl"`
+			}
+			if json.Unmarshal([]byte(raw), &v) == nil {
+				sourceName = v.Name
+				if comma := strings.Index(v.DataURL, ","); comma >= 0 {
+					if b, err := base64.StdEncoding.DecodeString(v.DataURL[comma+1:]); err == nil {
+						data = b
+					}
+				}
+			}
+		}
+		lenNoNul = len(data)
+	} else {
+		if raw, ok := node.Properties["text"].(string); ok {
+			data = []byte(raw)
+		}
+		lenNoNul = len(data)
+		if nt, ok := node.Properties["nullTerminated"].(string); !ok || nt == "true" {
+			data = append(data, 0)
+		}
+	}
+
+	if lenNoNul == 0 {
+		e.program.Warn("data device %s has no content — emitting an empty blob", node.ID)
+	}
+
+	e.program.Append(Instruction{
+		Op:   OpDataBlob,
+		Dest: node.ID,
+		Type: "uint8",
+		Meta: map[string]string{
+			"base64":     base64.StdEncoding.EncodeToString(data),
+			"lenNoNul":   strconv.Itoa(lenNoNul),
+			"kind":       kind,
+			"sourceName": sourceName,
+		},
+	})
+}
+
 func (e *emitter) emitConstArray(node *graph.Node) {
 	if e.promoted[node.ID] {
 		// HOISTED (T6 "içamento"): a constant collection that crosses a

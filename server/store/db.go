@@ -503,6 +503,9 @@ func migrate() error {
 	if err := MigrateMenuTreeVariables(); err != nil {
 		return err
 	}
+	if err := MigrateMenuTreeData(); err != nil {
+		return err
+	}
 	if err := MigrateMenuTreeIndex(); err != nil {
 		return err
 	}

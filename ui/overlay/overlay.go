@@ -795,6 +795,19 @@ func renderForm(doc js.Value, container js.Value, tab Tab, onSave func(map[strin
 			}
 			// Enter on select → save
 			input.Call("addEventListener", "keydown", enterKeyFn)
+			// Live Monaco retarget: a select that drives a sibling
+			// FieldMonaco re-highlights it on every change — see
+			// MonacoLanguageTarget in types.go. Português: Retarget vivo
+			// do Monaco a cada mudança do select.
+			if field.MonacoLanguageTarget != "" {
+				target := field.MonacoLanguageTarget
+				sel := input
+				input.Call("addEventListener", "change",
+					js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+						RetargetMonacoField(target, sel.Get("value").String())
+						return nil
+					}))
+			}
 		case FieldCheckbox:
 			input = doc.Call("createElement", "input")
 			input.Set("type", "checkbox")
@@ -837,6 +850,13 @@ func renderForm(doc js.Value, container js.Value, tab Tab, onSave func(map[strin
 		case FieldFile:
 			fileContainer, hiddenInput := buildFileField(doc, field)
 			row.Call("appendChild", fileContainer)
+			input = hiddenInput
+		case FieldMonaco:
+			// Editable code editor — hidden-input pattern, see
+			// overlay_monaco_field.go. Português: Editor editável —
+			// padrão de input oculto.
+			monacoContainer, hiddenInput := buildMonacoField(doc, field)
+			row.Call("appendChild", monacoContainer)
 			input = hiddenInput
 		case FieldMap:
 			// FieldMap renders a row builder for map[K]V props. The
@@ -2283,6 +2303,18 @@ func renderEmbeddedForm(doc js.Value, placeholder js.Value, fields []Field, onSa
 				input.Call("appendChild", option)
 			}
 			input.Call("addEventListener", "keydown", enterKeyFn)
+			if field.MonacoLanguageTarget != "" {
+				// Live Monaco retarget — see the primary form renderer.
+				// Português: Retarget vivo do Monaco — ver o renderer
+				// principal.
+				target := field.MonacoLanguageTarget
+				sel := input
+				input.Call("addEventListener", "change",
+					js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+						RetargetMonacoField(target, sel.Get("value").String())
+						return nil
+					}))
+			}
 		case FieldCheckbox:
 			input = doc.Call("createElement", "input")
 			input.Set("type", "checkbox")
@@ -2323,6 +2355,13 @@ func renderEmbeddedForm(doc js.Value, placeholder js.Value, fields []Field, onSa
 		case FieldFile:
 			fileContainer, hiddenInput := buildFileField(doc, field)
 			row.Call("appendChild", fileContainer)
+			input = hiddenInput
+		case FieldMonaco:
+			// Editable code editor — hidden-input pattern, see
+			// overlay_monaco_field.go. Português: Editor editável —
+			// padrão de input oculto.
+			monacoContainer, hiddenInput := buildMonacoField(doc, field)
+			row.Call("appendChild", monacoContainer)
 			input = hiddenInput
 		case FieldMap:
 			// Same as renderForm — see the comment there.

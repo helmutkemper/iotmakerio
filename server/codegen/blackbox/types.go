@@ -727,19 +727,6 @@ type FuncDef struct {
 	// oferece e as regras de incompleto a pulam.
 	NoDevice bool `json:"noDevice,omitempty"`
 
-	// AssetSlots are MAKER-file slots declared by `asset:<slot>.` on a
-	// `const unsigned char *` parameter followed by its `unsigned long`
-	// length: the pair never becomes ports — the stage shows a file
-	// property instead, and the export emits a per-INSTANCE flash array
-	// on the maker's side, passed as pointer+len in the call. See
-	// docs/c99_ide_integration.md (maker assets).
-	// Português: Slots de arquivo do MAKER declarados por `asset:<slot>.`
-	// num parâmetro `const unsigned char *` seguido do `unsigned long` de
-	// tamanho: o par nunca vira porta — o stage mostra uma propriedade de
-	// arquivo, e o export emite um array de flash por INSTÂNCIA no lado
-	// do maker, passado como ponteiro+len na chamada.
-	AssetSlots []AssetSlotDef `json:"assetSlots,omitempty"`
-
 	// Inputs are the function parameters — become input ports (wires arriving).
 	Inputs []PortDef `json:"inputs,omitempty"`
 
@@ -979,16 +966,7 @@ type PortDef struct {
 	// O par (ponteiro, tamanho) vira UMA porta "[]T"; o parâmetro de
 	// tamanho some da lista e fica registrado aqui (nome + posição na
 	// assinatura) para o codegen reconstruir a chamada.
-	SliceLenName string `json:"sliceLenName,omitempty"`
-	// AssetSlot is the TRANSIT of the `asset:<slot>.` directive between
-	// the param parser and collapseAssetSlots — a well-formed pair is
-	// removed from Inputs entirely (the slot lives in FuncDef.AssetSlots)
-	// and a malformed one has this cleared, so the field never survives
-	// into a serialized port. Português: TRÂNSITO da diretiva entre o
-	// parser de parâmetro e o collapseAssetSlots — par bem-formado sai de
-	// Inputs (o slot vive em FuncDef.AssetSlots) e malformado tem isto
-	// limpo; o campo nunca sobrevive numa porta serializada.
-	AssetSlot     string `json:"assetSlot,omitempty"`
+	SliceLenName  string `json:"sliceLenName,omitempty"`
 	SliceLenIndex int    `json:"sliceLenIndex,omitempty"`
 
 	// CallbackType is set when this port carries a function-pointer typedef
@@ -1237,19 +1215,6 @@ type ManualPage struct {
 type FileEntry struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
-}
-
-// AssetSlotDef is one maker-file slot of a C99 function device — the
-// parsed form of `asset:<slot>.` (see FuncDef.AssetSlots).
-// Português: Um slot de arquivo do maker — a forma parseada de
-// `asset:<slot>.`.
-type AssetSlotDef struct {
-	Slot      string `json:"slot"`
-	Doc       string `json:"doc,omitempty"`
-	DataParam string `json:"dataParam"`
-	LenParam  string `json:"lenParam"`
-	DataIndex int    `json:"dataIndex"`
-	LenIndex  int    `json:"lenIndex"`
 }
 
 // AssetEntry is one non-source file riding a black-box def: templates,

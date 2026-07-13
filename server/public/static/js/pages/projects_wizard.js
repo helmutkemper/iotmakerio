@@ -1878,21 +1878,6 @@ function _renderFunctionCard(fn, incompleteSet, lines) {
 
     const deviceIncomplete = _functionDeviceIncomplete(fd);
 
-    // Maker-file slots (asset:<slot>. pairs) render as their OWN rows —
-    // they are not ports (no wires) and owe no connection directives; the
-    // maker picks the file on the stage. Inert on purpose: v1 is
-    // display-only, the directive is authored in the source.
-    // Português: Slots de arquivo do maker viram linhas PRÓPRIAS — não
-    // são portas e não devem connection:; o maker escolhe o arquivo no
-    // stage. Inertes de propósito: v1 é só exibição.
-    const slotRows = (fd.assetSlots || []).map(s => _renderRow({
-        path: `${path}.asset.${s.slot}`,
-        inert: true,
-        inertReason: `Authored as asset:${s.slot}. on the parameter`,
-        primary: `<i class="fa-solid fa-file-import"></i> asset slot · <strong>${esc(s.slot)}</strong>`,
-        secondary: `${esc(s.doc || '')}${s.doc ? ' — ' : ''}file chosen by the maker on the stage`,
-    })).join('');
-
     const portRows = [
         ...(fd.inputs || []).map(p => _renderPortRow(path, 'in', p, incompleteSet,
             { forceIncomplete: _functionPortMissing(p, 'in'), isFunctionDevice: true })),
@@ -1913,7 +1898,7 @@ function _renderFunctionCard(fn, incompleteSet, lines) {
         // (plain path in, markup built inside the shell; see the note
         // there for the escaped-subtitle incident this replaces).
         fileBadge: fn.sourceFile || '',
-        body: (slotRows + portRows) || `<p class="wiz-card-empty">No ports on this function.</p>`,
+        body: portRows || `<p class="wiz-card-empty">No ports on this function.</p>`,
     });
 }
 
