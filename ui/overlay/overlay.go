@@ -795,6 +795,14 @@ func renderForm(doc js.Value, container js.Value, tab Tab, onSave func(map[strin
 			}
 			// Enter on select → save
 			input.Call("addEventListener", "keydown", enterKeyFn)
+			if field.ReadOnly {
+				// Wire-locked (Phase B): the value comes from the
+				// specialist's port config; the maker sees it but cannot
+				// mismatch it. doSave still reads .value from a disabled
+				// select. Português: Travado pelo fio: o valor vem da
+				// config da porta; o maker vê mas não desalinha.
+				input.Set("disabled", true)
+			}
 			// Live Monaco retarget: a select that drives a sibling
 			// FieldMonaco re-highlights it on every change — see
 			// MonacoLanguageTarget in types.go. Português: Retarget vivo
@@ -2303,6 +2311,9 @@ func renderEmbeddedForm(doc js.Value, placeholder js.Value, fields []Field, onSa
 				input.Call("appendChild", option)
 			}
 			input.Call("addEventListener", "keydown", enterKeyFn)
+			if field.ReadOnly {
+				input.Set("disabled", true)
+			}
 			if field.MonacoLanguageTarget != "" {
 				// Live Monaco retarget — see the primary form renderer.
 				// Português: Retarget vivo do Monaco — ver o renderer

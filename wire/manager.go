@@ -520,6 +520,39 @@ func (m *Manager) GetConnector(id ConnectorID) *ConnectorInfo {
 // Returns compatible target candidates.
 //
 // Português: Inicia o fluxo de conexão. Retorna candidatos compatíveis.
+// ConnectedPeer returns the ConnectorInfo at the OTHER END of the first
+// wire touching (elementID, port), or nil when unwired. Born for the
+// Phase B live lookup: a Data · Text opens its properties and asks who
+// consumes its output, reading EditorLang/EditorDictJSON off the peer —
+// always fresh (the def updates, the maker gets it on the next open),
+// nothing serialized. Português: Retorna o ConnectorInfo da OUTRA PONTA
+// do primeiro fio tocando (elementID, port), ou nil sem fio. Nascido
+// para a consulta viva da Fase B — sempre fresco, nada serializado.
+func (m *Manager) ConnectedPeer(elementID, port string) *ConnectorInfo {
+	// Bare map reads, like GetConnector above: the Manager lives on the
+	// WASM main thread — the house has no wire-layer mutex to hold.
+	// Português: Leitura crua como o GetConnector: o Manager vive na
+	// thread principal do WASM — a casa não tem mutex na camada de fio.
+	self := ConnectorID{ElementID: elementID, PortName: port}
+	for _, w := range m.wires {
+		var peer ConnectorID
+		switch {
+		case w.From == self:
+			peer = w.To
+		case w.To == self:
+			peer = w.From
+		default:
+			continue
+		}
+		if info, ok := m.connectors[peer.Key()]; ok {
+			c := *info
+			return &c
+		}
+		return nil
+	}
+	return nil
+}
+
 func (m *Manager) StartConnect(sourceID ConnectorID) (candidates []Candidate) {
 	source := m.GetConnector(sourceID)
 	if source == nil {

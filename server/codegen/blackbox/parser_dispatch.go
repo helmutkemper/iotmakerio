@@ -67,6 +67,35 @@ import (
 // erro. Assets (extensões fora do conjunto-fonte da linguagem) são
 // filtrados AQUI, antes dos walkers — ponto único de estrangulamento.
 func ParseForLanguageFiles(language string, files []FileEntry, limits ParserLimits) (*BlackBoxDef, error) {
+	// The choke point CLOSES THE LOOP (2026-07-13): the same gate that
+	// keeps assets away from the walkers now RECORDS them on the def —
+	// def.Assets was born with an accessor and no producer, and the
+	// Phase B dictionary resolution (`dict:` on a port) needs exactly
+	// this: the non-source files of the project, available wherever the
+	// def travels. The fetch path re-parses on every GET, so the assets
+	// are always fresh.
+	// Português: O ponto de estrangulamento FECHA O CICLO: o mesmo
+	// portão que afasta assets dos walkers agora os REGISTRA no def —
+	// def.Assets nasceu com accessor e sem produtor, e a resolução de
+	// dicionário da Fase B precisa exatamente disto: os arquivos
+	// não-fonte do projeto, disponíveis onde o def viajar. O fetch
+	// re-parseia a cada GET, então os assets estão sempre frescos.
+	def, err := parseForLanguageSources(language, files, limits)
+	if def != nil {
+		kept := map[string]bool{}
+		for _, f := range sourceFilesOnly(strings.ToLower(strings.TrimSpace(language)), files) {
+			kept[f.Path] = true
+		}
+		for _, f := range files {
+			if !kept[f.Path] {
+				def.Assets = append(def.Assets, AssetEntry{Path: f.Path, Content: f.Content})
+			}
+		}
+	}
+	return def, err
+}
+
+func parseForLanguageSources(language string, files []FileEntry, limits ParserLimits) (*BlackBoxDef, error) {
 	lang := strings.ToLower(strings.TrimSpace(language))
 	// Assets never reach the walkers: the unified asset model (see
 	// docs/tasks/ASSETS_UNIFIED_MODEL.md) lets a project carry non-source

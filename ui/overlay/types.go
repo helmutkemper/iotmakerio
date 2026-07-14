@@ -385,10 +385,18 @@ type Field struct {
 	// FieldSelect, a Key de um FieldMonaco irmão cujo highlight segue
 	// este select AO VIVO.
 	MonacoLanguageTarget string `json:"monacoLanguageTarget,omitempty"`
-	Min                  string `json:"min,omitempty"`      // min for FieldNumber
-	Max                  string `json:"max,omitempty"`      // max for FieldNumber
-	Rows                 int    `json:"rows,omitempty"`     // rows for FieldTextarea (default: 4)
-	ReadOnly             bool   `json:"readOnly,omitempty"` // makes the field non-editable
+	// CompletionDictJSON, on a FieldMonaco, is a completion dictionary —
+	// JSON [{"label","insert","doc"}] — registered as a Monaco provider
+	// for the field's language (Phase B: it arrives THROUGH THE WIRE from
+	// the specialist's `dict:` directive). "insert" supports Monaco
+	// snippet syntax ($1 tab-stops). Português: Num FieldMonaco, um
+	// dicionário de autocompletar registrado como provider do Monaco
+	// (Fase B: chega PELO FIO da diretiva `dict:` do especialista).
+	CompletionDictJSON string `json:"completionDictJson,omitempty"`
+	Min                string `json:"min,omitempty"`      // min for FieldNumber
+	Max                string `json:"max,omitempty"`      // max for FieldNumber
+	Rows               int    `json:"rows,omitempty"`     // rows for FieldTextarea (default: 4)
+	ReadOnly           bool   `json:"readOnly,omitempty"` // makes the field non-editable
 
 	// InputFilter restricts what the user can type into a FieldText input,
 	// enforced live (on every input event, including paste). Supported values:

@@ -335,6 +335,26 @@ func planCFunctionPortConnection(source string, fp cFunctionPath, e WizardEdit) 
 			if pp != nil && pp.portDef.SliceLenName != "" {
 				dirs = append(dirs, "slice:"+pp.portDef.SliceLenName+".")
 			}
+			// Preserve the Phase B editor config (`lang:` + `dict:`) the
+			// same way: the wizard's port editor has NO fields for them,
+			// so they are never regenerated from the edit — and a rewrite
+			// that dropped them would silently mute the maker's Monaco
+			// (2026-07-13 field report: one modal round-trip stripped
+			// both and the demo dictionary vanished without a trace).
+			// They ride the parsed PortDef and survive an edit to THIS
+			// port or to any sibling.
+			// Português: Preserva a config de editor da Fase B do mesmo
+			// jeito: o editor de portas do wizard NÃO tem campos para
+			// elas, então nunca são regeneradas do edit — e um rewrite
+			// que as derrubasse emudeceria o Monaco do maker em silêncio
+			// (report de campo de 2026-07-13: uma ida ao modal apagou as
+			// duas e o dicionário sumiu sem rastro).
+			if pp != nil && pp.portDef.EditorLang != "" {
+				dirs = append(dirs, "lang:"+pp.portDef.EditorLang+".")
+			}
+			if pp != nil && pp.portDef.EditorDict != "" {
+				dirs = append(dirs, "dict:"+pp.portDef.EditorDict+".")
+			}
 		}
 
 		b.WriteString("\n")

@@ -377,7 +377,37 @@ func (e *StatementDataText) bodyMenuItems() []contextMenu.Item {
 
 func (e *StatementDataText) showInspectOverlay() { overlay.Show(e.inspectConfig()) }
 
+// wireEditorConfig asks the wire layer who consumes this device's output
+// and reads the Phase B editor config off the peer connector — LIVE at
+// every open: the specialist updates the dictionary, the maker gets it on
+// the next open; disconnect and the manual controls return. Nothing is
+// serialized. Português: Pergunta à camada de fio quem consome a saída e
+// lê a config de editor da Fase B do conector vizinho — AO VIVO a cada
+// abertura: o especialista atualiza o dicionário, o maker recebe na
+// próxima abertura; desconectou, voltam os controles manuais. Nada é
+// serializado.
+func (e *StatementDataText) wireEditorConfig() (lang, dictJSON string) {
+	if e.wireMgr == nil {
+		return "", ""
+	}
+	peer := e.wireMgr.ConnectedPeer(e.id, "output")
+	if peer == nil {
+		return "", ""
+	}
+	return peer.EditorLang, peer.EditorDictJSON
+}
+
 func (e *StatementDataText) inspectConfig() overlay.Config {
+	// Wire-provided config LOCKS the manual controls (transparency for
+	// the maker; the specialist's parser expects this language).
+	// Português: Config vinda do fio TRAVA os controles manuais.
+	wireLang, wireDict := e.wireEditorConfig()
+	monacoLang := e.language
+	langLocked := false
+	if wireLang != "" {
+		monacoLang = wireLang
+		langLocked = true
+	}
 	return overlay.Config{
 		Title: e.id,
 		Width: "480px",
@@ -387,17 +417,19 @@ func (e *StatementDataText) inspectConfig() overlay.Config {
 				Type:  overlay.TabForm,
 				Fields: []overlay.Field{
 					{
-						Key:      "text",
-						Label:    translate.T("propContent", "Content"),
-						Type:     overlay.FieldMonaco,
-						Value:    e.text,
-						Language: e.language,
+						Key:                "text",
+						Label:              translate.T("propContent", "Content"),
+						Type:               overlay.FieldMonaco,
+						Value:              e.text,
+						Language:           monacoLang,
+						CompletionDictJSON: wireDict,
 					},
 					{
 						Key:                  "language",
-						Label:                translate.T("propLanguage", "Language"),
+						Label:                langSelectLabel(langLocked),
 						Type:                 overlay.FieldSelect,
-						Value:                e.language,
+						Value:                monacoLang,
+						ReadOnly:             langLocked,
 						MonacoLanguageTarget: "text",
 						Options: []overlay.Option{
 							{Value: "yaml", Label: "yaml"},
@@ -711,6 +743,15 @@ func (e *StatementDataText) GetKind() scenegraph.Kind { return scenegraph.KindSi
 func (e *StatementDataText) SetSceneNotify(fn func()) { e.sceneNotify = fn }
 
 // ── Help text ─────────────────────────────────────────────────────────────────
+
+// langSelectLabel names the language select, flagging the wire lock.
+// Português: Nomeia o select de linguagem, sinalizando a trava do fio.
+func langSelectLabel(locked bool) string {
+	if locked {
+		return translate.T("propLanguageWired", "Language (from wire)")
+	}
+	return translate.T("propLanguage", "Language")
+}
 
 func dataTextHelp() string {
 	return `# Data · Text

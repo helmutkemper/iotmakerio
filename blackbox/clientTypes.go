@@ -362,6 +362,13 @@ type PortDefClient struct {
 	// glyph. Empty on Go ports and on ordinary C99 ports. See the duality
 	// section of docs/CODEGEN_C99_CALLBACKS.md.
 	CallbackType string `json:"callbackType,omitempty"`
+	// EditorLang / EditorDictJSON mirror the server's Phase B editor
+	// config: the Monaco language for a wired Data · Text and the
+	// RESOLVED completion dictionary (JSON [{"label","insert","doc"}]).
+	// Português: Espelham a config de editor da Fase B: linguagem do
+	// Monaco e dicionário de autocompletar já RESOLVIDO.
+	EditorLang     string `json:"editorLang,omitempty"`
+	EditorDictJSON string `json:"editorDictJson,omitempty"`
 }
 
 // PropDefClient describes an editable property field.

@@ -969,6 +969,19 @@ type PortDef struct {
 	SliceLenName  string `json:"sliceLenName,omitempty"`
 	SliceLenIndex int    `json:"sliceLenIndex,omitempty"`
 
+	// EditorLang / EditorDict are the Phase B editor config a specialist
+	// authors on a byte-slice port (`lang:yaml.` + `dict:cfg.json.`):
+	// the Monaco language a wired Data · Text should use, and the
+	// project-relative path of its completion dictionary (JSON
+	// [{"label","insert","doc"}]). The parser records the REFERENCE; the
+	// blackbox API resolves the dict's content at DTO time.
+	// Português: Config de editor da Fase B autorada numa porta de bytes:
+	// a linguagem do Monaco para um Data · Text ligado e o caminho
+	// (relativo ao projeto) do dicionário de autocompletar. O parser
+	// grava a REFERÊNCIA; a API resolve o conteúdo no DTO.
+	EditorLang string `json:"editorLang,omitempty"`
+	EditorDict string `json:"editorDict,omitempty"`
+
 	// CallbackType is set when this port carries a function-pointer typedef
 	// (a callback type — see BlackBoxDef.CallbackTypes). On an INPUT it marks
 	// a callback parameter (e.g. `cb` in `sht3x_set_alert`): the maker does

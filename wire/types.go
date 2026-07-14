@@ -71,6 +71,22 @@ type ConnectorInfo struct {
 	// Um conector pode suportar múltiplos tipos (ex: ["int", "float"]).
 	AllowedTypes []string
 
+	// EditorLang / EditorDictJSON are the Phase B editor config a
+	// specialist authored on this INPUT port (`lang:` + `dict:`): the
+	// Monaco language a wired Data · Text should highlight and its
+	// completion dictionary, already RESOLVED by the server. The config
+	// travels IN THE WIRE LAYER — a data device asks the manager who sits
+	// at the other end of its wire and reads these two fields; no
+	// device-to-device coupling exists. Populated by
+	// statementBlackBoxRun.RegisterConnectors from the def's ports.
+	// Português: Config de editor da Fase B autorada nesta porta de
+	// ENTRADA: a linguagem do Monaco e o dicionário de autocompletar já
+	// RESOLVIDO pelo server. A config viaja NA CAMADA DE FIO — o device
+	// de dados pergunta ao manager quem está na outra ponta e lê estes
+	// campos; não existe acoplamento device-a-device.
+	EditorLang     string
+	EditorDictJSON string
+
 	// CallbackType, when non-empty, marks this connector as a CALLBACK port
 	// (the wire-ƒ): a function-reference output (the ƒ device's `callback`
 	// pin) or a callback input that accepts one (e.g. setDisplay.writer). The

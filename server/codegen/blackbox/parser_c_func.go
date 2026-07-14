@@ -1004,6 +1004,78 @@ func extractMinTargetDirective(doc string) (cleaned string, minTarget string) {
 	return strings.Join(prose, "\n"), minTarget
 }
 
+// extractLangDirective pulls `lang:<monaco-id>.` from a parameter doc —
+// the specialist declaring which language a wired Data · Text editor
+// should highlight ("yaml", "xml", "json", …). Phase B of the maker-data
+// plan: the config rides the PORT and reaches the maker's Monaco through
+// the wire. Lines without the directive pass VERBATIM (wrapped-prose
+// guard, see extractReturnLabelDirective).
+// Português: Extrai `lang:<id-monaco>.` do doc do parâmetro — o
+// especialista declarando a linguagem que um Data · Text ligado deve
+// destacar. Fase B do plano de dados: a config viaja na PORTA e chega ao
+// Monaco do maker pelo fio. Linhas sem a diretiva passam VERBATIM.
+func extractLangDirective(doc string) (cleaned string, lang string) {
+	var prose []string
+	for _, line := range strings.Split(doc, "\n") {
+		if !strings.Contains(strings.ToLower(line), "lang:") {
+			prose = append(prose, line)
+			continue
+		}
+		var keptSegs []string
+		for _, segment := range strings.Split(line, ".") {
+			seg := strings.TrimSpace(segment)
+			if seg == "" {
+				continue
+			}
+			if v, ok := strings.CutPrefix(strings.ToLower(seg), "lang:"); ok {
+				lang = strings.TrimSpace(v)
+				continue
+			}
+			keptSegs = append(keptSegs, seg)
+		}
+		if len(keptSegs) > 0 {
+			prose = append(prose, strings.Join(keptSegs, ". ")+".")
+		}
+	}
+	return strings.Join(prose, "\n"), lang
+}
+
+// extractDictDirective pulls `dict:<file>.` from a parameter doc — the
+// path (project-relative) of the completion dictionary the specialist
+// ships with the device: a JSON array [{"label","insert","doc"}]. The
+// blackbox API resolves the CONTENT at DTO time; the parser only records
+// the reference. Same verbatim-passthrough guard as every extractor.
+// Português: Extrai `dict:<arquivo>.` — o caminho (relativo ao projeto)
+// do dicionário de autocompletar que o especialista embarca: um array
+// JSON [{"label","insert","doc"}]. A API resolve o CONTEÚDO no DTO; o
+// parser só grava a referência. Mesmo guard de passagem verbatim.
+func extractDictDirective(doc string) (cleaned string, dict string) {
+	var prose []string
+	for _, line := range strings.Split(doc, "\n") {
+		low := strings.ToLower(line)
+		idx := strings.Index(low, "dict:")
+		if idx < 0 {
+			prose = append(prose, line)
+			continue
+		}
+		// The path may CONTAIN dots ("config_dict.json"), so the segment
+		// protocol would eat the extension — the directive therefore owns
+		// the line from "dict:" to the trailing terminator dot, taken
+		// whole. Prose before it on the same line is preserved.
+		// Português: O caminho pode CONTER pontos ("config_dict.json") e
+		// o protocolo de segmentos comeria a extensão — a diretiva então
+		// é dona da linha de "dict:" até o ponto terminador, inteira.
+		// Prosa antes dela na mesma linha é preservada.
+		if lead := strings.TrimSpace(line[:idx]); lead != "" {
+			prose = append(prose, lead)
+		}
+		rest := strings.TrimSpace(line[idx+len("dict:"):])
+		rest = strings.TrimSuffix(rest, ".")
+		dict = strings.TrimSpace(rest)
+	}
+	return strings.Join(prose, "\n"), dict
+}
+
 func extractConsumesHandleDirective(doc string) (cleaned string, consume bool) {
 	var prose []string
 	for _, line := range strings.Split(doc, "\n") {
@@ -1202,6 +1274,16 @@ func portFromParamToken(t paramToken) *paramPort {
 		// rest of the IDS vocabulary. The slice pairing itself is
 		// resolved later by collapseSliceParams, once every parameter
 		// of the function is known.
+		// Phase B editor config FIRST: `dict:` carries a path with dots
+		// ("config_dict.json") that the legacy segment-rebuilding
+		// extractors (direction, slice) would mangle — it must own its
+		// line before they run. `lang:` rides along for consistency.
+		// Português: Config de editor da Fase B PRIMEIRO: `dict:` carrega
+		// caminho com pontos que os extractors antigos (que rejuntam
+		// segmentos) mutilariam — ele precisa consumir sua linha antes.
+		// `lang:` acompanha por consistência.
+		doc, port.EditorDict = extractDictDirective(doc)
+		doc, port.EditorLang = extractLangDirective(doc)
 		doc, wantOut = extractDirectionDirective(doc)
 		var sliceLen string
 		doc, sliceLen = extractSliceDirective(doc)

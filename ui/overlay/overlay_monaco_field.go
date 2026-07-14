@@ -40,6 +40,89 @@ import (
 // sobrescritas a cada abertura (o overlay é modal), então não envelhecem.
 var monacoFieldEditors = map[string]js.Value{}
 
+// monacoFieldProviders holds the DISPOSE handle of the completion
+// provider each FieldMonaco registered — providers are GLOBAL to Monaco
+// per language, so the previous one must be disposed before registering
+// again or every overlay open stacks another. Keyed by field.Key like
+// the editors. Português: Guarda o handle de dispose do provider de cada
+// FieldMonaco — providers são GLOBAIS por linguagem no Monaco, então o
+// anterior precisa ser descartado antes de registrar de novo, ou cada
+// abertura empilha mais um.
+var monacoFieldProviders = map[string]js.Value{}
+
+// registerCompletionDict parses the dictionary JSON and registers a
+// Monaco completion provider for lang, disposing the field's previous
+// provider first. Dictionary shape: [{"label","insert","doc"}]; "insert"
+// falls back to the label and supports snippet tab-stops ($1). A broken
+// dictionary is ignored — the editor must open regardless.
+// Português: Registra o provider de autocompletar do dicionário para a
+// linguagem, descartando o anterior do campo. "insert" cai no label e
+// suporta tab-stops de snippet. Dicionário quebrado é ignorado — o
+// editor abre de qualquer jeito.
+func registerCompletionDict(key, lang, dictJSON string) {
+	if prev, ok := monacoFieldProviders[key]; ok && prev.Truthy() {
+		prev.Call("dispose")
+		delete(monacoFieldProviders, key)
+	}
+	if dictJSON == "" {
+		return
+	}
+	monaco := js.Global().Get("monaco")
+	if !monaco.Truthy() {
+		return
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Overlay] completion dict rejected: %v", r)
+		}
+	}()
+	items := js.Global().Get("JSON").Call("parse", dictJSON)
+	if items.Type() != js.TypeObject || items.Length() == 0 {
+		return
+	}
+
+	snippetRule := monaco.Get("languages").
+		Get("CompletionItemInsertTextRule").Get("InsertAsSnippet")
+	snippetKind := monaco.Get("languages").
+		Get("CompletionItemKind").Get("Snippet")
+
+	provider := js.Global().Get("Object").New()
+	provider.Set("provideCompletionItems",
+		js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+			suggestions := js.Global().Get("Array").New()
+			for i := 0; i < items.Length(); i++ {
+				it := items.Index(i)
+				label := it.Get("label")
+				if !label.Truthy() {
+					continue
+				}
+				insert := it.Get("insert")
+				if !insert.Truthy() {
+					insert = label
+				}
+				s := js.Global().Get("Object").New()
+				s.Set("label", label)
+				s.Set("kind", snippetKind)
+				s.Set("insertText", insert)
+				s.Set("insertTextRules", snippetRule)
+				if doc := it.Get("doc"); doc.Truthy() {
+					s.Set("documentation", doc)
+				}
+				suggestions.Call("push", s)
+			}
+			result := js.Global().Get("Object").New()
+			result.Set("suggestions", suggestions)
+			return result
+		}))
+
+	disp := monaco.Get("languages").Call(
+		"registerCompletionItemProvider", lang, provider)
+	monacoFieldProviders[key] = disp
+	log.Printf("[Overlay] completion dict registered: key=%s lang=%s items=%d",
+		key, lang, items.Length())
+}
+
 // RetargetMonacoField switches the language of the live FieldMonaco
 // registered under key. Silently ignores unknown keys (editor still
 // loading or overlay without one). Português: Troca a linguagem do
@@ -113,6 +196,14 @@ func buildMonacoField(doc js.Value, field Field) (container js.Value, hiddenInpu
 		opts.Set("scrollBeyondLastLine", false)
 		opts.Set("automaticLayout", true)
 		opts.Set("wordWrap", "on")
+		// Suggestions open AS YOU TYPE — without this, the completion
+		// dictionary only answers Ctrl+Space (2026-07-13 field report:
+		// "só digitar server não faz nada"). Português: Sugestões abrem
+		// ENQUANTO DIGITA — sem isto, o dicionário só responde ao
+		// Ctrl+Espaço.
+		opts.Set("quickSuggestions", true)
+		opts.Set("quickSuggestionsDelay", 10)
+		opts.Set("suggestOnTriggerCharacters", true)
 		minimapOpts := js.Global().Get("Object").New()
 		minimapOpts.Set("enabled", false)
 		opts.Set("minimap", minimapOpts)
@@ -134,6 +225,7 @@ func buildMonacoField(doc js.Value, field Field) (container js.Value, hiddenInpu
 			}))
 
 		monacoFieldEditors[field.Key] = editor
+		registerCompletionDict(field.Key, lang, field.CompletionDictJSON)
 		log.Printf("[Overlay] Monaco FIELD created: language=%s", lang)
 	})
 

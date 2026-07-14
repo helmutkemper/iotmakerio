@@ -178,6 +178,66 @@ type clientPortDef struct {
 	// glyph. Empty on Go ports and on ordinary C99 ports. See the duality
 	// section of docs/CODEGEN_C99_CALLBACKS.md.
 	CallbackType string `json:"callbackType,omitempty"`
+	// EditorLang / EditorDictJSON are the Phase B editor config of a
+	// byte-slice port (`lang:` + `dict:` directives): the Monaco language
+	// a wired Data · Text should use, and the RESOLVED CONTENT of its
+	// completion dictionary (def.Files lookup, 64 KB cap, must be valid
+	// JSON). Subject to the same copy-site audit rule as WireType above:
+	// every clientPortDef literal below MUST forward them.
+	// Português: Config de editor da Fase B de uma porta de bytes: a
+	// linguagem do Monaco e o CONTEÚDO RESOLVIDO do dicionário (lookup em
+	// def.Files, teto 64 KB, JSON válido). Sujeitos à mesma regra de
+	// auditoria do WireType: todo literal de clientPortDef abaixo DEVE
+	// encaminhá-los.
+	EditorLang     string `json:"editorLang,omitempty"`
+	EditorDictJSON string `json:"editorDictJson,omitempty"`
+}
+
+// editorDictMaxBytes caps a completion dictionary rider — a dictionary is
+// authoring metadata, not a media asset. Português: Teto do dicionário —
+// metadado de autoria, não asset de mídia.
+const editorDictMaxBytes = 64 * 1024
+
+// resolveEditorDict resolves a port's `dict:` reference to its CONTENT
+// from the def's authored file snapshot. Exact path first, then a
+// basename suffix match ("cfg.json" finds "dicts/cfg.json"). Oversized or
+// invalid-JSON dictionaries are dropped with a log — a broken dictionary
+// must not break the def fetch. Português: Resolve a referência `dict:`
+// para o CONTEÚDO a partir do snapshot de arquivos do def. Caminho exato
+// primeiro, depois sufixo por basename. Grande demais ou JSON inválido é
+// descartado com log — dicionário quebrado não pode quebrar o fetch.
+func resolveEditorDict(def *bbparser.BlackBoxDef, p bbparser.PortDef) string {
+	if p.EditorDict == "" {
+		return ""
+	}
+	// Sources AND assets: the dictionary is a non-source project file,
+	// recorded by the dispatch choke point into def.Assets (2026-07-13 —
+	// the day sourceFilesOnly taught us that def.Files never sees it).
+	// Português: Fontes E assets: o dicionário é arquivo não-fonte,
+	// registrado pelo choke point do dispatch em def.Assets.
+	candidates := make([]bbparser.FileEntry, 0, len(def.Files)+len(def.Assets))
+	candidates = append(candidates, def.Files...)
+	for _, a := range def.Assets {
+		candidates = append(candidates, bbparser.FileEntry{Path: a.Path, Content: a.Content})
+	}
+	for _, f := range candidates {
+		if f.Path != p.EditorDict && !strings.HasSuffix(f.Path, "/"+p.EditorDict) {
+			continue
+		}
+		if len(f.Content) > editorDictMaxBytes {
+			log.Printf("[blackboxapi] dict %q exceeds %d bytes — dropped",
+				p.EditorDict, editorDictMaxBytes)
+			return ""
+		}
+		if !json.Valid([]byte(f.Content)) {
+			log.Printf("[blackboxapi] dict %q is not valid JSON — dropped",
+				p.EditorDict)
+			return ""
+		}
+		return f.Content
+	}
+	log.Printf("[blackboxapi] dict %q not found in project files", p.EditorDict)
+	return ""
 }
 
 type clientFuncDef struct {
@@ -546,11 +606,13 @@ func toClientDef(def *bbparser.BlackBoxDef) clientBlackBoxDef {
 				cd.Methods[i].Inputs = make([]clientPortDef, len(m.FuncDef.Inputs))
 				for j, p := range m.FuncDef.Inputs {
 					cd.Methods[i].Inputs[j] = clientPortDef{
-						Name:     p.Name,
-						GoType:   p.GoType,
-						WireType: p.WireType,
-						IsError:  p.IsError,
-						Doc:      sanitizeDoc(p.Doc),
+						Name:           p.Name,
+						GoType:         p.GoType,
+						WireType:       p.WireType,
+						IsError:        p.IsError,
+						Doc:            sanitizeDoc(p.Doc),
+						EditorLang:     p.EditorLang,
+						EditorDictJSON: resolveEditorDict(def, p),
 					}
 				}
 			}
@@ -558,11 +620,13 @@ func toClientDef(def *bbparser.BlackBoxDef) clientBlackBoxDef {
 				cd.Methods[i].Outputs = make([]clientPortDef, len(m.FuncDef.Outputs))
 				for j, p := range m.FuncDef.Outputs {
 					cd.Methods[i].Outputs[j] = clientPortDef{
-						Name:     p.Name,
-						GoType:   p.GoType,
-						WireType: p.WireType,
-						IsError:  p.IsError,
-						Doc:      sanitizeDoc(p.Doc),
+						Name:           p.Name,
+						GoType:         p.GoType,
+						WireType:       p.WireType,
+						IsError:        p.IsError,
+						Doc:            sanitizeDoc(p.Doc),
+						EditorLang:     p.EditorLang,
+						EditorDictJSON: resolveEditorDict(def, p),
 					}
 				}
 			}
@@ -596,12 +660,14 @@ func toClientDef(def *bbparser.BlackBoxDef) clientBlackBoxDef {
 				cd.Functions[i].Inputs = make([]clientPortDef, len(fn.FuncDef.Inputs))
 				for j, p := range fn.FuncDef.Inputs {
 					cd.Functions[i].Inputs[j] = clientPortDef{
-						Name:         p.Name,
-						GoType:       p.GoType,
-						WireType:     p.WireType,
-						IsError:      p.IsError,
-						Doc:          sanitizeDoc(p.Doc),
-						CallbackType: p.CallbackType,
+						Name:           p.Name,
+						GoType:         p.GoType,
+						WireType:       p.WireType,
+						IsError:        p.IsError,
+						Doc:            sanitizeDoc(p.Doc),
+						CallbackType:   p.CallbackType,
+						EditorLang:     p.EditorLang,
+						EditorDictJSON: resolveEditorDict(def, p),
 					}
 				}
 			}
@@ -610,13 +676,15 @@ func toClientDef(def *bbparser.BlackBoxDef) clientBlackBoxDef {
 				cd.Functions[i].Outputs = make([]clientPortDef, len(outs))
 				for j, p := range outs {
 					cd.Functions[i].Outputs[j] = clientPortDef{
-						Name:         p.Name,
-						GoType:       p.GoType,
-						WireType:     p.WireType,
-						IsError:      p.IsError,
-						Doc:          sanitizeDoc(p.Doc),
-						PassThrough:  p.PassThrough,
-						CallbackType: p.CallbackType,
+						Name:           p.Name,
+						GoType:         p.GoType,
+						WireType:       p.WireType,
+						IsError:        p.IsError,
+						Doc:            sanitizeDoc(p.Doc),
+						PassThrough:    p.PassThrough,
+						CallbackType:   p.CallbackType,
+						EditorLang:     p.EditorLang,
+						EditorDictJSON: resolveEditorDict(def, p),
 					}
 				}
 			}
@@ -722,6 +790,15 @@ func toClientFuncDef(fd bbparser.FuncDef) clientFuncDef {
 				WireType: p.WireType,
 				IsError:  p.IsError,
 				Doc:      sanitizeDoc(p.Doc),
+				// Go Init path: Go ports never author C directives, so
+				// both fields are structurally empty here — EditorLang is
+				// forwarded anyway to honour the copy-site audit rule
+				// (the WireType lesson), and EditorDictJSON needs no def.
+				// Português: Caminho do Init Go: portas Go nunca autoram
+				// diretivas C — ambos estruturalmente vazios; EditorLang
+				// segue mesmo assim pela regra de auditoria dos copy
+				// sites (a lição do WireType).
+				EditorLang: p.EditorLang,
 			}
 		}
 	}
@@ -734,6 +811,15 @@ func toClientFuncDef(fd bbparser.FuncDef) clientFuncDef {
 				WireType: p.WireType,
 				IsError:  p.IsError,
 				Doc:      sanitizeDoc(p.Doc),
+				// Go Init path: Go ports never author C directives, so
+				// both fields are structurally empty here — EditorLang is
+				// forwarded anyway to honour the copy-site audit rule
+				// (the WireType lesson), and EditorDictJSON needs no def.
+				// Português: Caminho do Init Go: portas Go nunca autoram
+				// diretivas C — ambos estruturalmente vazios; EditorLang
+				// segue mesmo assim pela regra de auditoria dos copy
+				// sites (a lição do WireType).
+				EditorLang: p.EditorLang,
 			}
 		}
 	}

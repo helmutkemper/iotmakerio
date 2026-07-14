@@ -605,10 +605,15 @@ func (e *StatementBlackBoxMethod) RegisterConnectors() {
 		pp := port
 		idx := i
 		e.wireMgr.RegisterConnector(wire.ConnectorInfo{
-			ID:                 wire.ConnectorID{ElementID: e.id, PortName: pp.Name},
-			IsOutput:           false,
-			AllowedTypes:       []string{portWireToken(pp)},
-			CallbackType:       pp.CallbackType,
+			ID:           wire.ConnectorID{ElementID: e.id, PortName: pp.Name},
+			IsOutput:     false,
+			AllowedTypes: []string{portWireToken(pp)},
+			CallbackType: pp.CallbackType,
+			// Phase B: the port's editor config rides the wire layer —
+			// a wired Data · Text reads it via ConnectedPeer. Português:
+			// Config de editor da Fase B viaja na camada de fio.
+			EditorLang:         pp.EditorLang,
+			EditorDictJSON:     pp.EditorDictJSON,
 			AcceptNotConnected: pp.IsError,
 			Locked:             false,
 			MaxConnections:     1,
@@ -626,10 +631,15 @@ func (e *StatementBlackBoxMethod) RegisterConnectors() {
 		pp := port
 		idx := i
 		e.wireMgr.RegisterConnector(wire.ConnectorInfo{
-			ID:                 wire.ConnectorID{ElementID: e.id, PortName: pp.Name},
-			IsOutput:           true,
-			AllowedTypes:       []string{portWireToken(pp)},
-			CallbackType:       pp.CallbackType,
+			ID:           wire.ConnectorID{ElementID: e.id, PortName: pp.Name},
+			IsOutput:     true,
+			AllowedTypes: []string{portWireToken(pp)},
+			CallbackType: pp.CallbackType,
+			// Phase B: the port's editor config rides the wire layer —
+			// a wired Data · Text reads it via ConnectedPeer. Português:
+			// Config de editor da Fase B viaja na camada de fio.
+			EditorLang:         pp.EditorLang,
+			EditorDictJSON:     pp.EditorDictJSON,
 			AcceptNotConnected: true,
 			Locked:             false,
 			MaxConnections:     0,
