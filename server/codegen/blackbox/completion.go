@@ -371,11 +371,19 @@ func portIncompleteC99(p *PortDef) bool {
 	if p.Name == "" {
 		return false
 	}
+	// Label is NOT required on ports (field verdict 2026-07-15: "se não
+	// falta nada, a indicação não deveria aparecer"): an empty Label
+	// falls back to the port's NAME — which is exactly what every card
+	// and pin already renders. Requiring `label:` forced the modal's
+	// Save-without-changes ritual just to write boilerplate the display
+	// never needed. Devices stay strict (label+icon are their palette
+	// identity); ports are complete with a doc and a connection.
+	// Português: Label NÃO é exigido em porta — vazio herda o NOME, que
+	// é o que a UI já mostra. Exigir `label:` forçava o ritual de
+	// salvar-sem-mudar só para gravar boilerplate. Devices continuam
+	// estritos; porta está completa com doc e connection.
 	if p.Name == "return" {
-		return p.Label == ""
-	}
-	if p.Label == "" {
-		return true
+		return false
 	}
 	if p.Doc == "" {
 		return true

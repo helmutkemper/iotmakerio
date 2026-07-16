@@ -62,6 +62,8 @@ func Register(v1 *echo.Group, asynqClient *asynq.Client, rdb *redis.Client) {
 	// always prefers static segments over dynamic ones, but registering
 	// in this order also makes the intent obvious to a reader.)
 	auth.POST("/wizard/parse", h.handleWizardParse)
+	auth.GET("/wizard/examples", h.handleWizardExamples)
+	auth.GET("/wizard/examples/:id", h.handleWizardExample)
 	auth.POST("/wizard/analyze", h.handleWizardAnalyze)
 	auth.POST("/wizard/rewrite", h.handleWizardRewrite)
 	auth.GET("/wizard/draft/:projectId", h.handleWizardDraftGet)

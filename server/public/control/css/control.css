@@ -767,3 +767,213 @@ a:hover { text-decoration: underline; }
     color: var(--danger);
     background: var(--danger-bg);
 }
+
+/* ── School page (2026-07-15) — compact icon buttons in table rows ─────── */
+.cp-btn-sm {
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+/* School edit modal — structured steps and files (2026-07-15) */
+.cp-step {
+    border: 1px solid var(--border, rgba(127,127,127,.25));
+    border-radius: 10px;
+    padding: 12px 14px 8px;
+    margin-bottom: 10px;
+}
+.cp-step-head {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+.cp-filerow {
+    border: 1px solid var(--border, rgba(127,127,127,.25));
+    border-radius: 10px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+}
+.cp-filerow > summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    list-style: none;
+}
+.cp-filerow > summary::-webkit-details-marker { display: none; }
+
+/* Band-aid 2026-07-15: a modal taller than the viewport must scroll —
+   the School edit form revealed the missing constraint. Português: Modal
+   mais alto que a viewport precisa rolar. */
+.cp-modal {
+    max-height: calc(100vh - 64px);
+    overflow-y: auto;
+}
+
+/* ── School lesson editor page (design session 2026-07-15) ────────────────
+   Full page beside the sidebar: left = the student's view + frozen files,
+   right = the steps accordion whose closed rows read as sentences.
+   Português: Página inteira: esquerda = a visão do aluno + arquivos
+   congelados; direita = acordeão de passos cujas linhas fechadas se leem
+   como frases. */
+.cp-lesson-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.cp-lesson-title {
+    flex: 1;
+    font-size: 17px;
+    font-weight: 600;
+}
+.cp-lesson-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+    gap: 18px;
+}
+@media (max-width: 980px) {
+    .cp-lesson-grid { grid-template-columns: 1fr; }
+}
+.cp-lesson-label {
+    margin: 0 0 8px;
+    font-size: 11px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+}
+.cp-lesson-card {
+    background: var(--bg-card, rgba(127,127,127,.05));
+    border: 1px solid var(--border, rgba(127,127,127,.25));
+    border-radius: 12px;
+    padding: 14px 16px;
+}
+.cp-lesson-code {
+    margin: 4px 0 8px;
+    padding: 10px 12px;
+    background: rgba(0,0,0,.25);
+    border-radius: 8px;
+    font-size: 11.5px;
+    line-height: 1.5;
+    max-height: 260px;
+    overflow: auto;
+    white-space: pre-wrap;
+}
+.cp-lesson-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border, rgba(127,127,127,.25));
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    cursor: pointer;
+}
+.cp-lesson-step.is-open {
+    display: block;
+    cursor: default;
+    border-color: var(--primary, #6c8cff);
+}
+.cp-lesson-sentence {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    background: rgba(127,127,127,.07);
+    border-radius: 8px;
+    padding: 8px 10px;
+}
+.cp-lesson-sentence span { color: var(--text-dim); }
+.cp-lesson-test {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-top: 12px;
+    font-size: 13px;
+}
+.cp-lesson-test.is-warn { background: rgba(230,170,60,.14); color: #e0aa4a; }
+.cp-lesson-test.is-ok   { background: rgba(40,180,100,.12); color: #37c07a; }
+.cp-lesson-test:empty   { display: none; }
+
+/* Lesson editor — wizard-style file tabs + Monaco (2026-07-15) */
+.cp-lesson-tabs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-wrap: wrap;
+    border: 1px solid var(--border, rgba(127,127,127,.25));
+    border-bottom: none;
+    border-radius: 10px 10px 0 0;
+    padding: 6px 8px 0;
+}
+.cp-lesson-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    font-family: var(--mono, monospace);
+    border-radius: 8px 8px 0 0;
+    cursor: pointer;
+    color: var(--text-dim);
+}
+.cp-lesson-tab.is-active {
+    color: var(--text, #eee);
+    background: rgba(127,127,127,.12);
+    border-bottom: 2px solid var(--primary, #6c8cff);
+}
+.cp-lesson-tab i { font-size: 11px; opacity: .6; }
+.cp-lesson-tab i:hover { opacity: 1; color: var(--danger, #e05555); }
+.cp-lesson-monaco {
+    height: 460px;
+    border: 1px solid var(--border, rgba(127,127,127,.25));
+    border-radius: 0 0 10px 10px;
+    overflow: hidden;
+}
+
+/* Test chips — per-step verdict in the lesson test bar (2026-07-15) */
+.cp-test-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(127,127,127,.12);
+    margin-left: 4px;
+}
+.cp-test-chip .fa-circle-check    { color: #37c07a; }
+.cp-test-chip .fa-circle-xmark    { color: #e05555; }
+.cp-test-chip .fa-circle-question { color: var(--text-dim, #999); }
+
+/* Focus-follows-work: the touched column grows (2026-07-15). Chrome
+   animates grid-template-columns natively. Português: A coluna tocada
+   cresce; transição nativa do grid. */
+.cp-lesson-grid {
+    transition: grid-template-columns .25s ease;
+}
+.cp-lesson-grid.focus-left  { grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); }
+.cp-lesson-grid.focus-right { grid-template-columns: minmax(0, 1fr) minmax(0, 3fr); }
+
+/* Snapshot modal — project picker rows (2026-07-15) */
+.cp-snap-list {
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid var(--border, rgba(127,127,127,.25));
+    border-radius: 8px;
+    margin: 6px 0 4px;
+}
+.cp-snap-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border, rgba(127,127,127,.15));
+}
+.cp-snap-row:last-child { border-bottom: none; }
+.cp-snap-row:hover      { background: rgba(127,127,127,.08); }
+.cp-snap-row.is-picked  { background: rgba(108,140,255,.12); }

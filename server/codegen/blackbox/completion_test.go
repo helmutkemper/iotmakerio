@@ -679,8 +679,11 @@ func hasPath(paths []string, target string) bool {
 }
 
 // Edge cases of the C99 port rule: an anonymous port (no Name) is never
-// reported (no addressable path); a `return` MISSING its label is
-// incomplete (the label-only exemption still requires the label).
+// reported (no addressable path); a label-less `return` is COMPLETE
+// since 2026-07-15 — an empty port Label falls back to the name, which
+// is what every card and pin already renders ("se não falta nada, a
+// indicação não deveria aparecer"). Português: label vazio herda o
+// nome; nada falta, nada acende.
 func TestComputeIncomplete_c99_portEdgeCases(t *testing.T) {
 	def := &BlackBoxDef{Functions: []NamedFuncDef{{
 		Name: "f",
@@ -690,13 +693,13 @@ func TestComputeIncomplete_c99_portEdgeCases(t *testing.T) {
 				{Name: ""}, // anonymous — never incomplete, never a path
 			},
 			Outputs: []PortDef{
-				{Name: "return"}, // return WITHOUT a label — incomplete
+				{Name: "return"}, // label-less return — inherits the name
 			},
 		},
 	}}}
 	got := ComputeIncomplete(def)
-	if !hasPath(got, "function.f.out.return") {
-		t.Errorf("return without a label should be incomplete; got %v", got)
+	if hasPath(got, "function.f.out.return") {
+		t.Errorf("label-less return inherits the name and must be complete; got %v", got)
 	}
 	for _, p := range got {
 		if strings.HasPrefix(p, "function.f.in.") {

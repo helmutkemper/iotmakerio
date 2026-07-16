@@ -509,6 +509,9 @@ func migrate() error {
 	if err := MigrateI18nBackfillKeys(); err != nil {
 		return err
 	}
+	if err := MigrateWizardExamples(); err != nil {
+		return err
+	}
 	if err := MigrateMenuTreeIndex(); err != nil {
 		return err
 	}

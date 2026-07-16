@@ -92,6 +92,7 @@ import {
     // wizard-create flow (dropdown entry "Create with wizard")
     projToggleNewMenu,
     openWizardCreateModal,
+    openSchoolPage,
     closeWizardCreateModal,
     submitWizardCreate,
     confirmDeleteProject,
@@ -243,7 +244,7 @@ Object.assign(window, {
     openCreateProjectModal, closeCreateProjectModal,
     clearCreateError, onVisChange, onTypeChange, submitCreateProject,
     // projects — wizard-create flow
-    projToggleNewMenu, openWizardCreateModal,
+    projToggleNewMenu, openWizardCreateModal, openSchoolPage,
     closeWizardCreateModal, submitWizardCreate,
     confirmDeleteProject, onDeleteConfirmInput, executeDeleteProject,
     triggerFileUpload, onFileSelected, deleteProjectFile,

@@ -16,6 +16,7 @@ import { renderUserMenuPrefs }   from './pages/userMenuPrefs.js';
 import { renderVisibilityRules } from './pages/visibilityRules.js';
 import { renderGroups }          from './pages/groups.js';
 import { renderTranslations }    from './pages/translations.js';
+import { renderWizardExamples }  from './pages/wizardExamples.js';
 
 // ── Navigation items ──────────────────────────────────────────────────────────
 //
@@ -44,6 +45,7 @@ const NAV_ITEMS = [
         section: 'Menu',
         items: [
             { key: 'menuTree', icon: 'fa-sitemap',        label: 'Árvore do menu' },
+            { key: 'school',   icon: 'fa-graduation-cap', label: 'School' },
             { key: 'userMenuPrefs', icon: 'fa-user-gear',   label: 'Menu do Usuário' },
             { key: 'visibilityRules', icon: 'fa-shield-halved',  label: 'Regras de Visibilidade' },
             { key: 'categories', icon: 'fa-folder-tree',    label: 'Categorias' },
@@ -78,6 +80,7 @@ const PAGE_MAP = {
     visibilityRules: renderVisibilityRules,
     categories: renderCategories,
     translations: renderTranslations,
+    school:    renderWizardExamples,
     invites:   renderComingSoon('Convites',  'fa-envelope'),
     settings:  renderComingSoon('Configurações', 'fa-sliders'),
 };

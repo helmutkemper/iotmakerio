@@ -757,3 +757,114 @@
     color: #fff;
     border-color: var(--primary);
 }
+
+/* ── Mission gallery (wizard first contact — UI plan 2026-07-13) ──────────
+   The empty state IS the gallery: cards chosen by destination, one badge
+   per finish level, one button per card. Português: O estado vazio É a
+   galeria: cards escolhidos pelo destino, um selo por nível de
+   acabamento, um botão por card. */
+.wiz-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 260px));
+    gap: 14px;
+    justify-content: center;
+    margin-top: 18px;
+    text-align: left;
+}
+.wiz-gallery-card {
+    background: var(--surface-2, rgba(127, 127, 127, .06));
+    border: 1px solid var(--border-color, rgba(127, 127, 127, .25));
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.wiz-gallery-card h4 { margin: 2px 0 0; font-size: 15px; }
+.wiz-gallery-card p  { margin: 0 0 8px; font-size: 12.5px; opacity: .8; }
+.wiz-gallery-card .btn { margin-top: auto; }
+.wiz-gallery-badge {
+    align-self: flex-start;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 9px;
+    border-radius: 999px;
+}
+.wiz-gallery-badge.is-ready   { background: rgba( 40, 180, 100, .18); color: #37c07a; }
+.wiz-gallery-badge.is-mission { background: rgba(150, 100, 255, .18); color: #a98bff; }
+
+/* ── Mission panel (steps that check themselves on Parse) ─────────────── */
+.wiz-mission {
+    background: var(--surface-2, rgba(127, 127, 127, .06));
+    border: 1px solid var(--border-color, rgba(127, 127, 127, .25));
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+}
+.wiz-mission-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.wiz-mission-head span   { font-size: 11px; letter-spacing: .05em; opacity: .6; }
+.wiz-mission-head strong { font-size: 15px; flex: 1; }
+.wiz-mission-step {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 6px 0;
+    font-size: 13.5px;
+}
+.wiz-mission-step i { margin-top: 3px; }
+.wiz-mission-step.is-done    { opacity: .55; }
+.wiz-mission-step.is-done span { text-decoration: line-through; }
+.wiz-mission-step.is-done i  { color: #37c07a; }
+.wiz-mission-step.is-current {
+    background: rgba(150, 100, 255, .12);
+    border-radius: 8px;
+    padding: 10px;
+}
+.wiz-mission-step.is-current p { margin: 3px 0 8px; font-size: 12.5px; opacity: .85; }
+.wiz-mission-step.is-pending { opacity: .45; }
+.wiz-mission-done {
+    text-align: center;
+    padding: 10px 0 4px;
+}
+.wiz-mission-done i      { font-size: 26px; color: #e7b93c; }
+.wiz-mission-done strong { display: block; margin: 6px 0 2px; }
+.wiz-mission-done p      { font-size: 12.5px; opacity: .8; margin: 0 0 10px; }
+
+/* ── School (Devices → + New → School — 2026-07-14) ───────────────────────
+   Full-page overlay: the gallery's home. Examples are the BIRTH of a
+   project. Português: Overlay de página inteira: a casa da galeria. */
+/* .school-view: a page INSIDE #app-root, beside the sidebar — the
+   full-screen overlay died on 2026-07-15 ("o sidebar menu não deve ser
+   apagado"). Português: Página DENTRO do #app-root, ao lado do sidebar. */
+.school-view {
+    min-height: 100%;
+    background: var(--bg-page, #fff);
+}
+.school-page {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 28px 24px 60px;
+}
+.school-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 26px;
+}
+.school-title { flex: 1; }
+.school-title h1 {
+    font-size: 24px;
+    font-weight: 700;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.school-title p { margin: 4px 0 0; opacity: .75; font-size: 14px; }
+.school-langs { display: flex; gap: 6px; }
+.school-overlay .wiz-gallery { justify-content: flex-start; }

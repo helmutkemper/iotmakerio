@@ -547,13 +547,20 @@ function _renderLoading() {
 function _renderEmptyState() {
     const tab = document.getElementById('proj-tab-wizard');
     if (!tab) return;
+    // The gallery moved HOME: Devices → + New → School (2026-07-14) —
+    // examples are the BIRTH of a project, not furniture inside an empty
+    // one. This state only points the way. Português: A galeria foi para
+    // CASA: Devices → + New → School — exemplo é o NASCIMENTO de um
+    // projeto, não mobília dentro de um vazio.
     tab.innerHTML = `
         <div class="wiz-empty">
             <i class="fa-solid fa-wand-magic-sparkles wiz-empty-icon"></i>
             <h3>No source to wizard yet</h3>
-            <p>Write some code in the <strong>Editor</strong> tab, then come back.
-               The wizard parses the source and shows each struct and method
-               as a card you can configure with point-and-click.</p>
+            <p>Write some code in the <strong>Editor</strong> tab, then come
+               back — the wizard turns each struct and function into a card
+               you configure with point-and-click.</p>
+            <p class="wiz-form-help">New here? Guided examples live in
+               <strong>Devices → + New → School</strong>.</p>
         </div>`;
 }
 
@@ -586,6 +593,160 @@ function _renderParseError(message) {
 // here. We detach Monaco's host before the innerHTML write and
 // reattach after, into the freshly-rendered #proj-wizard-monaco-host.
 // The same instance is reused — no re-mount, no state loss.
+// ═════════════════════════════════════════════════════════════════════════
+//  Mission engine (wizard UI plan, 2026-07-13)
+// ═════════════════════════════════════════════════════════════════════════
+//
+// A mission is a curated example plus STEPS, each with a self-checking
+// predicate over the parse result — the user never marks anything done;
+// Parse is the heartbeat. State survives reloads via localStorage,
+// scoped by project. Português: Missão = exemplo curado + PASSOS, cada
+// um com predicado autoverificável sobre o parse — o usuário nunca marca
+// nada; o Parse é o batimento. Estado sobrevive a reloads.
+
+function _missionKey() {
+    return 'wiz-mission-' + (_state.projectId || 'global');
+}
+
+function _missionState() {
+    if (_state.mission !== undefined) return _state.mission;
+    try {
+        const raw = localStorage.getItem(_missionKey());
+        _state.mission = raw ? JSON.parse(raw) : null;
+    } catch (_) { _state.mission = null; }
+    return _state.mission;
+}
+
+function _missionSet(m) {
+    _state.mission = m;
+    try {
+        if (m) localStorage.setItem(_missionKey(), JSON.stringify(m));
+        else localStorage.removeItem(_missionKey());
+    } catch (_) { /* storage full/blocked — session-only is fine */ }
+}
+
+// _missionCheck evaluates ONE predicate. Kinds documented in
+// store/wizard_examples.go — the schema's single source of truth.
+function _missionCheck(check) {
+    if (!check || !check.kind) return false;
+    const parsed = _state.parsed;
+    const findPort = (fnName, portName) => {
+        const fn = (parsed?.functions || []).find(f => f.name === fnName);
+        return fn?.inputs?.find(p => p.name === portName)
+            || fn?.outputs?.find(p => p.name === portName) || null;
+    };
+    switch (check.kind) {
+        case 'parseOk':
+            return !!parsed;
+        case 'fileIsDict': {
+            const dicts = _sniffDictionaries();
+            const hit = dicts.find(d => d.path === check.path
+                || d.path.endsWith('/' + check.path));
+            if (!hit) return false;
+            return !check.minItems || hit.items >= check.minItems;
+        }
+        case 'portHasLang': {
+            const p = findPort(check.fn, check.port);
+            return !!(p && p.editorLang);
+        }
+        case 'portHasDict': {
+            const p = findPort(check.fn, check.port);
+            return !!(p && p.editorDict);
+        }
+        case 'sliceCollapsed': {
+            const p = findPort(check.fn, check.port);
+            return !!(p && ((p.goType || '').startsWith('[]') || p.sliceLenName));
+        }
+        default:
+            return false;
+    }
+}
+
+// _missionPanelHtml renders the panel: done steps struck through,
+// the FIRST unmet step highlighted with its detail and optional action,
+// later steps muted. All met → celebration. Português: Passos feitos
+// riscados, o PRIMEIRO pendente aceso com detalhe e ação opcional,
+// posteriores apagados. Tudo feito → celebração.
+function _missionPanelHtml() {
+    const m = _missionState();
+    if (!m || !Array.isArray(m.steps) || !m.steps.length) return '';
+    const states = m.steps.map(s => _missionCheck(s.check));
+    const firstOpen = states.indexOf(false);
+    const doneCount = states.filter(Boolean).length;
+    const complete = firstOpen === -1;
+
+    const rows = m.steps.map((s, i) => {
+        if (states[i]) {
+            return `<div class="wiz-mission-step is-done">
+                <i class="fa-solid fa-circle-check"></i>
+                <span>${esc(s.title)}</span></div>`;
+        }
+        if (i === firstOpen) {
+            const action = s.action && s.action.kind === 'openPort'
+                ? `<button class="btn btn-primary btn-sm"
+                       data-mission-open-port="function.${esc(s.action.fn)}.in.${esc(s.action.port)}">
+                       Open ${esc(s.action.port)} port</button>`
+                : '';
+            return `<div class="wiz-mission-step is-current">
+                <i class="fa-solid fa-${i + 1}"></i>
+                <div><strong>${esc(s.title)}</strong>
+                    <p>${esc(s.detail || '')}</p>${action}</div></div>`;
+        }
+        return `<div class="wiz-mission-step is-pending">
+            <i class="fa-solid fa-${i + 1}"></i>
+            <span>${esc(s.title)}</span></div>`;
+    }).join('');
+
+    return `
+    <div class="wiz-mission">
+        <div class="wiz-mission-head">
+            <span>MISSION · ${doneCount} OF ${m.steps.length}</span>
+            <strong>${esc(m.title || '')}</strong>
+            <button class="btn btn-ghost btn-sm" data-mission-abandon
+                    title="Leave the mission — your files stay">✕</button>
+        </div>
+        ${complete ? `
+        <div class="wiz-mission-done">
+            <i class="fa-solid fa-trophy"></i>
+            <strong>Mission complete!</strong>
+            <p>Your device now teaches its makers. Publish it, wire a
+               Data · Text on the stage, and watch it suggest.</p>
+            <button class="btn btn-primary btn-sm" data-mission-finish>Finish</button>
+        </div>` : rows}
+    </div>`;
+}
+
+function _missionWire(tab) {
+    tab.querySelector('[data-mission-abandon]')?.addEventListener('click', () => {
+        _missionSet(null);
+        _renderTab();
+    });
+    tab.querySelector('[data-mission-finish]')?.addEventListener('click', () => {
+        _missionSet(null);
+        _persistentToast('success', 'Mission complete — the wizard is yours now.');
+        _renderTab();
+    });
+    tab.querySelectorAll('[data-mission-open-port]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            // The port modal reads the PARSED function — before the first
+            // Parse there is nothing to open; say so instead of failing
+            // silently. Português: O modal lê a função PARSEADA — antes do
+            // primeiro Parse não há o que abrir; diga isso em vez de
+            // falhar em silêncio.
+            const path = btn.dataset.missionOpenPort;
+            const fnName = (path.split('.') || [])[1];
+            const known = (_state.parsed?.functions || [])
+                .some(f => f.name === fnName);
+            if (!known) {
+                _persistentToast('warning',
+                    'Press Parse first — the port editor reads the parsed device.');
+                return;
+            }
+            _openFunctionPortModal(path);
+        });
+    });
+}
+
 function _renderTab() {
     const tab = document.getElementById('proj-tab-wizard');
     if (!tab) return;
@@ -615,6 +776,7 @@ function _renderTab() {
     //     entry; abandoned drafts are also auto-cleaned after 30
     //     idle days by the Asynq task in server/tasks/wizard_cleanup.go.
     const cardsBlock = `
+        ${_missionPanelHtml()}
         <div class="wiz-cards">
             ${projWizardBuildCards(_state.parsed, _state.incomplete, _state.code)}
         </div>`;
@@ -635,6 +797,8 @@ function _renderTab() {
             </div>
         </div>`;
 
+    _missionWire(tab);
+
     // Reattach Monaco into the freshly-rendered host. The setTimeout
     // gives the browser a tick to apply layout before Monaco's own
     // resize observer kicks in.
@@ -647,6 +811,23 @@ function _renderTab() {
             if (m) {
                 setTimeout(() => {
                     m.layout();
+                    // One layout() at reattach is not enough: the cards
+                    // arrive LATER (async parse), the grid reflows and the
+                    // host changes width — Monaco stays painted at the old
+                    // size and the difference shows as a black band (field
+                    // report 2026-07-15: "o monaco fica preto do nada").
+                    // A ResizeObserver relayouts on every reflow.
+                    // Português: Um layout() só no reattach não basta: os
+                    // cards chegam DEPOIS, o grid reflui e o host muda de
+                    // largura — o Monaco fica pintado no tamanho velho e a
+                    // diferença vira faixa preta. O ResizeObserver
+                    // re-layouta a cada reflow.
+                    if (!newHost._wizLayoutRO && window.ResizeObserver) {
+                        newHost._wizLayoutRO = new ResizeObserver(() => {
+                            try { m.layout(); } catch (_) { /* disposed */ }
+                        });
+                        newHost._wizLayoutRO.observe(newHost);
+                    }
                     // Now that Monaco has measured its new container,
                     // hook up the scroll/alignment listeners and run
                     // the first alignment pass. Doing this AFTER the
@@ -1811,14 +1992,21 @@ function _renderMethodCard(def, methodName, fd, incompleteSet, lines) {
 //                signature; there is no separate comment or connection).
 // Rules for a function device:
 //   - device → needs a label AND an icon (same rule as methods);
-//   - return → needs only a label (it is the return VALUE, not a
-//              parameter — no comment, no connection);
+//   - return → never incomplete (2026-07-15: an empty label falls back
+//              to the name; it is the return VALUE — no comment, no
+//              connection);
 //   - every other port is a PARAMETER, input or output alike: it needs
-//     a label + comment + a connection choice. Direction is only how
+//     a comment + a connection choice (label optional — the name serves). Direction is only how
 //     the pin is drawn; in the generated call the parameter still needs
 //     an argument, so the mandatory/optional choice applies regardless.
 function _functionPortMissing(p, dir) {
-    if (p.name === 'return') return !p.label;
+    // Label is NOT required (rule change 2026-07-15, both judges): an
+    // empty label falls back to the port's NAME — exactly what the card
+    // renders. The server twin (completion.go portIncompleteC99) changed
+    // the same day; "se não falta nada, a indicação não deveria
+    // aparecer". Português: label vazio herda o NOME; os dois juízes —
+    // este espelho e o servidor — aplicam a mesma lei.
+    if (p.name === 'return') return false;
     // Synthetic callback reference output: a handler's `callback` pin
     // (produced by `// callback:<type>.`) carries callbackType and has no
     // backing parameter, so it is not editable — no label/comment/
@@ -1828,7 +2016,7 @@ function _functionPortMissing(p, dir) {
     // parameter; the dir === 'out' guard keeps inputs subject to the rules.)
     if (dir === 'out' && p.callbackType) return false;
     const noComment = !(p.doc || p.comment);
-    return !p.label || noComment || !!p.missingConn;
+    return noComment || !!p.missingConn;
 }
 
 function _functionDeviceIncomplete(fn) {
@@ -2250,6 +2438,17 @@ function _openModal({ title, bodyHtml, footerHtml, onMount }) {
 }
 
 function _closeModal(backdrop) {
+    // Cleanup hook: a modal that created live resources (Monaco editors,
+    // GLOBAL completion providers — the test-drive) stores a disposer on
+    // the backdrop; every close path funnels through here, so nothing
+    // leaks into the page's own editors. Português: Gancho de limpeza —
+    // modal que criou recursos vivos (editores, providers GLOBAIS)
+    // guarda o descarte no backdrop; todo caminho de fechamento passa
+    // por aqui, então nada vaza para os editores da página.
+    if (backdrop && typeof backdrop._wizCleanup === 'function') {
+        try { backdrop._wizCleanup(); } catch (_) { /* best effort */ }
+        backdrop._wizCleanup = null;
+    }
     if (backdrop && backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
 }
 
@@ -3763,6 +3962,140 @@ function _openFunctionReturnModal(fnName) {
     });
 }
 
+// _isIntegralGoType: can this sibling parameter serve as a collection
+// LENGTH? Mirrors the server's isIntegralCType after the Go mapping.
+function _isIntegralGoType(t) {
+    return /^u?int(8|16|32|64)?$/.test(t || '');
+}
+
+// _sniffDictionaries: which project .json files ARE completion
+// dictionaries? Content over extension (the web_image_type philosophy):
+// an array where every item has a string `label`. Returns
+// [{path, items}] so the select can show the item count.
+function _sniffDictionaries() {
+    const out = [];
+    let files = [];
+    try { files = _wizardCopy() || []; } catch (_) { return out; }
+    for (const f of files) {
+        const p = f.path || f.name || '';
+        if (!/\.json$/i.test(p)) continue;
+        try {
+            const v = JSON.parse(f.content || '');
+            if (Array.isArray(v) && v.length > 0 &&
+                v.every(it => it && typeof it.label === 'string')) {
+                out.push({ path: p, items: v.length, entries: v });
+            }
+        } catch (_) { /* not a dictionary — fine */ }
+    }
+    return out;
+}
+
+// _fnPortPreview: the "Writes into your source" footer — the live list
+// of directives the Save will emit. Transparency is the trust repair
+// after the 2026-07-13 silent-strip episode: the modal SHOWS its pen.
+function _fnPortPreview(backdrop) {
+    const box = backdrop.querySelector('#wiz-fnport-preview');
+    if (!box) return;
+    const v = id => backdrop.querySelector(id)?.value ?? null;
+    const lines = [];
+    const out = backdrop.querySelector('#wiz-fnport-output');
+    if (out && out.checked) lines.push('// direction:out.');
+    const conn = v('#wiz-fnport-conn');
+    if (conn) lines.push('// connection:' + conn + '.');
+    const slice = v('#wiz-fnport-slice');
+    if (slice) lines.push('// slice:' + slice + '.');
+    const lang = v('#wiz-fnport-lang');
+    if (lang) lines.push('// lang:' + lang + '.');
+    const dict = v('#wiz-fnport-dict');
+    if (dict) lines.push('// dict:' + dict + '.');
+    box.textContent = lines.length ? lines.join('\n')
+        : '// (only doc/label — no structural directives)';
+}
+
+// _fnPortTestDrive wires the modal's mini Monaco: a live sandbox where
+// the specialist types like a maker and sees the SELECTED dictionary
+// suggest with the SELECTED language — verification by eye, before
+// publishing. Providers are GLOBAL per language in Monaco, so this
+// re-registers on every knob change and disposes everything through the
+// modal's cleanup hook. Português: O mini Monaco do modal — o
+// especialista digita como um maker e vê o dicionário ESCOLHIDO sugerir
+// na linguagem ESCOLHIDA, antes de publicar. Providers são GLOBAIS por
+// linguagem, então isto re-registra a cada mudança e descarta tudo pelo
+// gancho de limpeza do modal.
+function _fnPortTestDrive(backdrop, dicts) {
+    const host = backdrop.querySelector('#wiz-fnport-tryit');
+    if (!host) return;
+    if (!window.monaco) {
+        host.style.display = 'flex';
+        host.style.alignItems = 'center';
+        host.style.justifyContent = 'center';
+        host.textContent = 'Editor still loading — reopen to try it.';
+        return;
+    }
+
+    const langOf = () =>
+        backdrop.querySelector('#wiz-fnport-lang')?.value || 'plaintext';
+
+    // NO theme option here (field bug 2026-07-15): Monaco themes are
+    // GLOBAL — a 'vs-dark' on this tiny try-it flipped EVERY editor on
+    // the page to black the moment a byteish port opened its modal
+    // ("o monaco ficou preto do nada" — endpoint, not byteish, never
+    // flipped; html, byteish, always did). The try-it INHERITS whatever
+    // theme the page runs. Português: Tema é GLOBAL no Monaco — o
+    // 'vs-dark' deste mini-editor escurecia TODOS os editores da página
+    // quando uma porta byteish abria o modal. O try-it HERDA o tema.
+    const editor = monaco.editor.create(host, {
+        value: '',
+        language: langOf(),
+        fontSize: 12,
+        lineNumbers: 'off',
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+        automaticLayout: true,
+        wordWrap: 'on',
+        quickSuggestions: true,
+        quickSuggestionsDelay: 10,
+        suggestOnTriggerCharacters: true,
+        padding: { top: 6, bottom: 6 },
+    });
+
+    let providerDisp = null;
+    const register = () => {
+        if (providerDisp) { providerDisp.dispose(); providerDisp = null; }
+        const lang = langOf();
+        monaco.editor.setModelLanguage(editor.getModel(), lang);
+        const path = backdrop.querySelector('#wiz-fnport-dict')?.value || '';
+        const dict = dicts.find(d => d.path === path);
+        if (!dict || lang === '') return;
+        providerDisp = monaco.languages.registerCompletionItemProvider(lang, {
+            provideCompletionItems: () => ({
+                suggestions: dict.entries.map(it => ({
+                    label: it.label,
+                    kind: monaco.languages.CompletionItemKind.Snippet,
+                    insertText: it.insert || it.label,
+                    insertTextRules: monaco.languages
+                        .CompletionItemInsertTextRule.InsertAsSnippet,
+                    // detail shows INLINE on the row; the documentation
+                    // pane is collapsed by default (same lesson as the
+                    // maker's editor). Português: detail aparece NA LINHA.
+                    detail: it.doc || '',
+                    documentation: it.doc || '',
+                })),
+            }),
+        });
+    };
+    register();
+
+    ['#wiz-fnport-lang', '#wiz-fnport-dict'].forEach(sel => {
+        backdrop.querySelector(sel)?.addEventListener('change', register);
+    });
+
+    backdrop._wizCleanup = () => {
+        if (providerDisp) providerDisp.dispose();
+        editor.dispose();
+    };
+}
+
 function _openFunctionPortModal(path) {
     const m = /^function\.([^.]+)\.(in|out)\.([^.]+)$/.exec(path);
     if (!m) {
@@ -3866,6 +4199,23 @@ function _openFunctionPortModal(path) {
     const canOut = _canBeOutput(port.goType);
     const isCurrentlyOut = (dir === 'out');
 
+    // ── Complete-modal data (wizard UI plan, 2026-07-13) ─────────────────
+    // Collection: shown for slice-typed inputs (clearable pairing) or
+    // when integral siblings exist to pair with. Maker editor: shown for
+    // byte collections — the ports a Data · Text plugs into.
+    const goType = port.goType || '';
+    const isSliceType = goType.startsWith('[]');
+    const isByteish = goType === '[]uint8' || goType === '[]byte';
+    const lenCandidates = (dir === 'in' && fn.inputs)
+        ? fn.inputs.filter(p => p.name !== portName && _isIntegralGoType(p.goType))
+        : [];
+    const showCollection = dir === 'in' && (isSliceType || lenCandidates.length > 0);
+    const currentSlice = port.sliceLenName || '';
+    const dicts = isByteish ? _sniffDictionaries() : [];
+    const monacoLangs = ['yaml', 'xml', 'json', 'html', 'css', 'markdown', 'plaintext'];
+    const curLang = port.editorLang || '';
+    const curDict = port.editorDict || '';
+
     _openModal({
         title: `Port · ${fnName} · ${dir === 'in' ? 'input' : 'output'} · ${portName}`,
         bodyHtml: `
@@ -3913,6 +4263,59 @@ function _openFunctionPortModal(path) {
                 </p>
             </div>
 
+            ${showCollection ? `
+            <div class="wiz-form-row">
+                <label class="wiz-form-label" for="wiz-fnport-slice">Collection</label>
+                <select id="wiz-fnport-slice" class="wiz-form-input">
+                    <option value="" ${currentSlice === '' ? 'selected' : ''}>Not a collection</option>
+                    ${currentSlice && !lenCandidates.some(p => p.name === currentSlice) ? `
+                    <option value="${esc(currentSlice)}" selected>Paired with length param: ${esc(currentSlice)}</option>` : ''}
+                    ${lenCandidates.map(p => `
+                    <option value="${esc(p.name)}" ${currentSlice === p.name ? 'selected' : ''}>Pair with length param: ${esc(p.name)}</option>`).join('')}
+                </select>
+                <p class="wiz-form-help">
+                    Pairs this pointer with a length parameter into ONE
+                    collection pin. The length param disappears from the
+                    block — the pair travels together.
+                </p>
+            </div>
+            ` : ''}
+
+            ${isByteish ? `
+            <div class="wiz-form-row wiz-fnport-makered">
+                <label class="wiz-form-label">Maker editor</label>
+                <p class="wiz-form-help" style="margin-top:0">
+                    What a wired Data · Text device opens with — the maker
+                    types content for this port without knowing the format.
+                </p>
+                <label class="wiz-form-label" for="wiz-fnport-lang" style="margin-top:8px">Language</label>
+                <select id="wiz-fnport-lang" class="wiz-form-input">
+                    <option value="" ${curLang === '' ? 'selected' : ''}>None — maker picks freely</option>
+                    ${monacoLangs.map(l => `
+                    <option value="${l}" ${curLang === l ? 'selected' : ''}>${l}</option>`).join('')}
+                </select>
+                <label class="wiz-form-label" for="wiz-fnport-dict" style="margin-top:8px">Dictionary</label>
+                <select id="wiz-fnport-dict" class="wiz-form-input">
+                    <option value="" ${curDict === '' ? 'selected' : ''}>None</option>
+                    ${curDict && !dicts.some(d => d.path === curDict || d.path.endsWith('/' + curDict)) ? `
+                    <option value="${esc(curDict)}" selected>${esc(curDict)} (not found in project)</option>` : ''}
+                    ${dicts.map(d => `
+                    <option value="${esc(d.path)}" ${(curDict === d.path || (curDict !== '' && d.path.endsWith('/' + curDict))) ? 'selected' : ''}>${esc(d.path)} · ${d.items} item(s)</option>`).join('')}
+                </select>
+                <p class="wiz-form-help">
+                    Only project .json files that LOOK like dictionaries are
+                    listed (an array of {"label", "insert", "doc"} items).
+                    The maker's Monaco suggests these while typing.
+                </p>
+                <label class="wiz-form-label" style="margin-top:8px">Try it</label>
+                <p class="wiz-form-help" style="margin-top:0">
+                    Type here like a maker would — your dictionary suggests live.
+                </p>
+                <div id="wiz-fnport-tryit"
+                     style="height:90px;border:1px solid rgba(127,127,127,.35);border-radius:6px;overflow:hidden"></div>
+            </div>
+            ` : ''}
+
             <div class="wiz-form-row">
                 <label class="wiz-form-label" for="wiz-fnport-comment">Comment <span class="wiz-form-req">*</span></label>
                 <textarea id="wiz-fnport-comment" class="wiz-form-input wiz-form-textarea"
@@ -3921,6 +4324,11 @@ function _openFunctionPortModal(path) {
                     Surfaces in the IDE inspector and as godoc on the source.
                     A short sentence is enough.
                 </p>
+            </div>
+
+            <div class="wiz-form-row">
+                <label class="wiz-form-label">Writes into your source</label>
+                <pre id="wiz-fnport-preview" class="wiz-form-help" style="font-family:var(--font-mono,monospace);white-space:pre-wrap;margin:0;padding:8px 10px;background:rgba(127,127,127,.08);border-radius:6px"></pre>
             </div>`,
         footerHtml: `
             <button type="button" class="btn btn-ghost wiz-modal-cancel">Cancel</button>
@@ -3955,12 +4363,35 @@ function _openFunctionPortModal(path) {
 
                 const isOutput = !!(outputCb && outputCb.checked);
 
+                // Tri-state contract with the rewrite: a field ABSENT
+                // from args preserves the source; present (even "") is
+                // the modal's final word. Only rendered controls speak.
+                // Português: Contrato tri-state — campo AUSENTE preserva;
+                // presente (mesmo "") é a palavra final do modal. Só
+                // controles renderizados falam.
+                const args = { label, connection, comment, direction: isOutput ? 'out' : 'in' };
+                const sliceSel = backdrop.querySelector('#wiz-fnport-slice');
+                if (sliceSel) args.slice = sliceSel.value;
+                const langSel = backdrop.querySelector('#wiz-fnport-lang');
+                if (langSel) args.lang = langSel.value;
+                const dictSel = backdrop.querySelector('#wiz-fnport-dict');
+                if (dictSel) args.dict = dictSel.value;
+
                 await _applyEditAndClose(backdrop, {
                     op: 'setPortConnection',
                     path: path,
-                    args: { label, connection, comment, direction: isOutput ? 'out' : 'in' },
+                    args,
                 });
             });
+            // Live "Writes into your source" preview — re-render on every
+            // knob. Português: Preview vivo — re-renderiza a cada botão.
+            ['#wiz-fnport-conn', '#wiz-fnport-output', '#wiz-fnport-slice',
+                '#wiz-fnport-lang', '#wiz-fnport-dict'].forEach(sel => {
+                backdrop.querySelector(sel)?.addEventListener('change',
+                    () => _fnPortPreview(backdrop));
+            });
+            _fnPortPreview(backdrop);
+            if (isByteish) _fnPortTestDrive(backdrop, dicts);
             setTimeout(() => backdrop.querySelector('#wiz-fnport-label')?.focus(), 60);
         },
     });

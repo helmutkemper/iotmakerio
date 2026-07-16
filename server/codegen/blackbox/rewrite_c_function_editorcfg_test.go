@@ -71,3 +71,78 @@ func TestRewriteC_FunctionPortEdit_PreservesEditorConfig(t *testing.T) {
 		t.Fatalf("editor config dropped on the SECOND pass; source:\n%s", out2)
 	}
 }
+
+// TestRewriteC_PortModal_TriState: the complete modal's knobs — SET a new
+// editor config where none existed, CHANGE the language, CLEAR the
+// dictionary — while an absent field keeps preserving (covered by the
+// test above). One test per verb of the contract.
+// Português: Os botões do modal completo — GRAVA config nova, TROCA a
+// linguagem, LIMPA o dicionário — enquanto campo ausente segue
+// preservando. Um teste por verbo do contrato.
+func TestRewriteC_PortModal_TriState(t *testing.T) {
+	bare := "" +
+		"// label:Config.\n" +
+		"\n" +
+		"#include <stdint.h>\n" +
+		"\n" +
+		"// label:App config.\n" +
+		"void app_config(\n" +
+		"    // The maker's YAML.\n" +
+		"    // slice:n.\n" +
+		"    const uint8_t *cfg,\n" +
+		"    unsigned long n) {\n" +
+		"    (void)cfg; (void)n;\n" +
+		"}\n"
+
+	// SET: the modal picks yaml + a dictionary on a port that had none.
+	set := mkEdit(OpSetPortConnection, "function.app_config.in.cfg", map[string]any{
+		"connection": "mandatory",
+		"lang":       "yaml",
+		"dict":       "config_dict.json",
+	})
+	out, err := RewriteC(bare, []WizardEdit{set})
+	if err != nil {
+		t.Fatalf("RewriteC set: %v", err)
+	}
+	def, _ := ParseC([]byte(out), DefaultParserLimits())
+	p := def.Functions[0].Inputs[0]
+	if p.EditorLang != "yaml" || p.EditorDict != "config_dict.json" {
+		t.Fatalf("SET failed: lang=%q dict=%q\n%s", p.EditorLang, p.EditorDict, out)
+	}
+	if p.SliceLenName != "n" {
+		t.Fatalf("SET dropped the untouched slice pairing: %q\n%s", p.SliceLenName, out)
+	}
+
+	// CHANGE lang + CLEAR dict in one edit.
+	change := mkEdit(OpSetPortConnection, "function.app_config.in.cfg", map[string]any{
+		"connection": "mandatory",
+		"lang":       "json",
+		"dict":       "",
+	})
+	out2, err := RewriteC(out, []WizardEdit{change})
+	if err != nil {
+		t.Fatalf("RewriteC change: %v", err)
+	}
+	def2, _ := ParseC([]byte(out2), DefaultParserLimits())
+	p2 := def2.Functions[0].Inputs[0]
+	if p2.EditorLang != "json" {
+		t.Fatalf("CHANGE failed: lang=%q\n%s", p2.EditorLang, out2)
+	}
+	if p2.EditorDict != "" || strings.Contains(out2, "dict:") {
+		t.Fatalf("CLEAR failed: dict=%q\n%s", p2.EditorDict, out2)
+	}
+
+	// CLEAR the slice pairing: the pair un-collapses back to two pins.
+	unslice := mkEdit(OpSetPortConnection, "function.app_config.in.cfg", map[string]any{
+		"connection": "mandatory",
+		"slice":      "",
+	})
+	out3, err := RewriteC(out2, []WizardEdit{unslice})
+	if err != nil {
+		t.Fatalf("RewriteC unslice: %v", err)
+	}
+	def3, _ := ParseC([]byte(out3), DefaultParserLimits())
+	if n := len(def3.Functions[0].Inputs); n != 2 {
+		t.Fatalf("un-collapse failed: %d input(s)\n%s", n, out3)
+	}
+}

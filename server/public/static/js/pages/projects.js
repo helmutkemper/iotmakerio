@@ -309,9 +309,9 @@ function _buildPageShell() {
     <div style="display:flex;align-items:center;justify-content:space-between">
       <div>
         <h1 style="font-size:22px;font-weight:700;margin:0">
-          <i class="fa-solid fa-microchip" style="color:var(--primary);margin-right:10px"></i>Devices &amp; Templates
+          <i class="fa-solid fa-microchip" style="color:var(--primary);margin-right:10px"></i>Devices
           <span onclick="window._projOpenHelp()"
-                title="Devices &amp; Templates guide"
+                title="Devices guide"
                 style="display:inline-flex;align-items:center;justify-content:center;
                        width:18px;height:18px;border-radius:50%;
                        background:rgba(0,0,0,.06);cursor:pointer;
@@ -339,6 +339,16 @@ function _buildPageShell() {
           <i class="fa-solid fa-caret-down" style="margin-left:4px;font-size:11px"></i>
         </button>
         <div class="proj-newbtn-menu" id="proj-newbtn-menu" role="menu">
+          <button class="proj-newbtn-item" role="menuitem"
+                  onclick="openSchoolPage()">
+            <i class="fa-solid fa-graduation-cap" style="color:var(--primary)"></i>
+            <div>
+              <div style="font-weight:600">School</div>
+              <div style="font-size:11px;color:var(--text-muted)">
+                Guided examples — pick one, it becomes your project
+              </div>
+            </div>
+          </button>
           <button class="proj-newbtn-item" role="menuitem"
                   onclick="openWizardCreateModal()">
             <i class="fa-solid fa-wand-magic-sparkles" style="color:var(--primary)"></i>
@@ -2485,6 +2495,32 @@ window._projTabDrop = (ev, to) => {
 window._projTabRename   = (i) => { _tabRenameAt(i); };
 window._projTabClose    = (i) => { _tabCloseAt(i); };
 window._projTabAdd      = () => { _tabAdd(); };
+// _projLoadExampleFiles: the wizard gallery's bridge — creates (or
+// replaces) editor tabs from an example's file bundle. Mirrors _tabAdd's
+// model lifecycle; existing tabs at the same path are updated in place.
+// Português: A ponte da galeria do wizard — cria (ou substitui) abas do
+// editor a partir do bundle de um exemplo.
+window._projLoadExampleFiles = (files) => {
+    if (!Array.isArray(files)) return;
+    for (const f of files) {
+        const path = (f.path || '').trim();
+        if (!path || typeof f.content !== 'string') continue;
+        const existing = _editorTabs.find(t => t.path === path);
+        if (existing) {
+            existing.model.pushEditOperations([],
+                [{ range: existing.model.getFullModelRange(), text: f.content }],
+                () => null);
+            continue;
+        }
+        const uri = _tabModelUri(path);
+        try { monaco.editor.getModel(uri)?.dispose(); } catch (e) {}
+        const model = monaco.editor.createModel(f.content, _tabLang(path), uri);
+        _tabDeletedPaths.delete(path);
+        _editorTabs.push({ path, model, savedContent: '' });
+    }
+    if (_editorTabs.length) _tabActivate(0);
+    projScheduleBackup?.();
+};
 // Upload picked from the editor tab strip: same snapshot pipeline as any
 // code-section upload; the resync inside onFileSelected turns the new
 // file into a tab (binary → base64 placeholder).
@@ -5206,6 +5242,223 @@ export async function submitWizardCreate() {
 }
 
 
+// ═════════════════════════════════════════════════════════════════════════
+//  School (wizard UI plan, 2026-07-14)
+// ═════════════════════════════════════════════════════════════════════════
+//
+// The mission gallery's HOME: the first option under "+ New". Picking an
+// example CREATES a project from its bundle — the example is the birth of
+// the project, not a load into an existing one. Content comes from the
+// wizard_examples table (managed at /control). Português: A CASA da
+// galeria — primeira opção do "+ New". Escolher um exemplo CRIA um
+// projeto a partir do bundle: o exemplo é o nascimento do projeto.
+
+let _schoolLang = 'c';
+
+export function openSchoolPage() {
+    // The School is a VIEW inside #app-root — beside the sidebar, like
+    // every page of the app (field direction 2026-07-15: "o sidebar menu
+    // não deve ser apagado"). The wizard stylesheet dresses the cards and
+    // is lazy-loaded, so inject it first. Back re-renders the Devices
+    // list. Português: A School é uma VIEW dentro do #app-root — ao lado
+    // do sidebar, como toda página do app. O CSS do wizard veste os
+    // cards e é preguiçoso: injeta primeiro. O Voltar re-renderiza a
+    // lista de Devices.
+    _injectWizardStyles();
+    const root = document.getElementById('app-root');
+    if (!root) return;
+    const ov = document.createElement('div');
+    ov.id = 'school-overlay';
+    ov.className = 'school-view';
+    ov.innerHTML = `
+      <div class="school-page">
+        <div class="school-head">
+          <button class="btn btn-ghost btn-sm" id="school-back">
+            <i class="fa-solid fa-arrow-left"></i> Devices</button>
+          <div class="school-title">
+            <h1><i class="fa-solid fa-graduation-cap"></i> School</h1>
+            <p>Pick an example. Open it, change something, see it work.</p>
+          </div>
+          <div class="school-langs">
+            <button class="btn btn-sm ${_schoolLang === 'c' ? 'btn-primary' : 'btn-ghost'}"
+                    data-school-lang="c">C99</button>
+            <button class="btn btn-sm ${_schoolLang === 'go' ? 'btn-primary' : 'btn-ghost'}"
+                    data-school-lang="go">Go</button>
+          </div>
+        </div>
+        <div id="school-cards" class="wiz-gallery">
+          <p class="fhint">Loading examples…</p>
+        </div>
+      </div>`;
+    root.replaceChildren(ov);
+    ov.querySelector('#school-back').addEventListener('click', () => {
+        renderProjects(root);
+    });
+    ov.querySelectorAll('[data-school-lang]').forEach(b => {
+        b.addEventListener('click', () => {
+            _schoolLang = b.dataset.schoolLang;
+            openSchoolPage();
+        });
+    });
+    _schoolLoad();
+}
+
+async function _schoolLoad() {
+    const box = document.getElementById('school-cards');
+    if (!box) return;
+    // HONEST failures (2026-07-15 field bug): a 401/404 here used to be
+    // swallowed into "no examples yet", hiding a dead session behind an
+    // innocent empty state. Auth problems now SAY so. Português: Falha
+    // HONESTA — 401/404 era engolido como "sem exemplos", escondendo
+    // sessão morta atrás de um vazio inocente. Agora fala.
+    let list = null;
+    let failure = '';
+    try {
+        const r = await api('GET',
+            `/api/v1/blackbox/wizard/examples?language=${encodeURIComponent(_schoolLang)}`);
+        const st = r?.metadata?.status;
+        if (st === 200) {
+            list = r.data?.examples || [];
+        } else if (st === 401 || st === 404) {
+            failure = 'Your session looks stale — log out and back in, then reopen the School.';
+        } else {
+            failure = r?.metadata?.error || `unexpected status ${st}`;
+        }
+    } catch (e) {
+        failure = e?.message || 'network error';
+    }
+    if (failure) {
+        box.innerHTML = `<p class="fhint" style="color:var(--danger)">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            Could not load the School: ${esc(failure)}</p>`;
+        return;
+    }
+    if (!list.length) {
+        box.innerHTML = `<p class="fhint">No examples for
+            <code>${esc(_schoolLang)}</code> yet.</p>`;
+        return;
+    }
+    box.innerHTML = list.map(e => `
+        <div class="wiz-gallery-card">
+            <span class="wiz-gallery-badge ${e.level === 'mission' ? 'is-mission' : 'is-ready'}">
+                ${e.level === 'mission' ? 'Mission' : 'Ready to run'}</span>
+            <h4>${esc(e.title)}</h4>
+            <p>${esc(e.subtitle || '')}</p>
+            <button class="btn btn-primary" data-school-open="${esc(e.id)}">
+                ${e.level === 'mission' ? 'Start mission' : 'Open example'}
+            </button>
+        </div>`).join('');
+    box.querySelectorAll('[data-school-open]').forEach(btn => {
+        btn.addEventListener('click', () => _schoolOpen(btn.dataset.schoolOpen, btn));
+    });
+}
+
+// _schoolOpen: example → PROJECT. Create with the example's identity,
+// open the editor, inject the bundle, save version 1, arm the mission
+// (the wizard's panel reads the same localStorage key). Português:
+// exemplo → PROJETO: cria, abre, injeta o bundle, salva a v1 e arma a
+// missão (o painel do wizard lê a mesma chave).
+async function _schoolOpen(id, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
+    try {
+        const r = await api('GET',
+            `/api/v1/blackbox/wizard/examples/${encodeURIComponent(id)}`);
+        if (r?.metadata?.status !== 200) throw new Error('example not found');
+        const ex = r.data || {};
+        const files = Array.isArray(ex.files) ? ex.files : [];
+        if (!files.length) throw new Error('example has no files');
+
+        const uiLangsList = Array.isArray(_uiLangs) ? _uiLangs : [];
+        const uiLangId = (uiLangsList.find(l => l.id === S.locale)?.id)
+            || (uiLangsList[0]?.id) || '';
+        const cr = await api('POST', '/api/v1/projects', {
+            name: ex.title || 'School example',
+            type: 'custom_device',
+            visibility: 'private',
+            programmingLanguageId: ex.language || _schoolLang,
+            uiLanguageId: uiLangId,
+        });
+        if (cr?.metadata?.status !== 200 && cr?.metadata?.status !== 201) {
+            throw new Error(cr?.metadata?.error || 'could not create the project');
+        }
+        const newId = cr.data?.id || cr.data?.project?.id;
+        if (!newId) throw new Error('server returned no project id');
+
+        if (ex.level === 'mission') {
+            let steps = [];
+            try { steps = Array.isArray(ex.steps) ? ex.steps
+                : JSON.parse(ex.steps || '[]'); } catch (_) { steps = []; }
+            if (steps.length) {
+                try {
+                    localStorage.setItem('wiz-mission-' + newId, JSON.stringify(
+                        { id: ex.id, title: ex.title || '', steps }));
+                } catch (_) { /* session-only then */ }
+            }
+        }
+
+        // SERVER-FIRST (field bug 2026-07-15): the old flow opened the
+        // editor and injected files client-side — but openCodeEditor
+        // loads the (empty) newborn project ASYNC and trampled the
+        // injection; sometimes the save won the race, sometimes it lost
+        // ("às vezes acusa erro, às vezes não, nunca carrega"). Now
+        // version 1 is saved BEFORE the editor opens: Monaco loads
+        // content from the database — no bridge, no race — and the
+        // student lands on the FIRST tab (the editor), as the field
+        // asked. Português: SERVIDOR-PRIMEIRO — a v1 é salva ANTES do
+        // editor abrir: o Monaco carrega do banco, sem corrida — e o
+        // aluno cai na PRIMEIRA aba (o editor).
+        const sv = await api('POST',
+            `/api/v1/projects/${newId}/files/code/versions`,
+            // lastParseOk: true — gallery examples are CURATED and
+            // parse-verified (the /control lesson editor's full test runs
+            // the same parser). Shipping false made the wizard distrust a
+            // known-good bundle and demand a ritual Parse (field report
+            // 2026-07-15: "pede que eu clique, mesmo que a saída esteja
+            // correta"). Português: exemplos da galeria são CURADOS e
+            // verificados pelo mesmo parser; false fazia o wizard
+            // desconfiar de bundle sabidamente bom.
+            { files: files.filter(f => f.kind !== 'help')
+                          .map(f => ({ path: f.path, content: f.content })),
+              lastParseOk: true });
+        // "help"-kind files go to project_help_files via raw-body PUT —
+        // readme.<lang>.md becomes the device's menu introduction the
+        // moment the project exists ("menu bonito", 2026-07-15). A manual
+        // is a nicety: its failure never blocks the project. Português:
+        // Arquivos "help" viram o manual do menu via PUT de corpo cru;
+        // falha de manual nunca trava o projeto.
+        for (const hf of files.filter(f => f.kind === 'help')) {
+            try {
+                // encoding "base64" = binary (manual images) — decode to
+                // bytes; the server sniffs the MIME from content. Text
+                // travels as-is. Português: "base64" = binário (imagens
+                // do manual) — decodifica; texto viaja como está.
+                let body = hf.content;
+                if (hf.encoding === 'base64') {
+                    const bin = atob(hf.content);
+                    const bytes = new Uint8Array(bin.length);
+                    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                    body = new Blob([bytes]);
+                }
+                await fetch(
+                    `/api/v1/projects/${newId}/files/help/` +
+                    hf.path.split('/').map(encodeURIComponent).join('/'),
+                    { method: 'PUT',
+                      headers: { Authorization: 'Bearer ' + (localStorage.getItem('token') || '') },
+                      body });
+            } catch (_) { /* nicety */ }
+        }
+        if (sv?.metadata?.status !== 200 && sv?.metadata?.status !== 201) {
+            throw new Error(sv?.metadata?.error || 'could not save the example files');
+        }
+        await loadProjects();
+        openCodeEditor(newId);
+        showPageAlert(`${ex.title || 'Example'} is yours now — the code is in the Editor; press Parse when ready.`, 'success', 0);
+    } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Try again'; }
+        showPageAlert(`Could not open the example: ${e?.message || e}`, 'error');
+    }
+}
+
 export function openCreateProjectModal() {
     const overlay = document.getElementById('proj-modal-overlay');
     if (!overlay) return;
@@ -5960,7 +6213,15 @@ function showPageAlert(msg, type, durationMs) {
         document.body.appendChild(stack);
     }
 
-    const ms  = durationMs || 5000;
+    // duration contract (2026-07-15): explicit number wins; 0 means the
+    // toast stays until the user closes it; omitted → errors PERSIST
+    // (field direction: "mensagens de erro sem timeout — o usuário deve
+    // fechar"), everything else auto-fades. The old `|| 5000` defeated
+    // the documented 0. Português: número explícito vence; 0 = fica até
+    // fechar; omitido → erro PERSISTE, resto esvai. O `|| 5000` antigo
+    // derrotava o 0 documentado.
+    const ms = durationMs === 0 ? 0
+        : (durationMs ?? ((type === 'danger' || type === 'error') ? 0 : 5000));
     const id  = 'toast-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
 
     const borderColor = {

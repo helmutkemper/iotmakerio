@@ -89,6 +89,16 @@ const (
 	// PermMenuDelete allows deleting a menu section.
 	PermMenuDelete Permission = "menu.delete"
 
+	// ── School ───────────────────────────────────────────────────────────────
+
+	// PermSchoolEdit allows managing the School's example gallery: create
+	// (including snapshots from projects), edit metadata and steps,
+	// reorder, hide, delete. One permission for the whole domain — the
+	// gallery is curated content, not user data. Português: Gerencia a
+	// galeria de exemplos da School: criar (inclusive snapshots de
+	// projetos), editar, reordenar, ocultar, apagar.
+	PermSchoolEdit Permission = "school.edit"
+
 	// ── Reports ──────────────────────────────────────────────────────────────
 
 	// PermReportsView allows reading user-submitted reports.
@@ -150,6 +160,11 @@ var RolePermissions = map[string][]Permission{
 		PermDevicesPromote,
 		PermMenuView,
 		PermMenuEdit,
+		// School gallery curation (2026-07-15 — the constant existed for
+		// a day without a grant; the 403 in the field found it).
+		// Português: Curadoria da galeria School (a constante viveu um
+		// dia sem concessão; o 403 do campo a encontrou).
+		PermSchoolEdit,
 		PermMenuDelete,
 		PermReportsView,
 		PermReportsResolve,

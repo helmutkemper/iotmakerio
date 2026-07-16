@@ -191,6 +191,17 @@ type clientPortDef struct {
 	// encaminhá-los.
 	EditorLang     string `json:"editorLang,omitempty"`
 	EditorDictJSON string `json:"editorDictJson,omitempty"`
+	// EditorDict is the dictionary's PATH (the `dict:` reference) — the
+	// complete port modal's select needs the path, while the IDE's wire
+	// consumers need the resolved CONTENT above. SliceLenName is the
+	// collection pairing so the modal can display and clear it. Same
+	// copy-site audit rule as everything in this struct.
+	// Português: EditorDict é o CAMINHO do dicionário (o select do modal
+	// precisa do caminho; o fio consome o conteúdo acima). SliceLenName
+	// é o pareamento da coleção, para o modal exibir e limpar. Mesma
+	// regra de auditoria de copy-sites.
+	EditorDict   string `json:"editorDict,omitempty"`
+	SliceLenName string `json:"sliceLenName,omitempty"`
 }
 
 // editorDictMaxBytes caps a completion dictionary rider — a dictionary is
@@ -613,6 +624,8 @@ func toClientDef(def *bbparser.BlackBoxDef) clientBlackBoxDef {
 						Doc:            sanitizeDoc(p.Doc),
 						EditorLang:     p.EditorLang,
 						EditorDictJSON: resolveEditorDict(def, p),
+						EditorDict:     p.EditorDict,
+						SliceLenName:   p.SliceLenName,
 					}
 				}
 			}
@@ -627,6 +640,8 @@ func toClientDef(def *bbparser.BlackBoxDef) clientBlackBoxDef {
 						Doc:            sanitizeDoc(p.Doc),
 						EditorLang:     p.EditorLang,
 						EditorDictJSON: resolveEditorDict(def, p),
+						EditorDict:     p.EditorDict,
+						SliceLenName:   p.SliceLenName,
 					}
 				}
 			}
@@ -668,6 +683,8 @@ func toClientDef(def *bbparser.BlackBoxDef) clientBlackBoxDef {
 						CallbackType:   p.CallbackType,
 						EditorLang:     p.EditorLang,
 						EditorDictJSON: resolveEditorDict(def, p),
+						EditorDict:     p.EditorDict,
+						SliceLenName:   p.SliceLenName,
 					}
 				}
 			}
@@ -685,6 +702,8 @@ func toClientDef(def *bbparser.BlackBoxDef) clientBlackBoxDef {
 						CallbackType:   p.CallbackType,
 						EditorLang:     p.EditorLang,
 						EditorDictJSON: resolveEditorDict(def, p),
+						EditorDict:     p.EditorDict,
+						SliceLenName:   p.SliceLenName,
 					}
 				}
 			}
@@ -798,7 +817,9 @@ func toClientFuncDef(fd bbparser.FuncDef) clientFuncDef {
 				// diretivas C — ambos estruturalmente vazios; EditorLang
 				// segue mesmo assim pela regra de auditoria dos copy
 				// sites (a lição do WireType).
-				EditorLang: p.EditorLang,
+				EditorLang:   p.EditorLang,
+				EditorDict:   p.EditorDict,
+				SliceLenName: p.SliceLenName,
 			}
 		}
 	}
@@ -819,7 +840,9 @@ func toClientFuncDef(fd bbparser.FuncDef) clientFuncDef {
 				// diretivas C — ambos estruturalmente vazios; EditorLang
 				// segue mesmo assim pela regra de auditoria dos copy
 				// sites (a lição do WireType).
-				EditorLang: p.EditorLang,
+				EditorLang:   p.EditorLang,
+				EditorDict:   p.EditorDict,
+				SliceLenName: p.SliceLenName,
 			}
 		}
 	}

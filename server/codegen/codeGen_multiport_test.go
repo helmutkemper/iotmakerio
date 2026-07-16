@@ -1,8 +1,3 @@
-// server/codegen/codeGen_multiport_test.go
-//
-// SPDX-FileCopyrightText: 2026 Helmut Kemper
-// SPDX-License-Identifier: AGPL-3.0-only
-
 package codegen
 
 import (

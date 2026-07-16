@@ -222,6 +222,21 @@ func planCFunctionPortConnection(source string, fp cFunctionPath, e WizardEdit) 
 		// checkbox, "in" (or empty) otherwise. Only meaningful on a
 		// mutable pointer; the SPA only offers the checkbox there.
 		Direction string `json:"direction"`
+		// Slice / Lang / Dict are the COMPLETE port modal's knobs
+		// (wizard UI plan, 2026-07-13): the collection pairing
+		// (`slice:<len>.`), the maker-editor language (`lang:`) and the
+		// completion dictionary (`dict:`). TRI-STATE by pointer — the
+		// contract every modal field follows from now on:
+		//   absent (nil)  → PRESERVE what the source already has
+		//                   (old clients keep working untouched);
+		//   ""            → CLEAR the directive;
+		//   value         → WRITE it.
+		// Português: Os botões do modal COMPLETO da porta. TRI-STATE por
+		// ponteiro: ausente = PRESERVA o que o fonte já tem (clientes
+		// antigos seguem intactos); "" = LIMPA; valor = GRAVA.
+		Slice *string `json:"slice"`
+		Lang  *string `json:"lang"`
+		Dict  *string `json:"dict"`
 	}
 	if err := json.Unmarshal(e.Args, &args); err != nil {
 		return cSplicePlan{}, fmt.Errorf("invalid args: %w", err)
@@ -283,6 +298,10 @@ func planCFunctionPortConnection(source string, fp cFunctionPath, e WizardEdit) 
 		// (so editing one param doesn't sprinkle default labels onto its
 		// untouched siblings).
 		var doc, label, connection string
+		// nil = preserve from the parsed port; set = the modal's word is
+		// final (possibly ""=clear). Português: nil = preserva da porta
+		// parseada; setado = a palavra do modal é final ("" = limpa).
+		var sliceOverride, langOverride, dictOverride *string
 		isOutput := false
 		emit := true
 		if i == targetIdx {
@@ -294,6 +313,19 @@ func planCFunctionPortConnection(source string, fp cFunctionPath, e WizardEdit) 
 			// output — we keep it either way.
 			isOutput = args.Direction == "out" && canBeOutput(typ)
 			connection = args.Connection
+			// Complete-modal knobs: apply the tri-state NOW so the
+			// preservation blocks below see the final intent. Português:
+			// Aplica o tri-state AGORA; os blocos de preservação abaixo
+			// enxergam a intenção final.
+			if args.Slice != nil {
+				sliceOverride = args.Slice
+			}
+			if args.Lang != nil {
+				langOverride = args.Lang
+			}
+			if args.Dict != nil {
+				dictOverride = args.Dict
+			}
 		} else if strings.TrimSpace(tok.leadingDoc) == "" {
 			emit = false
 		} else if pp != nil {
@@ -332,8 +364,15 @@ func planCFunctionPortConnection(source string, fp cFunctionPath, e WizardEdit) 
 			// comment, so the directive survives an edit to THIS port or to any
 			// sibling parameter. (The parser strips `// ` before reading, so
 			// re-emitting it on its own line round-trips cleanly.)
-			if pp != nil && pp.portDef.SliceLenName != "" {
-				dirs = append(dirs, "slice:"+pp.portDef.SliceLenName+".")
+			sliceVal := ""
+			if pp != nil {
+				sliceVal = pp.portDef.SliceLenName
+			}
+			if sliceOverride != nil {
+				sliceVal = *sliceOverride
+			}
+			if sliceVal != "" {
+				dirs = append(dirs, "slice:"+sliceVal+".")
 			}
 			// Preserve the Phase B editor config (`lang:` + `dict:`) the
 			// same way: the wizard's port editor has NO fields for them,
@@ -349,11 +388,21 @@ func planCFunctionPortConnection(source string, fp cFunctionPath, e WizardEdit) 
 			// que as derrubasse emudeceria o Monaco do maker em silêncio
 			// (report de campo de 2026-07-13: uma ida ao modal apagou as
 			// duas e o dicionário sumiu sem rastro).
-			if pp != nil && pp.portDef.EditorLang != "" {
-				dirs = append(dirs, "lang:"+pp.portDef.EditorLang+".")
+			langVal, dictVal := "", ""
+			if pp != nil {
+				langVal, dictVal = pp.portDef.EditorLang, pp.portDef.EditorDict
 			}
-			if pp != nil && pp.portDef.EditorDict != "" {
-				dirs = append(dirs, "dict:"+pp.portDef.EditorDict+".")
+			if langOverride != nil {
+				langVal = *langOverride
+			}
+			if dictOverride != nil {
+				dictVal = *dictOverride
+			}
+			if langVal != "" {
+				dirs = append(dirs, "lang:"+langVal+".")
+			}
+			if dictVal != "" {
+				dirs = append(dirs, "dict:"+dictVal+".")
 			}
 		}
 

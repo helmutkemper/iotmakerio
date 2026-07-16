@@ -107,6 +107,17 @@ func registerCompletionDict(key, lang, dictJSON string) {
 				s.Set("insertText", insert)
 				s.Set("insertTextRules", snippetRule)
 				if doc := it.Get("doc"); doc.Truthy() {
+					// detail renders INLINE on the suggestion row — the
+					// documentation pane is collapsed by default in
+					// Monaco and nobody discovers the toggle (field
+					// report 2026-07-13: "o doc não aparece"). Both are
+					// set: the row shows the short read, the expandable
+					// pane keeps the full text. Português: detail aparece
+					// NA LINHA da sugestão — o painel de documentation
+					// nasce recolhido e ninguém acha o botão. Os dois são
+					// preenchidos: a linha dá a leitura curta, o painel
+					// expansível guarda o texto completo.
+					s.Set("detail", doc)
 					s.Set("documentation", doc)
 				}
 				suggestions.Call("push", s)

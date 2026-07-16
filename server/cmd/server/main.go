@@ -263,8 +263,9 @@ func main() {
 
 	// Control panel API — separate group, requires control token
 	vControl := e.Group("/api/control/v1")
-	controlapi.RegisterControl(vControl)      // /api/control/v1/users/*
-	controlapi.RegisterTranslations(vControl) // /api/control/v1/translations/* (OTP-gated writes)
+	controlapi.RegisterControl(vControl)        // /api/control/v1/users/*
+	controlapi.RegisterTranslations(vControl)   // /api/control/v1/translations/* (OTP-gated writes)
+	controlapi.RegisterWizardExamples(vControl) // /api/control/v1/school/* (School gallery)
 
 	// Menu sections and groups — admin CRUD for the dynamic IDE menu.
 	// Uses the same control token auth as the rest of /api/control/v1/*.

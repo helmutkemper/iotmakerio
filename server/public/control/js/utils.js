@@ -1,5 +1,13 @@
 // utils.js — pure helpers, UI micro-helpers
-import { S } from './state.js';
+// CS aliased as S: this module was written against the portal's state
+// shape and lay DORMANT — no routed page imported it until the School
+// page (2026-07-15) detonated the broken name. The alias fixes every
+// dormant importer (templates/projects/admin/following) for the day they
+// wake. Português: CS com alias S: módulo escrito contra o shape do
+// portal e ADORMECIDO — nenhuma página roteada o importava até a School
+// detonar o nome quebrado. O alias conserta os importadores adormecidos
+// para o dia em que acordarem.
+import { CS as S } from './state.js';
 
 // ─── i18n auto-report of missing keys ────────────────────────────────────────
 //
