@@ -1,4 +1,6 @@
 // /server/codegen/codeGen_bb_collection_test.go
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
 
 package codegen
 
@@ -160,19 +162,19 @@ func TestBBCollection_InferenceAndScalarCast(t *testing.T) {
 	if len(resp.Errors) > 0 {
 		t.Fatalf("Errors: %v", resp.Errors)
 	}
-	t.Logf("Generated Go:\n%s", resp.Code)
+	t.Logf("Generated Go:\n%s", resp.Files["main.go"])
 
 	// DECISION B: the declaration carries the CONSUMER's element type —
 	// []uint16, not the []int64 default.
-	assertContains(t, resp.Code, "constArrayInt1 := []uint16{1, 2, 3}")
-	if strings.Contains(resp.Code, "[]int64{1, 2, 3}") {
-		t.Errorf("declaration must follow the consumer's []uint16, found []int64:\n%s", resp.Code)
+	assertContains(t, resp.Files["main.go"], "constArrayInt1 := []uint16{1, 2, 3}")
+	if strings.Contains(resp.Files["main.go"], "[]int64{1, 2, 3}") {
+		t.Errorf("declaration must follow the consumer's []uint16, found []int64:\n%s", resp.Files["main.go"])
 	}
 
 	// CAST ESCALAR: the scalar argument is cast to the authored uint16;
 	// the collection argument passes uncast (its type already matches by
 	// inference — and slices have no conversion anyway).
-	assertContains(t, resp.Code, "mixer1.Run(constArrayInt1, uint16(constInt1))")
+	assertContains(t, resp.Files["main.go"], "mixer1.Run(constArrayInt1, uint16(constInt1))")
 }
 
 // TestBBCollection_FanOutConflict: one constant, two consumers demanding
@@ -248,7 +250,7 @@ func TestBBCollection_FanOutConflict(t *testing.T) {
 		},
 	})
 	if len(resp.Errors) == 0 {
-		t.Fatalf("expected a blocking error for conflicting collection element demands, got none\ncode:\n%s", resp.Code)
+		t.Fatalf("expected a blocking error for conflicting collection element demands, got none\ncode:\n%s", resp.Files["main.go"])
 	}
 	joined := strings.Join(resp.Errors, " | ")
 	if !strings.Contains(joined, "different collection element types") {
@@ -348,9 +350,9 @@ func TestBBCollection_HoistAcrossScope(t *testing.T) {
 	if len(resp.Errors) > 0 {
 		t.Fatalf("Errors: %v", resp.Errors)
 	}
-	t.Logf("Generated Go:\n%s", resp.Code)
+	t.Logf("Generated Go:\n%s", resp.Files["main.go"])
 
-	code := resp.Code
+	code := resp.Files["main.go"]
 
 	// The WHOLE declaration is hoisted: it must appear BEFORE the loop.
 	declIdx := strings.Index(code, "constArrayInt1 := []int64{1, 2, 3}")

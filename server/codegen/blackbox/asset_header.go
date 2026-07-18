@@ -117,6 +117,9 @@ func RenderAssetHeader(assetPath string, data []byte) []byte {
 	b.WriteString(" * export, edições aqui sempre se perdem.\n")
 	b.WriteString(" */\n")
 	fmt.Fprintf(&b, "#ifndef %s\n#define %s\n\n", guard, guard)
+	// Slice 0 (2026-07-16): C++ include-site safety — see csurface.go.
+	// Português: Fatia 0 — segurança para o .ino em C++.
+	b.WriteString("#ifdef __cplusplus\nextern \"C\" {\n#endif\n\n")
 	// AVR flash placement — the compiler decides, not the export: on AVR,
 	// `const` alone lands the array in SRAM (2 KB on an Uno; a 12 KB
 	// asset cannot even exist there). PROGMEM keeps it in flash, but then
@@ -157,6 +160,7 @@ func RenderAssetHeader(assetPath string, data []byte) []byte {
 	// acima de 64 KB truncaria o tamanho em silêncio. Sem include,
 	// autocontido.
 	fmt.Fprintf(&b, "static const unsigned long %s_len = %dul;\n\n", sym, len(data))
+	b.WriteString("#ifdef __cplusplus\n} /* extern \"C\" */\n#endif\n\n")
 	fmt.Fprintf(&b, "#endif /* %s */\n", guard)
 	return []byte(b.String())
 }

@@ -99,3 +99,9 @@ test-wasm: check-wasm-runner
 test-wasm-visual: check-wasm-runner
 	WASM_HEADLESS=off GOARCH=wasm GOOS=js $(GO) test ./ui/mainMenu/... \
 	    -exec="$(WASM_RUNNER)" -v
+
+## make apply T=pacote.tar.gz — aplica um tarball de entrega com validação
+## (raiz, whitelist, anti-ninho, resumo, confirmação). Sem T=, pega o mais
+## novo de ~/Downloads. Português: aplicador seguro dos pacotes.
+apply:
+	@./tools/apply-patch.sh $(T)

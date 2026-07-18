@@ -112,6 +112,15 @@ const cssBlock = `
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  /* Scroll without a scrollbar (field 2026-07-17: "o menu contextual
+     não deveria ter barra de rolagem, ele simplesmente rola") — wheel,
+     trackpad and touch still scroll; only the bar is hidden.
+     Português: Rola sem barra — roda/trackpad/touch continuam rolando;
+     só a barra some. */
+  scrollbar-width: none;
+}
+.cm-list::-webkit-scrollbar {
+  display: none;
 }
 
 .cm-back {
@@ -213,6 +222,22 @@ const cssBlock = `
   overflow-y: auto;
   line-height: 1.55;
   min-width: 0; /* allow flex child to shrink below content width */
+  scrollbar-width: none; /* same scrollbar-less scroll as .cm-list */
+}
+.cm-preview::-webkit-scrollbar {
+  display: none;
+}
+
+/* The previewed item's full label, atop its explanation — rescues
+   labels the narrow list column truncates. Português: O rótulo
+   completo do item, sobre a explicação — resgata rótulos truncados. */
+.cm-preview-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: #cdd6f4;
+  margin: 0 0 8px 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #2a2a40;
 }
 
 .cm-preview h1,

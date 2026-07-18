@@ -35,23 +35,43 @@ TARBALL="${1:-}"
 if [ -z "$TARBALL" ]; then
   TARBALL=$(ls -t "$HOME"/Downloads/iotmaker-*.tar.gz 2>/dev/null | head -1 || true)
   [ -n "$TARBALL" ] || die "nenhum iotmaker-*.tar.gz em ~/Downloads — passe o caminho como argumento"
-  say "→ mais novo em Downloads: $TARBALL"
+  # Auto-pick é conveniência, não confiança: Downloads acumula pacotes de
+  # eras diferentes e um re-download dá mtime novo a conteúdo velho — foi
+  # assim que um tarball antigo rebaixou três arquivos de uma vez em
+  # 2026-07-15. Mostre a idade e os irmãos; na dúvida, use T=.
+  # English: auto-pick is convenience, not trust — a re-download gives old
+  # content a fresh mtime; that's how an old tarball time-traveled three
+  # files at once. Show age and siblings; when in doubt, pass T=.
+  say "→ auto-pick: $TARBALL"
+  say "   modificado: $(date -r "$TARBALL" '+%Y-%m-%d %H:%M' 2>/dev/null || stat -c %y "$TARBALL" 2>/dev/null | cut -d. -f1)"
+  OTHERS=$(ls -t "$HOME"/Downloads/iotmaker-*.tar.gz 2>/dev/null | tail -n +2 | head -5 || true)
+  if [ -n "$OTHERS" ]; then
+    say "   outros na pasta (mais antigos por mtime):"
+    while IFS= read -r o; do
+      say "     · $(basename "$o")  ($(date -r "$o" '+%Y-%m-%d %H:%M' 2>/dev/null))"
+    done <<< "$OTHERS"
+  fi
 fi
 [ -f "$TARBALL" ] || die "não achei: $TARBALL"
 
 # ── 3. inspecionar ANTES de tocar o disco ────────────────────────────────
-# Whitelist dos diretórios de topo do repo — um caminho fora daqui é
-# tarball errado ou ninho em formação. Português: Fora da lista = pacote
-# errado ou ninho.
-ALLOW='^(server|wire|devices|ui|blackbox|factoryDevice|docs|tools|00_howto)/'
+# Top-level check is DYNAMIC (2026-07-16, after stageWorkspace/ was
+# refused): a valid top is any directory that EXISTS at the repo root
+# right now — self-maintaining, no list to drift. A package that
+# legitimately introduces a brand-new top runs once with
+# ALLOW_TOP=<name>. Português: Topo válido = diretório que EXISTE na
+# raiz agora — sem lista para drifar. Topo genuinamente novo passa uma
+# vez com ALLOW_TOP=<nome>.
 BAD=0
 while IFS= read -r p; do
   case "$p" in
     /*)      say "  ✖ caminho ABSOLUTO no pacote: $p"; BAD=1 ;;
     *../*)   say "  ✖ caminho com '..': $p";           BAD=1 ;;
   esac
-  if ! printf '%s' "$p" | grep -Eq "$ALLOW"; then
-    say "  ✖ topo fora da whitelist: $p"; BAD=1
+  top=${p%%/*}
+  if [ ! -d "$top" ] && [ "$top" != "${ALLOW_TOP:-}" ]; then
+    say "  ✖ topo desconhecido (não existe na raiz): $p — novo de verdade? re-rode com ALLOW_TOP=$top"
+    BAD=1
   fi
   case "$p" in
     server/server/*|*/wire/wire/*|server/wire/*|server/devices/*|server/ui/overlay/*)
@@ -86,6 +106,15 @@ if [ "${AUTO:-0}" != "1" ]; then
 fi
 tar xzf "$TARBALL"
 say "✔ aplicado."
+
+# Quarentena: pacote aplicado sai da roleta do "mais novo" para sempre.
+# English: quarantine — an applied package leaves the newest-roulette.
+case "$TARBALL" in
+  "$HOME"/Downloads/*)
+    mkdir -p "$HOME/Downloads/iotmaker-applied"
+    mv "$TARBALL" "$HOME/Downloads/iotmaker-applied/"       && say "→ movido para ~/Downloads/iotmaker-applied/ (fora da roleta)"
+    ;;
+esac
 
 # ── 6. o git conta o que mudou (e é o desfazer) ──────────────────────────
 if command -v git >/dev/null && git rev-parse --git-dir >/dev/null 2>&1; then

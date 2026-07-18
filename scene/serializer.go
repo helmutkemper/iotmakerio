@@ -426,6 +426,25 @@ func (s *Serializer) SetHidden(deviceID string, hidden bool) {
 // =====================================================================
 
 // ChildrenOf returns direct children of a Complex device.
+// RegisteredIDs returns every registered device id, SORTED for
+// deterministic iteration. Born 2026-07-18 for the membership
+// self-heal: a phase container must be able to census stranded orphans
+// (conflicted-at-register, import size races) that ChildrenOf cannot
+// see, because an unparented device appears in no child list.
+// Português: Todos os ids registrados, ORDENADOS. Nasceu para a
+// autocura de filiação: o container precisa recensear órfãos
+// encalhados que o ChildrenOf não enxerga (sem pai = fora de toda
+// lista de filhos).
+func (s *Serializer) RegisteredIDs() []string {
+	out := make([]string, 0, len(s.refs))
+	for id := range s.refs {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ChildrenOf — see scenegraph.Graph.ChildrenOf.
 func (s *Serializer) ChildrenOf(deviceID string) []string {
 	return s.graph.ChildrenOf(deviceID)
 }

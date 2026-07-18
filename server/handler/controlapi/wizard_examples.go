@@ -40,6 +40,29 @@ func RegisterWizardExamples(g *echo.Group) {
 	g.POST("/school/examples/from-project", handleSchoolFromProject, gate)
 	g.POST("/school/parse", handleSchoolParse, gate)
 	g.GET("/school/projects", handleSchoolProjects, gate)
+	g.POST("/school/export", handleSchoolExport, gate)
+	g.POST("/school/reload", handleSchoolReload, gate)
+}
+
+// handleSchoolExport writes every example to the school folder — the
+// backup button ("faz uma cópia em uma pasta do servidor"). Português:
+// Grava tudo na pasta — o botão de backup.
+func handleSchoolExport(c echo.Context) error {
+	n, err := store.ExportSchoolDir(store.SchoolDirPath())
+	if err != nil {
+		return fail(c, http.StatusInternalServerError, err.Error())
+	}
+	return ok(c, map[string]any{"exported": n, "dir": store.SchoolDirPath()})
+}
+
+// handleSchoolReload re-imports the folder into the DB without a server
+// restart — edit files on disk, click, see. Português: Reimporta a pasta
+// sem reiniciar — edita no disco, clica, vê.
+func handleSchoolReload(c echo.Context) error {
+	if err := store.LoadSchoolDir(store.SchoolDirPath()); err != nil {
+		return fail(c, http.StatusInternalServerError, err.Error())
+	}
+	return ok(c, map[string]any{"reloaded": true})
 }
 
 // handleSchoolProjects feeds the snapshot modal's project PICKER —

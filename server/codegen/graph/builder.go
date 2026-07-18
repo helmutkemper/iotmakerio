@@ -469,6 +469,27 @@ func Build(scene SceneInput) (*Graph, []diagnostics.Diagnostic) {
 		//
 		// Português: StatementCase — selector booleano com cases true/false vira
 		// escopo if/else; qualquer outro vira switch (SelectorPort + Cases).
+		// StatementSequence: ordered phases, all run — reuses the Case
+		// membership shape (extractCases) with sequential values; no
+		// selector. Português: Fases ordenadas, todas rodam — reusa a
+		// forma de membership do Case, sem seletor.
+		// StatementFunction: the body lifts into a named function; the
+		// name travels in the "functionName" property. Português: O
+		// corpo iça para função nomeada; o nome viaja na property.
+		if loopNode.Type == "StatementFunction" {
+			scope.Function = true
+			if loopNode.Properties != nil {
+				if v, ok := loopNode.Properties["functionName"].(string); ok {
+					scope.FunctionName = v
+				}
+			}
+		}
+
+		if loopNode.Type == "StatementSequence" && loopNode.Properties != nil {
+			scope.Sequence = true
+			scope.Cases = extractCases(loopNode.Properties)
+		}
+
 		if loopNode.Type == "StatementCase" && loopNode.Properties != nil {
 			selType, _ := loopNode.Properties["selectorType"].(string)
 			cases := extractCases(loopNode.Properties)

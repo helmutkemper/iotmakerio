@@ -148,7 +148,7 @@ func TestNestedLoops(t *testing.T) {
 	t.Log("=== IR ===")
 	t.Log(resp.IR)
 	t.Log("=== Go ===")
-	t.Log(resp.Code)
+	t.Log(resp.Files["main.go"])
 
 	// ── IR: both loops must open and close ────────────────────────────
 	assertContains(t, resp.IR, "LOOP_BEGIN %stmLoop_1")
@@ -202,33 +202,33 @@ func TestNestedLoops(t *testing.T) {
 
 	// ── Go output: the critical structural assertion ──────────────────
 	// Two `for {` openings must exist in the generated Go source.
-	forCount := strings.Count(resp.Code, "for {")
+	forCount := strings.Count(resp.Files["main.go"], "for {")
 	if forCount < 2 {
 		t.Errorf("expected at least 2 `for {` blocks in generated Go, got %d\n  Go:\n%s",
-			forCount, resp.Code)
+			forCount, resp.Files["main.go"])
 	}
 
 	// `for {` must appear nested: a second `for {` occurs before the
 	// first closing `}`. The quickest portable check is a regex that
 	// allows arbitrary interior content without another top-level close.
 	nestedPattern := regexp.MustCompile(`(?s)for \{[^}]*for \{`)
-	if !nestedPattern.MatchString(resp.Code) {
-		t.Errorf("expected inner `for {` nested inside outer `for {`\n  Go:\n%s", resp.Code)
+	if !nestedPattern.MatchString(resp.Files["main.go"]) {
+		t.Errorf("expected inner `for {` nested inside outer `for {`\n  Go:\n%s", resp.Files["main.go"])
 	}
 
 	// Both Bools must be declared and each must feed its own `if ... break`.
 	// The emitter currently writes `bool1 := bool(false)` (explicit cast);
 	// older snapshots wrote `bool1 := false`. Accept either form by only
 	// checking the assignment prefix.
-	assertContains(t, resp.Code, "bool1 := ")
-	assertContains(t, resp.Code, "bool2 := ")
-	assertContains(t, resp.Code, "if bool1 {")
-	assertContains(t, resp.Code, "if bool2 {")
+	assertContains(t, resp.Files["main.go"], "bool1 := ")
+	assertContains(t, resp.Files["main.go"], "bool2 := ")
+	assertContains(t, resp.Files["main.go"], "if bool1 {")
+	assertContains(t, resp.Files["main.go"], "if bool2 {")
 
 	// There must be two `break` statements (one per loop).
-	breakCount := strings.Count(resp.Code, "break")
+	breakCount := strings.Count(resp.Files["main.go"], "break")
 	if breakCount < 2 {
 		t.Errorf("expected 2 `break` statements (one per loop), got %d\n  Go:\n%s",
-			breakCount, resp.Code)
+			breakCount, resp.Files["main.go"])
 	}
 }

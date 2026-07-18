@@ -158,7 +158,17 @@ func buildPreview(state *panelState) string {
 	items := state.currentLevel()
 	if state.previewIdx >= 0 && state.previewIdx < len(items) {
 		it := items[state.previewIdx]
-		body = helpMarkdownFor(it)
+		// The item's LABEL leads the preview as a TITLE (field
+		// 2026-07-17, screenshot: narrow list column truncated
+		// "Remove from ..." into ambiguity — the maker could not tell
+		// the two removal entries apart). With the full label atop the
+		// explanation, truncation in the list costs nothing.
+		// Português: O RÓTULO do item abre o preview como TÍTULO —
+		// a coluna estreita truncava "Remove from ..." e o maker não
+		// distinguia as duas remoções; com o rótulo completo sobre a
+		// explicação, o corte na lista não custa nada.
+		body = `<div class="cm-preview-title">` + escHTML(it.Label) + `</div>` +
+			helpMarkdownFor(it)
 		if it.Danger {
 			body = `<div class="cm-preview-danger">` + body + `</div>`
 		}

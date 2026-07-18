@@ -118,7 +118,7 @@ func TestVariables_DeclareSetGetAlias(t *testing.T) {
 		Language:  "go",
 		Variables: vars,
 	})
-	code := goResp.Code
+	code := goResp.Files["main.go"]
 	if strings.Contains(code, "%") {
 		t.Fatalf("a register leaked into Go source (unresolved %%):\n%s", code)
 	}
@@ -149,7 +149,7 @@ func TestVariables_DeclareSetGetAlias(t *testing.T) {
 		Variables: vars,
 	})
 	// C is a multi-file backend: the source lands in resp.Files (main.c), not
-	// resp.Code (which only single-file backends like Go populate).
+	// resp.Files["main.go"] (which only single-file backends like Go populate).
 	cCode := cResp.Files["main.c"]
 	for name, f := range cResp.Files {
 		if name != "main.c" {
@@ -317,7 +317,7 @@ func TestVariables_StringZeroInit(t *testing.T) {
   "variables": [ { "name": "msg", "type": "string" }, { "name": "copy", "type": "string" } ]
 }`
 	goResp := Generate(context.Background(), Request{Scene: json.RawMessage(sceneVariablesString), Language: "go"})
-	code := goResp.Code
+	code := goResp.Files["main.go"]
 	for _, want := range []string{"var msg string", "var copy string", `"hi"`, "copy = msg"} {
 		if !strings.Contains(code, want) {
 			t.Fatalf("Go string lifecycle missing %q\n%s", want, code)

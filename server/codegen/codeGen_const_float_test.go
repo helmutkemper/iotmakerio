@@ -101,9 +101,9 @@ func TestConstFloat_Float32_EndToEnd(t *testing.T) {
 	if len(goResp.Errors) > 0 {
 		t.Fatalf("Go backend returned errors: %v", goResp.Errors)
 	}
-	t.Logf("Generated Go (float32):\n%s", goResp.Code)
-	assertContains(t, goResp.Code, "float32")
-	assertContains(t, goResp.Code, "3.14")
+	t.Logf("Generated Go (float32):\n%s", goResp.Files["main.go"])
+	assertContains(t, goResp.Files["main.go"], "float32")
+	assertContains(t, goResp.Files["main.go"], "3.14")
 }
 
 // TestConstFloat_Float64_EndToEnd: float64 → C "double" + "3.14", Go "float64".
@@ -132,7 +132,7 @@ func TestConstFloat_Float64_EndToEnd(t *testing.T) {
 	if len(goResp.Errors) > 0 {
 		t.Fatalf("Go backend returned errors: %v", goResp.Errors)
 	}
-	t.Logf("Generated Go (float64):\n%s", goResp.Code)
-	assertContains(t, goResp.Code, "float64")
-	assertContains(t, goResp.Code, "3.14")
+	t.Logf("Generated Go (float64):\n%s", goResp.Files["main.go"])
+	assertContains(t, goResp.Files["main.go"], "float64")
+	assertContains(t, goResp.Files["main.go"], "3.14")
 }

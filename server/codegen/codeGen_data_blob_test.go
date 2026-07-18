@@ -108,7 +108,7 @@ void blob_sink(
 	}
 	mainC := resp.Files["main.c"]
 	if mainC == "" {
-		mainC = resp.Code
+		mainC = resp.Files["main.go"]
 	}
 	t.Logf("main.c:\n%s", mainC)
 
@@ -140,4 +140,115 @@ func mustJSON(t *testing.T, s string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// TestDataBlob_GoBackend — the Go twin of the C test above (Kemper
+// audit 2026-07-18: "em C fizemos o embutido. Já replica em golang?").
+// The mechanism DOES replicate — backend/golang/emit.go:emitDataBlob
+// renders each maker-data asset as `var name = []byte{…}` (no _len
+// companion: Go's len() serves) — but until this test the Go path had
+// no safety net; only the C shape was pinned. Consumers here are the
+// native StatementPrintByteArray (the C test's blob_sink is a C99
+// black box with no Go twin — that ecosystem gap is recorded in
+// docs/CLAUDE_KNOWN_ISSUES.md).
+// Português: O gêmeo Go do teste C acima. O mecanismo replica —
+// emitDataBlob gera `var nome = []byte{…}` (sem _len: len() do Go
+// serve) — mas até este teste o caminho Go estava sem rede. O
+// consumidor aqui é o StatementPrintByteArray nativo (o blob_sink do
+// teste C é black-box C99 sem gêmeo Go — lacuna registrada no
+// CLAUDE_KNOWN_ISSUES.md).
+func TestDataBlob_GoBackend(t *testing.T) {
+	filePayload, _ := json.Marshal(map[string]string{
+		"name":    "logo.bin",
+		"dataUrl": "data:application/octet-stream;base64," + base64.StdEncoding.EncodeToString([]byte{1, 2, 3}),
+	})
+
+	scene := `{
+  "version": "1.0",
+  "metadata": { "language": "go" },
+  "devices": [
+    {
+      "id": "dataText_1", "type": "StatementDataText", "kind": "simple", "stage": "backend",
+      "properties": { "text": "hi", "nullTerminated": "true", "language": "yaml" },
+      "position": { "x": 0, "y": 0 }, "size": { "width": 10, "height": 10 },
+      "connectors": [
+        { "port": "output", "dataType": "[]uint8", "isOutput": true,
+          "connections": [{ "wireId": "w1", "targetDevice": "print_1", "targetPort": "value" }] }
+      ]
+    },
+    {
+      "id": "dataFile_1", "type": "StatementDataFile", "kind": "simple", "stage": "backend",
+      "properties": { "file": ` + string(mustJSON(t, string(filePayload))) + ` },
+      "position": { "x": 0, "y": 40 }, "size": { "width": 10, "height": 10 },
+      "connectors": [
+        { "port": "output", "dataType": "[]uint8", "isOutput": true,
+          "connections": [{ "wireId": "w2", "targetDevice": "print_2", "targetPort": "value" }] }
+      ]
+    },
+    {
+      "id": "print_1", "type": "StatementPrintByteArray", "kind": "simple", "stage": "backend",
+      "properties": {},
+      "position": { "x": 60, "y": 0 }, "size": { "width": 10, "height": 10 },
+      "connectors": [
+        { "port": "value", "dataType": "[]uint8", "isOutput": false,
+          "connections": [{ "wireId": "w1", "targetDevice": "dataText_1", "targetPort": "output" }] }
+      ]
+    },
+    {
+      "id": "print_2", "type": "StatementPrintByteArray", "kind": "simple", "stage": "backend",
+      "properties": {},
+      "position": { "x": 60, "y": 40 }, "size": { "width": 10, "height": 10 },
+      "connectors": [
+        { "port": "value", "dataType": "[]uint8", "isOutput": false,
+          "connections": [{ "wireId": "w2", "targetDevice": "dataFile_1", "targetPort": "output" }] }
+      ]
+    }
+  ],
+  "wires": [
+    { "id": "w1", "from": { "device": "dataText_1", "port": "output" }, "to": { "device": "print_1", "port": "value" }, "dataType": "[]uint8" },
+    { "id": "w2", "from": { "device": "dataFile_1", "port": "output" }, "to": { "device": "print_2", "port": "value" }, "dataType": "[]uint8" }
+  ]
+}`
+
+	resp := Generate(context.Background(), Request{
+		Scene:    json.RawMessage(scene),
+		Language: "go",
+	})
+	for _, d := range resp.Diagnostics {
+		t.Logf("diag [%s] %s", d.Severity, d.Message)
+	}
+	if len(resp.Errors) > 0 {
+		t.Fatalf("Errors: %v", resp.Errors)
+	}
+	mainGo := resp.Files["main.go"]
+	if mainGo == "" {
+		t.Fatalf("main.go absent from response files: %v", keysOf(resp.Files))
+	}
+	t.Logf("main.go:\n%s", mainGo)
+
+	// Text blob: 'h' 'i' NUL as a Go byte-slice var (no _len companion —
+	// Go's len() serves). Português: Blob de texto como var []byte, sem
+	// companheiro _len.
+	assertContains(t, mainGo, "var dataText1 = []byte{0x68, 0x69, 0x00}")
+
+	// File blob: source name in the comment, the three raw bytes.
+	assertContains(t, mainGo, `Data blob "logo.bin"`)
+	assertContains(t, mainGo, "var dataFile1 = []byte{0x01, 0x02, 0x03}")
+
+	// Consumption: each blob referenced beyond its declaration.
+	if n := strings.Count(mainGo, "dataText1"); n < 2 {
+		t.Fatalf("dataText1 referenced %d times, want >= 2 (declaration + use)", n)
+	}
+	if n := strings.Count(mainGo, "dataFile1"); n < 2 {
+		t.Fatalf("dataFile1 referenced %d times, want >= 2 (declaration + use)", n)
+	}
+}
+
+// keysOf lists a string map's keys for failure messages.
+func keysOf(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }

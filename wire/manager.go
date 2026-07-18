@@ -7,6 +7,7 @@ package wire
 
 import (
 	"fmt"
+	"sort"
 	"syscall/js"
 
 	"github.com/helmutkemper/iotmakerio/rulesDensity"
@@ -72,7 +73,9 @@ type Manager struct {
 	// retângulo de mundo atual (x, y, w, h). Registrado pelos containers para o
 	// renderer desenhar o túnel na borda onde um fio a cruza. Inicializado sob
 	// demanda.
-	containers map[string]func() (x, y, w, h float64)
+	containers           map[string]func() (x, y, w, h float64)
+	manualTunnels        map[string]*ManualTunnel
+	onManualTunnelDelete func(id string)
 
 	// All active wires.
 	// Português: Todos os fios ativos.
@@ -114,8 +117,14 @@ type Manager struct {
 	// de topo/base — então o túnel desliza pela moldura como no LabVIEW. A
 	// posição arrastada vale na sessão (Wire.Tunnel.Pinned); não é serializada,
 	// então re-deriva no reload, fiel ao modelo frontend-only do túnel.
-	movingTunnel        bool
-	moveTunnelFeeder    ConnectorID
+	movingTunnel     bool
+	moveTunnelFeeder ConnectorID
+	// moveManualID, when non-empty, says the ACTIVE move targets a
+	// MANUAL phase-tunnel instead of a wire-derived one (same state
+	// machine, same workspace flow — "copie o túnel original", Kemper
+	// 2026-07-17). Português: Quando não-vazio, o mover ativo é de um
+	// túnel MANUAL — mesma máquina de estados, mesmo fluxo.
+	moveManualID        string
 	moveTunnelContainer string
 	moveTunnelEdge      int
 
@@ -401,7 +410,7 @@ func (m *Manager) RefreshElementWires(elementID string) {
 		if from == nil || to == nil {
 			continue
 		}
-		_, _, resolved := findCompatibleTypes(from.AllowedTypes, to.AllowedTypes, compat)
+		_, _, resolved := findCompatibleTypes(m.effectiveTypes(from), m.effectiveTypes(to), compat)
 		if resolved == "" || resolved == w.DataType {
 			// Incompatible after the change (leave as-is) or no change.
 			// Português: Incompatível após a mudança (deixa como está) ou sem mudança.
@@ -577,6 +586,12 @@ func (m *Manager) StartConnect(sourceID ConnectorID) (candidates []Candidate) {
 		if m.hiddenElements[target.ID.ElementID] {
 			continue
 		}
+		// Phase-view gating: a manual tunnel offers only its role port
+		// ("in" on the natal phase, "out" later) and nothing while
+		// phase-hidden. Português: Gating por fase — só a porta do papel.
+		if m.manualTunnelPortBlocked(target.ID) {
+			continue
+		}
 		if source.IsOutput == target.IsOutput {
 			continue
 		}
@@ -595,11 +610,11 @@ func (m *Manager) StartConnect(sourceID ConnectorID) (candidates []Candidate) {
 
 		var outputTypes, inputTypes []string
 		if source.IsOutput {
-			outputTypes = source.AllowedTypes
-			inputTypes = target.AllowedTypes
+			outputTypes = m.effectiveTypes(source)
+			inputTypes = m.effectiveTypes(target)
 		} else {
-			outputTypes = target.AllowedTypes
-			inputTypes = source.AllowedTypes
+			outputTypes = m.effectiveTypes(target)
+			inputTypes = m.effectiveTypes(source)
 		}
 
 		// findCompatibleTypes now returns (outputType, inputType, resolvedType).
@@ -675,13 +690,13 @@ func (m *Manager) FinishConnect(targetID ConnectorID) (w *Wire, err error) {
 	if source.IsOutput {
 		fromID = sourceID
 		toID = targetID
-		outputTypes = source.AllowedTypes
-		inputTypes = target.AllowedTypes
+		outputTypes = m.effectiveTypes(source)
+		inputTypes = m.effectiveTypes(target)
 	} else {
 		fromID = targetID
 		toID = sourceID
-		outputTypes = target.AllowedTypes
-		inputTypes = source.AllowedTypes
+		outputTypes = m.effectiveTypes(target)
+		inputTypes = m.effectiveTypes(source)
 	}
 
 	compat := m.getCompatibility()
@@ -798,11 +813,11 @@ func (m *Manager) ConnectDirect(fromID, toID ConnectorID) (*Wire, error) {
 	// Determine output/input direction.
 	var outputTypes, inputTypes []string
 	if fromConn.IsOutput {
-		outputTypes = fromConn.AllowedTypes
-		inputTypes = toConn.AllowedTypes
+		outputTypes = m.effectiveTypes(fromConn)
+		inputTypes = m.effectiveTypes(toConn)
 	} else {
-		outputTypes = toConn.AllowedTypes
-		inputTypes = fromConn.AllowedTypes
+		outputTypes = m.effectiveTypes(toConn)
+		inputTypes = m.effectiveTypes(fromConn)
 	}
 
 	compat := m.getCompatibility()
@@ -988,6 +1003,11 @@ func (m *Manager) HitTestAnyConnector(worldX, worldY float64) *ConnectorInfo {
 		if m.hiddenElements[c.ID.ElementID] {
 			continue
 		}
+		// Phase-view gating — same rule as the candidate scan above.
+		// Português: Mesmo gating por fase do scan de candidatos.
+		if m.manualTunnelPortBlocked(c.ID) {
+			continue
+		}
 		cx, cy := c.PositionFunc()
 		dx := worldX - cx
 		dy := worldY - cy
@@ -1073,6 +1093,521 @@ func tunnelEdgeOf(rx, ry, rw, rh, px, py float64) int {
 		edge = edgeBottom
 	}
 	return edge
+}
+
+// TunnelPointsFor returns the automatic tunnel points currently minted
+// on the given container's border — one per feeder group. The Sequence
+// uses it as part of the no-overlap judge for MANUAL phase-tunnels
+// (spec #6, 2026-07-17: occlusion hides information; any tunnel counts,
+// automatic or manual).
+//
+// THE 2026-07-18 DRAGON LIVED HERE: Wire.Tunnel is a POINTER, nil on
+// every wire that does not cross a container border, and this loop
+// dereferenced it bare. The judge only meets wires once the maker has
+// both tunnels AND wires in the scene — so the panic slept through
+// every early test (empty m.wires) and woke exactly when the field got
+// real: creating a tunnel with wired siblings killed the wasm runtime,
+// and the whole IDE froze with it ("a criação de túnel continua
+// travando"). The createTunnel panic shield caught it, the checkpoints
+// bisected it to this window, and every sibling loop in this file
+// already carried the guard — this one was born without it.
+//
+// Português: Pontos de túnel AUTOMÁTICOS na borda do container — o
+// Sequence os usa no juiz anti-sobreposição. O DRAGÃO DE 2026-07-18
+// MORAVA AQUI: Wire.Tunnel é PONTEIRO, nil em todo fio sem travessia de
+// borda, e este loop o dereferenciava sem guarda. O juiz só encontra
+// fios quando o maker já tem túneis E fios — o panic dormiu nos testes
+// iniciais (m.wires vazio) e acordou quando o campo ficou real: criar
+// túnel com irmãos ligados matava o runtime wasm e congelava a IDE
+// inteira. O escudo o capturou, os checkpoints o bissectaram até esta
+// janela, e todo loop irmão neste arquivo já tinha a guarda — este
+// nasceu sem.
+func (m *Manager) TunnelPointsFor(containerID string) []Point {
+	var pts []Point
+	for _, w := range m.wires {
+		if w.Tunnel != nil && w.Tunnel.ContainerID == containerID {
+			pts = append(pts, w.Tunnel.Point)
+		}
+	}
+	return pts
+}
+
+// ManualTunnel is a maker-created phase-tunnel: the SAME on-canvas
+// object as the automatic wire-derived marker (square on a container
+// border, slides along its locked edge, Connect/Move/Delete menu), but
+// with its own identity — it exists before any wire, carries the
+// StatementTunnel device id, and lives in the internal (violet)
+// palette. Born red (Fresh) until the first interaction.
+//
+// Português: Túnel de fase criado pelo maker — o MESMO objeto de tela
+// do marcador automático, com identidade própria: existe antes de
+// qualquer fio, carrega o id do device e usa a paleta interna
+// (violeta). Nasce vermelho (Fresh) até a primeira interação.
+type ManualTunnel struct {
+	ID          string
+	ContainerID string
+	Edge        int
+	Point       Point
+	Fresh       bool
+
+	// Phase-view state (Kemper spec 2026-07-18): ONE tunnel, presentation
+	// decided by the phase being viewed. NatalCase is the Sequence phase
+	// (case id) the tunnel was born in — the only PERSISTED field of the
+	// three (the shell serializes it as "tunnelNatal"). Role and
+	// PhaseHidden are DERIVED and pushed by the owning Sequence on every
+	// visibility pass: viewing the natal phase → Role "in" (square on the
+	// RIGHT border, pin pointing inward-left); any later phase → Role
+	// "out" (square on the LEFT border, pin pointing inward-right); any
+	// earlier phase → PhaseHidden (the tunnel does not exist yet there).
+	// The wire package stores this as dumb data — it never reaches into
+	// device types to compute it (no import cycle).
+	//
+	// Português: Estado de visão-por-fase (spec Kemper 2026-07-18): UM
+	// túnel, apresentação decidida pela fase em exibição. NatalCase é a
+	// fase de nascimento — único campo PERSISTIDO (a casca serializa como
+	// "tunnelNatal"). Role e PhaseHidden são DERIVADOS e empurrados pelo
+	// Sequence dono a cada passe de visibilidade: fase natal → "in"
+	// (quadrado na borda DIREITA, pino para dentro-esquerda); fase
+	// posterior → "out" (borda ESQUERDA, pino para dentro-direita); fase
+	// anterior → PhaseHidden (o túnel ainda não existe lá). O pacote wire
+	// guarda como dado burro — nunca alcança devices para computar.
+	NatalCase   string
+	Role        string
+	PhaseHidden bool
+
+	// RemovedCases holds the phases (case ids) the maker HID this
+	// tunnel's exit from (Kemper 2026-07-18: "assim um túnel pode ser
+	// ocultado"). Persisted by the shell as "tunnelRemoved". The natal
+	// phase is never in this set — it is the tunnel's HOME, the handle
+	// you restore from; removing it too would make the tunnel
+	// unreachable. Português: Fases (ids) das quais o maker OCULTOU a
+	// saída deste túnel. Persistido pela casca como "tunnelRemoved". A
+	// fase natal nunca entra no conjunto — é o LAR do túnel, a alça de
+	// onde se restaura.
+	RemovedCases map[string]bool
+}
+
+// manualEdgeOf maps the Sequence's side vocabulary to the edge consts.
+func manualEdgeOf(side string) int {
+	switch side {
+	case "top":
+		return edgeTop
+	case "bottom":
+		return edgeBottom
+	case "right":
+		return edgeRight
+	default:
+		return edgeLeft
+	}
+}
+
+// AddManualTunnel registers (or re-seats) a manual phase-tunnel. A
+// RE-SEAT (record already present) preserves the phase-view state
+// (NatalCase/Role/PhaseHidden): position syncs must never clobber what
+// the Sequence or the restore path already stamped — order-proofing, the
+// same discipline as the shell's pendingX/Y.
+// Português: Registra (ou re-assenta) um túnel manual. RE-ASSENTAR
+// preserva o estado de visão-por-fase: sincronizações de posição nunca
+// podem sobrescrever o que o Sequence ou o restore já carimbaram.
+func (m *Manager) AddManualTunnel(id, containerID, side string, p Point, fresh bool) {
+	if m.manualTunnels == nil {
+		m.manualTunnels = map[string]*ManualTunnel{}
+	}
+	if prev, ok := m.manualTunnels[id]; ok {
+		prev.ContainerID = containerID
+		prev.Edge = manualEdgeOf(side)
+		prev.Point = p
+		if fresh {
+			prev.Fresh = true
+		}
+		m.markDirty()
+		return
+	}
+	m.manualTunnels[id] = &ManualTunnel{
+		ID: id, ContainerID: containerID,
+		Edge: manualEdgeOf(side), Point: p, Fresh: fresh,
+	}
+	m.markDirty()
+}
+
+// SetManualTunnelNatal stamps the tunnel's birth phase. Called by the
+// Sequence right after creation and by the shell's restore sync.
+// Português: Carimba a fase natal — na criação e no restore.
+func (m *Manager) SetManualTunnelNatal(id, natalCase string) {
+	if t, ok := m.manualTunnels[id]; ok && natalCase != "" {
+		t.NatalCase = natalCase
+	}
+}
+
+// ManualTunnelNatal reads the birth phase ("" when unknown — old scenes).
+// Português: Lê a fase natal ("" quando desconhecida — cenas antigas).
+func (m *Manager) ManualTunnelNatal(id string) string {
+	if t, ok := m.manualTunnels[id]; ok {
+		return t.NatalCase
+	}
+	return ""
+}
+
+// ManualTunnelRole reads the current derived role ("in"/"out"; "" before
+// the first view push). Português: Papel derivado atual.
+func (m *Manager) ManualTunnelRole(id string) string {
+	if t, ok := m.manualTunnels[id]; ok {
+		return t.Role
+	}
+	return ""
+}
+
+// ManualTunnelIDsFor lists the manual tunnels pinned to a container —
+// the Sequence enumerates through HERE, not through its own bookkeeping,
+// so restored tunnels (which never pass through createTunnel) are
+// covered too. Português: Lista os túneis do container — o Sequence
+// enumera por AQUI, cobrindo também os restaurados.
+func (m *Manager) ManualTunnelIDsFor(containerID string) []string {
+	var ids []string
+	for id, t := range m.manualTunnels {
+		if t.ContainerID == containerID {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// SetManualTunnelView pushes one tunnel's phase presentation: side + X
+// re-seated by the owner (Y is the maker's coordinate, preserved by the
+// caller), role and phase-hidden flags. This is the write half of the
+// Sequence→manager push; the renderer and the connect gating read it.
+// Português: Empurra a apresentação de fase de um túnel: lado + X
+// re-assentados pelo dono (Y é do maker), papel e escondido-por-fase.
+func (m *Manager) SetManualTunnelView(id, side string, x, y float64, role string, phaseHidden bool) {
+	t, ok := m.manualTunnels[id]
+	if !ok {
+		return
+	}
+	t.Edge = manualEdgeOf(side)
+	t.Point = Point{X: x, Y: y}
+	t.Role = role
+	t.PhaseHidden = phaseHidden
+	m.markDirty()
+}
+
+// AddManualTunnelRemovedCases hides the tunnel's exit in the given
+// phases (case ids) — "remove dessa fase" adds one, "remove das
+// próximas fases" adds the tail after the phase on screen. The natal
+// phase must never be passed here (the Sequence guards it): it is the
+// handle the maker restores from. Português: Oculta a saída do túnel
+// nas fases dadas. A natal nunca chega aqui (o Sequence guarda): é a
+// alça de restauração.
+func (m *Manager) AddManualTunnelRemovedCases(id string, cases ...string) {
+	t, ok := m.manualTunnels[id]
+	if !ok || len(cases) == 0 {
+		return
+	}
+	if t.RemovedCases == nil {
+		t.RemovedCases = map[string]bool{}
+	}
+	for _, c := range cases {
+		if c != "" {
+			t.RemovedCases[c] = true
+		}
+	}
+	m.markDirty()
+}
+
+// SetManualTunnelRemovedCases replaces the whole removal set — the
+// restore path ("retorna para as próximas fases retorna todos") passes
+// nil/empty to clear everything, and the shell's scene restore passes
+// the persisted list. Português: Substitui o conjunto inteiro — o
+// restore passa vazio ("retorna todos"), e a casca passa a lista
+// persistida ao recarregar a cena.
+func (m *Manager) SetManualTunnelRemovedCases(id string, cases []string) {
+	t, ok := m.manualTunnels[id]
+	if !ok {
+		return
+	}
+	if len(cases) == 0 {
+		t.RemovedCases = nil
+		m.markDirty()
+		return
+	}
+	set := make(map[string]bool, len(cases))
+	for _, c := range cases {
+		if c != "" {
+			set[c] = true
+		}
+	}
+	t.RemovedCases = set
+	m.markDirty()
+}
+
+// ManualTunnelRemovedCases lists the removal set, SORTED so the shell's
+// serialization is deterministic across saves. Português: Lista o
+// conjunto ORDENADO — serialização determinística.
+func (m *Manager) ManualTunnelRemovedCases(id string) []string {
+	t, ok := m.manualTunnels[id]
+	if !ok || len(t.RemovedCases) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(t.RemovedCases))
+	for c := range t.RemovedCases {
+		out = append(out, c)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ManualTunnelRemovedHas reports whether the tunnel's exit is hidden in
+// the given phase — refreshTunnelViews consults this per phase flip.
+// Português: Diz se a saída está oculta na fase dada.
+func (m *Manager) ManualTunnelRemovedHas(id, caseID string) bool {
+	t, ok := m.manualTunnels[id]
+	return ok && t.RemovedCases[caseID]
+}
+
+// ManualTunnelContainer returns the owning container id — the menu uses
+// it to reach the Sequence that owns the phase semantics. Português:
+// Devolve o container dono — o menu chega ao Sequence por aqui.
+func (m *Manager) ManualTunnelContainer(id string) string {
+	if t, ok := m.manualTunnels[id]; ok {
+		return t.ContainerID
+	}
+	return ""
+}
+
+// ManualTunnelConsumers lists the element ids wired to the tunnel's
+// "out" port — the Sequence maps them to phases to enforce the
+// unhideable-when-wired rule (Kemper 2026-07-18: "eu não deveria poder
+// ocultar um túnel que tem ligação de wire na fase onde estou").
+//
+// BOTH wire orientations count. Wires are usually stored output→input,
+// but a draft started from the CONSUMER'S INPUT can land inverted
+// (From=consumer.input → To=tunnel.out) — and a census that only read
+// From==tunnel missed it, letting a wired tunnel be hidden (field
+// 2026-07-17, screenshot: "eu ocultei um túnel que havia wire
+// conectado"). Português: Ids ligados à porta "out". As DUAS
+// orientações contam — fio iniciado pelo INPUT do consumidor pode ficar
+// invertido, e o censo que só lia From==túnel deixou ocultar túnel
+// ligado (campo 2026-07-17).
+func (m *Manager) ManualTunnelConsumers(id string) []string {
+	var out []string
+	for _, w := range m.wires {
+		switch {
+		case w.From.ElementID == id && w.From.PortName == "out":
+			out = append(out, w.To.ElementID)
+		case w.To.ElementID == id && w.To.PortName == "out":
+			out = append(out, w.From.ElementID)
+		}
+	}
+	return out
+}
+
+// ClearManualTunnelRemovedCase drops ONE phase from the removal set —
+// the self-heal op: refreshTunnelViews calls it when it finds a WIRED
+// phase marked removed (legacy saves, or any future census hole), so
+// the invariant "wired is visible" repairs itself on sight. Português:
+// Tira UMA fase do conjunto — a autocura: o refreshTunnelViews chama ao
+// encontrar fase LIGADA marcada como removida, e o invariante "ligado é
+// visível" se conserta ao ser visto.
+func (m *Manager) ClearManualTunnelRemovedCase(id, caseID string) {
+	t, ok := m.manualTunnels[id]
+	if !ok || t.RemovedCases == nil {
+		return
+	}
+	if t.RemovedCases[caseID] {
+		delete(t.RemovedCases, caseID)
+		if len(t.RemovedCases) == 0 {
+			t.RemovedCases = nil
+		}
+		m.markDirty()
+	}
+}
+
+// ManualTunnelWireType returns the tunnel's stamped type — the concrete
+// type of its FEED wire (the value's true type; taps may carry PROMOTED
+// types, e.g. an int feed with a float-promoted tap), falling back to
+// the first tap when no feed exists yet. "" = unwired, still chameleon.
+// Both wire orientations are read (the inverted-storage lesson of
+// 2026-07-17). Português: O tipo carimbado do túnel — o tipo do FEED
+// (a verdade do valor; taps podem vir PROMOVIDOS), com fallback no
+// primeiro tap. "" = sem fio, ainda camaleão. As duas orientações
+// contam (lição do fio invertido).
+func (m *Manager) ManualTunnelWireType(id string) string {
+	if _, ok := m.manualTunnels[id]; !ok {
+		return ""
+	}
+	fallback := ""
+	for _, w := range m.wires {
+		feed := (w.To.ElementID == id && w.To.PortName == "in") ||
+			(w.From.ElementID == id && w.From.PortName == "in")
+		touches := feed ||
+			w.From.ElementID == id || w.To.ElementID == id
+		if !touches || w.DataType == "" || w.DataType == "*" {
+			continue
+		}
+		if feed {
+			return w.DataType
+		}
+		if fallback == "" {
+			fallback = w.DataType
+		}
+	}
+	return fallback
+}
+
+// effectiveTypes returns the type list a compatibility check must use
+// for a connector: a manual tunnel's connectors NARROW dynamically —
+// once any wire stamps the tunnel, both ports offer exactly that type
+// (so the matrix keeps enforcing and promoting, same as a direct wire);
+// unwired, they stay the registered chameleon ["*"]. Every other
+// connector passes through unchanged. The narrowing lives HERE, where
+// the wires live — no re-registration dance, no disconnect hooks, the
+// truth is always current. Português: A lista de tipos que a checagem
+// de compatibilidade deve usar: conectores de túnel ESTREITAM
+// dinamicamente — carimbado, os dois lados oferecem exatamente aquele
+// tipo (a matriz segue valendo e promovendo, igual a fio direto); sem
+// fio, fica o camaleão ["*"] registrado. O estreitamento mora AQUI,
+// onde moram os fios — sem re-registro, sem gancho de desconexão.
+func (m *Manager) effectiveTypes(c *ConnectorInfo) []string {
+	if c == nil {
+		return nil
+	}
+	if _, ok := m.manualTunnels[c.ID.ElementID]; !ok {
+		return c.AllowedTypes
+	}
+	if wt := m.ManualTunnelWireType(c.ID.ElementID); wt != "" {
+		return []string{wt}
+	}
+	return c.AllowedTypes
+}
+
+// manualTunnelOwns reports whether elementID is a manual phase-tunnel
+// pinned to containerID — recalculateWire uses it to suppress automatic
+// crossing markers on the tunnel's own border stubs. Português: Diz se
+// elementID é túnel manual preso a containerID — o recalculateWire usa
+// para suprimir travessias automáticas nos tocos da própria borda.
+func (m *Manager) manualTunnelOwns(elementID, containerID string) bool {
+	t, ok := m.manualTunnels[elementID]
+	return ok && t.ContainerID == containerID
+}
+
+// manualTunnelPortBlocked gates the INTERACTIVE connect paths (candidate
+// scan + hit-test) by phase view: a phase-hidden tunnel offers nothing;
+// a visible one offers ONLY its role port — "in" while viewing the natal
+// phase (you feed it there), "out" in later phases (you tap it there).
+// ConnectDirect (the import's wire restore) never passes through here on
+// purpose: saved wires must reconnect regardless of which phase happens
+// to be on screen. Português: Gating dos caminhos INTERATIVOS por visão
+// de fase: túnel escondido não oferece nada; visível oferece SÓ a porta
+// do papel. O ConnectDirect (restore) não passa aqui de propósito.
+func (m *Manager) manualTunnelPortBlocked(id ConnectorID) bool {
+	t, ok := m.manualTunnels[id.ElementID]
+	if !ok {
+		return false
+	}
+	if t.PhaseHidden {
+		return true
+	}
+	switch t.Role {
+	case "in":
+		return id.PortName != "in"
+	case "out":
+		return id.PortName != "out"
+	}
+	return false
+}
+
+// RemoveManualTunnel forgets a manual tunnel (device removal path).
+func (m *Manager) RemoveManualTunnel(id string) {
+	delete(m.manualTunnels, id)
+	if m.moveManualID == id {
+		m.movingTunnel = false
+		m.moveManualID = ""
+	}
+	m.markDirty()
+}
+
+// SetOnManualTunnelDelete installs the device-removal callback (the
+// factory owns device lifecycles; the menu only pulls this cord).
+// Português: Instala o callback de remoção do device — o factory é dono
+// do ciclo de vida; o menu só puxa a cordinha.
+func (m *Manager) SetOnManualTunnelDelete(fn func(id string)) {
+	m.onManualTunnelDelete = fn
+}
+
+// RequestManualTunnelDelete pulls the cord (nil-safe).
+func (m *Manager) RequestManualTunnelDelete(id string) {
+	if m.onManualTunnelDelete != nil {
+		m.onManualTunnelDelete(id)
+	}
+}
+
+// ManualTunnelPoint returns the live junction point — the anchor the
+// device's connectors report. Português: O ponto vivo da junção — a
+// âncora que os conectores do device reportam.
+func (m *Manager) ManualTunnelPoint(id string) (Point, bool) {
+	t, ok := m.manualTunnels[id]
+	if !ok {
+		return Point{}, false
+	}
+	return t.Point, true
+}
+
+// TouchManualTunnel clears the birth-red on any interaction (spec #3).
+func (m *Manager) TouchManualTunnel(id string) {
+	if t, ok := m.manualTunnels[id]; ok && t.Fresh {
+		t.Fresh = false
+		m.markDirty()
+	}
+}
+
+// ManualTunnelAt hit-tests manual tunnels — same tolerance as TunnelAt.
+func (m *Manager) ManualTunnelAt(worldX, worldY float64) (id string, ok bool) {
+	d := rulesDensity.GetDensity()
+	tolerance := m.hitTolerance * d * 1.5
+	for _, t := range m.manualTunnels {
+		// A tunnel does not exist before its natal phase — no hit, no
+		// menu. Português: Antes da fase natal o túnel não existe.
+		if t.PhaseHidden {
+			continue
+		}
+		dx := worldX - t.Point.X
+		dy := worldY - t.Point.Y
+		if dx*dx+dy*dy <= tolerance*tolerance {
+			return t.ID, true
+		}
+	}
+	return "", false
+}
+
+// BeginMoveManualTunnel enters the SAME move mode the original tunnels
+// use — the workspace flow (pointermove slides, click drops) needs no
+// change. Português: Entra no MESMO modo-mover dos túneis originais.
+func (m *Manager) BeginMoveManualTunnel(id string) bool {
+	t, ok := m.manualTunnels[id]
+	if !ok {
+		return false
+	}
+	if _, hasRect := m.containers[t.ContainerID]; !hasRect {
+		return false
+	}
+	m.movingTunnel = true
+	m.moveManualID = id
+	m.moveTunnelContainer = t.ContainerID
+	m.moveTunnelEdge = t.Edge
+	t.Fresh = false
+	m.markDirty()
+	return true
+}
+
+// hasWireOnElement reports whether any wire touches the given element —
+// the manual tunnel's outline→filled state. Português: Algum fio toca o
+// elemento — decide vazado→preenchido.
+func (m *Manager) hasWireOnElement(id string) bool {
+	for _, w := range m.wires {
+		if w.From.ElementID == id || w.To.ElementID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // projectToEdge projects (px,py) onto the given edge of the rect, clamped to the
@@ -1178,6 +1713,18 @@ func (m *Manager) UpdateMoveTunnel(worldX, worldY float64) {
 	}
 	rx, ry, rw, rh := rectFunc()
 	p := projectToEdge(rx, ry, rw, rh, m.moveTunnelEdge, worldX, worldY)
+	if m.moveManualID != "" {
+		// Manual branch: one record, wires re-anchor for free (their
+		// endpoints read the device connectors, whose PositionFunc is
+		// ManualTunnelPoint). Português: Ramo manual — um registro; os
+		// fios re-ancoram de graça (os conectores leem este ponto).
+		if t, ok := m.manualTunnels[m.moveManualID]; ok {
+			t.Point = p
+			m.RecalculateForElement(m.moveManualID)
+		}
+		m.markDirty()
+		return
+	}
 	for _, w := range m.wires {
 		if w.Tunnel != nil && w.Tunnel.ContainerID == m.moveTunnelContainer && w.From == m.moveTunnelFeeder {
 			w.Tunnel.Point = p
@@ -1198,6 +1745,7 @@ func (m *Manager) EndMoveTunnel() {
 		return
 	}
 	m.movingTunnel = false
+	m.moveManualID = ""
 	m.markDirty()
 }
 
@@ -1420,7 +1968,22 @@ func (m *Manager) recalculateWire(w *Wire) {
 	// instead of cutting straight across. The marker is then on the wire by
 	// construction. The wire stays one logical connection, so codegen is
 	// unaffected.
-	if tp, cid, ok := m.wireTunnelPoint(w, fromX, fromY, toX, toY); ok {
+	//
+	// EXCEPT for a manual phase-tunnel's own wires against its OWN
+	// container: the manual tunnel IS the border furniture there, and
+	// its pin anchors legitimately sit just outside the border — minting
+	// an automatic crossing for that stub painted a second, phantom
+	// square with the wire looping around the manual one (field
+	// 2026-07-18). A manual tunnel's wire crossing SOME OTHER container
+	// still mints normally. Português: EXCETO fios do próprio túnel
+	// manual contra o PRÓPRIO container: ali o túnel manual É o móvel de
+	// borda, e as pontas dos pinos ficam legitimamente um pouco fora —
+	// cunhar travessia automática nesse toco pintava um segundo quadrado
+	// fantasma com o fio dando a volta no manual (campo 2026-07-18).
+	// Fio de túnel manual cruzando OUTRO container cunha normalmente.
+	if tp, cid, ok := m.wireTunnelPoint(w, fromX, fromY, toX, toY); ok &&
+		!m.manualTunnelOwns(w.From.ElementID, cid) &&
+		!m.manualTunnelOwns(w.To.ElementID, cid) {
 		// A tunnel is shared by every wire from the same source into the same
 		// container. If the user has pinned that shared tunnel (dragged it), keep
 		// EVERY wire of the group — including a freshly-created one — on the
@@ -1611,6 +2174,30 @@ func (m *Manager) Draw() {
 		drawTunnelMarker(m.ctx, w.Tunnel.Point.X, w.Tunnel.Point.Y, w.Style.StrokeColor, d)
 	}
 
+	// Manual phase-tunnels — the maker-created siblings of the markers
+	// above ("copie o túnel original", 2026-07-17): same square, internal
+	// palette, outline until wired, red until first interaction. The
+	// phase view (Kemper spec 2026-07-18) decides existence and pin:
+	// hidden before the natal phase; "in" on the natal phase (right
+	// border, pin inward-left); "out" later (left border, pin
+	// inward-right). Português: Túneis manuais — a visão de fase decide
+	// existência e pino: escondido antes da natal; "in" na natal; "out"
+	// depois.
+	for _, t := range m.manualTunnels {
+		if t.PhaseHidden {
+			continue
+		}
+		// Pin colour = the stamped type's wire colour (chameleon v2) —
+		// slices, probes and handles included; violet while unwired.
+		// Português: Cor do pino = cor do tipo carimbado; violeta sem fio.
+		pinColor := manualTunnelViolet
+		if wt := m.ManualTunnelWireType(t.ID); wt != "" {
+			pinColor = m.getTypeStyle(wt).StrokeColor
+		}
+		drawManualTunnelMarker(m.ctx, t.Point.X, t.Point.Y,
+			m.hasWireOnElement(t.ID), t.Fresh, t.Role, pinColor, d)
+	}
+
 	// Visual connect mode: highlight candidate connectors + draft wire.
 	//
 	// Português: Modo visual de conexão: destaca conectores candidatos + fio provisório.
@@ -1662,8 +2249,8 @@ func (m *Manager) Draw() {
 			// Português: Desenha fio provisório do conector de origem até a posição do ponteiro.
 			if m.draftEndpoint.X != 0 || m.draftEndpoint.Y != 0 {
 				var draftType string
-				if len(source.AllowedTypes) > 0 {
-					draftType = source.AllowedTypes[0]
+				if et := m.effectiveTypes(source); len(et) > 0 {
+					draftType = et[0]
 				}
 				style := m.getTypeStyle(draftType)
 				drawDraftWire(m.ctx, Point{fromX, fromY}, m.draftEndpoint, style, d)

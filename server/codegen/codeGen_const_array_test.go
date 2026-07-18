@@ -129,7 +129,7 @@ func generateBoth(t *testing.T, scene string) (string, string) {
 		t.Fatalf("Go backend returned errors: %v", goResp.Errors)
 	}
 
-	return mainC, goResp.Code
+	return mainC, goResp.Files["main.go"]
 }
 
 // TestConstArrayInt_EndToEnd: "1, 2, 3" → Go []int64 slice literal; C fixed

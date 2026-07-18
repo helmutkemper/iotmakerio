@@ -60,9 +60,9 @@ const sceneCaseIntSwitch = `{
         "selectorType": "int",
         "selectedCase": "case_a",
         "cases": [
-          { "id": "case_a",   "label": "a",     "values": ["0","1"], "ids": ["const_a1","const_a2","add_a"] },
-          { "id": "case_b",   "label": "b",     "values": ["2"],     "ids": ["const_b1","const_b2","add_b"] },
-          { "id": "case_def", "label": "other", "values": [],        "ids": ["const_d1","const_d2","add_def"] }
+          { "id": "case_a",   "label": "a",     "values": ["0","1"], "ids": ["const_a1","const_a2","add_a","print_a"] },
+          { "id": "case_b",   "label": "b",     "values": ["2"],     "ids": ["const_b1","const_b2","add_b","print_b"] },
+          { "id": "case_def", "label": "other", "values": [],        "ids": ["const_d1","const_d2","add_def","print_def"] }
         ],
         "defaultCaseId": "case_def"
       },
@@ -75,7 +75,7 @@ const sceneCaseIntSwitch = `{
           "connections": [{ "wireId": "w_sel", "targetDevice": "constInt_sel", "targetPort": "output" }] }
       ],
       "containment": { "isContainer": true, "status": "container",
-        "children": ["const_a1","const_a2","add_a","const_b1","const_b2","add_b","const_d1","const_d2","add_def"] }
+        "children": ["const_a1","const_a2","add_a","print_a","const_b1","const_b2","add_b","print_b","const_d1","const_d2","add_def","print_def"] }
     },
 
     { "id": "const_a1", "type": "StatementConstInt", "kind": "simple", "properties": { "value": 10 },
@@ -111,6 +111,14 @@ const sceneCaseIntSwitch = `{
       ],
       "containment": { "isContainer": false, "status": "child", "parent": "stmCase_1" } },
 
+    { "id": "print_a", "type": "StatementPrintInt", "kind": "simple",
+      "position": { "x": 0, "y": 0 }, "size": { "width": 10, "height": 10 },
+      "connectors": [
+        { "port": "value", "dataType": "int", "isOutput": false, "acceptNotConnected": false,
+          "position": { "x": 0, "y": 0 },
+          "connections": [{ "wireId": "w_pa", "targetDevice": "add_a", "targetPort": "output" }] }
+      ],
+      "containment": { "isContainer": false, "status": "child", "parent": "stmCase_1" } },
     { "id": "const_b1", "type": "StatementConstInt", "kind": "simple", "properties": { "value": 5 },
       "position": { "x": 330, "y": 320 }, "size": { "width": 110, "height": 70 },
       "outerBBox": { "x": 330, "y": 320, "width": 110, "height": 70 }, "innerBBox": null,
@@ -144,6 +152,14 @@ const sceneCaseIntSwitch = `{
       ],
       "containment": { "isContainer": false, "status": "child", "parent": "stmCase_1" } },
 
+    { "id": "print_b", "type": "StatementPrintInt", "kind": "simple",
+      "position": { "x": 0, "y": 0 }, "size": { "width": 10, "height": 10 },
+      "connectors": [
+        { "port": "value", "dataType": "int", "isOutput": false, "acceptNotConnected": false,
+          "position": { "x": 0, "y": 0 },
+          "connections": [{ "wireId": "w_pb", "targetDevice": "add_b", "targetPort": "output" }] }
+      ],
+      "containment": { "isContainer": false, "status": "child", "parent": "stmCase_1" } },
     { "id": "const_d1", "type": "StatementConstInt", "kind": "simple", "properties": { "value": 7 },
       "position": { "x": 330, "y": 500 }, "size": { "width": 110, "height": 70 },
       "outerBBox": { "x": 330, "y": 500, "width": 110, "height": 70 }, "innerBBox": null,
@@ -175,6 +191,14 @@ const sceneCaseIntSwitch = `{
         { "port": "output", "dataType": "int", "isOutput": true, "acceptNotConnected": true,
           "position": { "x": 580, "y": 580 }, "connections": [] }
       ],
+      "containment": { "isContainer": false, "status": "child", "parent": "stmCase_1" } },
+    { "id": "print_def", "type": "StatementPrintInt", "kind": "simple",
+      "position": { "x": 0, "y": 0 }, "size": { "width": 10, "height": 10 },
+      "connectors": [
+        { "port": "value", "dataType": "int", "isOutput": false, "acceptNotConnected": false,
+          "position": { "x": 0, "y": 0 },
+          "connections": [{ "wireId": "w_pd", "targetDevice": "add_def", "targetPort": "output" }] }
+      ],
       "containment": { "isContainer": false, "status": "child", "parent": "stmCase_1" } }
   ],
   "wires": [
@@ -184,7 +208,10 @@ const sceneCaseIntSwitch = `{
     { "id": "w_b1",  "from": { "device": "const_b1", "port": "output" }, "to": { "device": "add_b", "port": "inputX" }, "dataType": "int" },
     { "id": "w_b2",  "from": { "device": "const_b2", "port": "output" }, "to": { "device": "add_b", "port": "inputY" }, "dataType": "int" },
     { "id": "w_d1",  "from": { "device": "const_d1", "port": "output" }, "to": { "device": "add_def", "port": "inputX" }, "dataType": "int" },
-    { "id": "w_d2",  "from": { "device": "const_d2", "port": "output" }, "to": { "device": "add_def", "port": "inputY" }, "dataType": "int" }
+    { "id": "w_d2",  "from": { "device": "const_d2", "port": "output" }, "to": { "device": "add_def", "port": "inputY" }, "dataType": "int" },
+    { "id": "w_pa",  "from": { "device": "add_a",   "port": "output" }, "to": { "device": "print_a",   "port": "value" }, "dataType": "int" },
+    { "id": "w_pb",  "from": { "device": "add_b",   "port": "output" }, "to": { "device": "print_b",   "port": "value" }, "dataType": "int" },
+    { "id": "w_pd",  "from": { "device": "add_def", "port": "output" }, "to": { "device": "print_def", "port": "value" }, "dataType": "int" }
   ]
 }`
 
@@ -209,29 +236,29 @@ func TestCaseIntSwitchGo(t *testing.T) {
 		"case 2:",    // second value case
 		"default:",   // the optional default case
 	} {
-		if !strings.Contains(resp.Code, want) {
-			t.Errorf("Go switch missing %q in:\n%s", want, resp.Code)
+		if !strings.Contains(resp.Files["main.go"], want) {
+			t.Errorf("Go switch missing %q in:\n%s", want, resp.Files["main.go"])
 		}
 	}
 
 	// All three case bodies must emit (an Add per case).
-	if got := strings.Count(resp.Code, " + "); got < 3 {
-		t.Errorf("expected at least 3 additions (one per case body), got %d in:\n%s", got, resp.Code)
+	if got := strings.Count(resp.Files["main.go"], " + "); got < 3 {
+		t.Errorf("expected at least 3 additions (one per case body), got %d in:\n%s", got, resp.Files["main.go"])
 	}
 
 	// Syntactic validity (avoids the unused-variable build error).
-	if _, err := parser.ParseFile(token.NewFileSet(), "gen.go", resp.Code, parser.AllErrors); err != nil {
-		t.Errorf("generated Go does not parse: %v\n%s", err, resp.Code)
+	if _, err := parser.ParseFile(token.NewFileSet(), "gen.go", resp.Files["main.go"], parser.AllErrors); err != nil {
+		t.Errorf("generated Go does not parse: %v\n%s", err, resp.Files["main.go"])
 	}
 
 	if t.Failed() {
-		t.Logf("Go code:\n%s", resp.Code)
+		t.Logf("Go code:\n%s", resp.Files["main.go"])
 	}
 }
 
 // TestCaseIntSwitchC asserts the C backend renders a switch for the same scene
 // and that the generated C actually compiles with gcc. The C backend returns a
-// file map (resp.Files), not resp.Code; for native-only scenes that is a single
+// file map (resp.Files), not resp.Files["main.go"]; for native-only scenes that is a single
 // main.c. Each case body is wrapped in a brace block, so the per-case
 // declarations are valid C99 and the unit links to a runnable binary.
 func TestCaseIntSwitchC(t *testing.T) {

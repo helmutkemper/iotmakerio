@@ -406,6 +406,36 @@ var DefaultCompatibility = map[string][]string{
 //	  1. Exact match: tipos idênticos são sempre compatíveis.
 //	  2. Promoção via matriz: int→float, bool→int, etc.
 func resolveCompatibleType(outputType string, inputType string, compat map[string][]string) (resolvedType string, ok bool) {
+	// ── Rule 0: Chameleon wildcard (Kemper 2026-07-18: the tunnel for
+	// ALL types, "incluindo ponteiros com len") ──────────────────────
+	//
+	// "*" means "I adopt the peer's type": an unwired phase-tunnel
+	// registers ["*"] and takes whatever concrete type first touches it
+	// — scalars, strings, bools, probe pointers, []T slices (the C99
+	// pointer+len family) and complex black-box handles alike, with NO
+	// enumeration. Wildcard-to-wildcard is REJECTED on purpose (two
+	// unwired tunnels have no type to agree on — wire a concrete source
+	// first, the tunnel takes the stamp, then chain). Rule 0 must run
+	// before the exact-match rule, or "*"=="*" would falsely connect.
+	//
+	// Português: Curinga camaleão — "*" significa "adoto o tipo do
+	// outro lado": túnel sem fio registra ["*"] e assume o primeiro
+	// tipo concreto que o tocar — escalares, strings, bools, ponteiros
+	// de sonda, fatias []T (a família ponteiro+len do C99) e handles
+	// complexos, SEM enumeração. Curinga-com-curinga é REJEITADO de
+	// propósito (dois túneis sem fio não têm tipo para acordar — ligue
+	// uma fonte concreta primeiro). A Regra 0 precisa vir antes do
+	// match exato, ou "*"=="*" conectaria falsamente.
+	if outputType == "*" || inputType == "*" {
+		if outputType == "*" && inputType == "*" {
+			return "", false
+		}
+		if outputType == "*" {
+			return inputType, true
+		}
+		return outputType, true
+	}
+
 	// ── Rule 1: Exact match ──────────────────────────────────────────────
 	//
 	// Evaluated before the matrix so that complex types (*machine.I2C, etc.)

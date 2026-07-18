@@ -448,10 +448,10 @@ func TestBlackBoxPipeline(t *testing.T) {
 	}
 
 	t.Logf("=== IR ===\n%s", resp.IR)
-	t.Logf("=== Generated Go Code ===\n%s", resp.Code)
+	t.Logf("=== Generated Go Code ===\n%s", resp.Files["main.go"])
 
 	// Basic assertions on generated code
-	code := resp.Code
+	code := resp.Files["main.go"]
 	assertContainsB(t, code, "package main")
 	assertContainsB(t, code, "var i2cBus1 I2CBus")
 	assertContainsB(t, code, "var apds99601 APDS9960")

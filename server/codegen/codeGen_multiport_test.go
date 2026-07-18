@@ -1,3 +1,8 @@
+// server/codegen/codeGen_multiport_test.go
+//
+// SPDX-FileCopyrightText: 2026 Helmut Kemper
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package codegen
 
 import (
@@ -222,16 +227,16 @@ func TestMultiPortScopeCrossEmitsPerPortVars(t *testing.T) {
 	if len(resp.Errors) > 0 {
 		t.Fatalf("expected no errors, got: %v", resp.Errors)
 	}
-	if resp.Code == "" {
+	if resp.Files["main.go"] == "" {
 		t.Fatalf("expected Go code, got empty")
 	}
 
 	t.Log("=== IR ===")
 	t.Log(resp.IR)
 	t.Log("=== Go ===")
-	t.Log(resp.Code)
+	t.Log(resp.Files["main.go"])
 
-	code := resp.Code
+	code := resp.Files["main.go"]
 
 	// ── Four var declarations before the loop, one per connected port.
 	// The instance id in the scene is "apds9960_0", which goIdent

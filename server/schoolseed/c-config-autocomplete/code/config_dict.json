@@ -1,0 +1,7 @@
+[
+  {
+    "label": "server",
+    "insert": "server:\n  host: ${1:0.0.0.0}\n  port: ${2:9000}",
+    "doc": "Server block: host and TCP port the app listens on."
+  }
+]

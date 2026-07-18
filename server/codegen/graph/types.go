@@ -56,7 +56,28 @@ type Scope struct {
 	ID       string   // scope ID (device ID for loops, "" for global)
 	ParentID string   // parent scope ID ("" for top-level)
 	NodeIDs  []string // device IDs directly in this scope (not nested)
-	StopPort *PortRef // for loops: the device+port connected to the stop input
+
+	// Sequence marks a StatementSequence scope: Cases holds the ORDERED
+	// phases (values "0","1","2"…) and ALL of them run, in order — no
+	// selector, no construct, pure emission order (the device is
+	// semantically transparent by design: "any code with a sequencer
+	// equals the same code without one; it only guarantees a clear
+	// order" — Kemper, 2026-07-16). Português: Marca escopo de
+	// StatementSequence — Cases carrega as FASES ordenadas e TODAS
+	// rodam, em ordem; sem seletor, sem construto, pura ordem de
+	// emissão.
+	Sequence bool
+
+	// Function marks a StatementFunction scope: the body emits into a
+	// separate NAMED function (FunctionName), lifted above main — the
+	// "made for the unforeseen" device of the embedded family. On posix
+	// nothing calls it (a loud warning says so; the body stays manually
+	// testable from a harness — the portability-tiers rule). Português:
+	// Escopo de StatementFunction — o corpo vira função NOMEADA acima do
+	// main; no posix ninguém a chama (warning barulhento).
+	Function     bool
+	FunctionName string
+	StopPort     *PortRef // for loops: the device+port connected to the stop input
 
 	// IntervalPort is set for StatementLoopDuration scopes.
 	// Points to the device+port providing the time.Duration value for

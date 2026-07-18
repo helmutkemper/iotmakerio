@@ -91,6 +91,18 @@ docker-up: wasm
 docker-up-full: wasm-force
 	docker-compose up --build -d
 
+# docker-up-clean force-rebuilds BOTH images with --no-cache before starting.
+# Reach for it when behaviour contradicts the source: `up --build` can serve
+# CACHED layers for one service while rebuilding the other — field lesson
+# 2026-07-12, a stale server container kept shipping hybrid black-box defs
+# for three exports while the worker (and the source tree) were current.
+# Português: Rebuild forçado das DUAS imagens sem cache. Use quando o
+# comportamento contradiz a fonte: `up --build` pode servir camadas de
+# CACHE para um serviço e rebuildar o outro — lição de campo 2026-07-12.
+docker-up-clean: wasm-force
+	docker-compose build --no-cache
+	docker-compose up -d
+
 docker-down:
 	docker-compose down
 
@@ -105,11 +117,21 @@ clean-data:
 	@printf "  Type YES to confirm: "; read ans; \
 	  if [ "$$ans" = "YES" ]; then \
 	    $(MAKE) docker-down 2>/dev/null || true; \
-	    rm -rf ./data; \
-	    echo "  ✓ ./data removed."; \
+	    mkdir -p .trash; \
+	    mv ./data .trash/data-$$(date +%Y%m%d-%H%M%S); \
+	    echo "  ✓ ./data moved to .trash/ (recoverable until you empty it)."; \
+	    echo "    Purge old snapshots with: make clean-trash"; \
 	  else \
 	    echo "  Aborted — nothing was deleted."; \
 	  fi
+
+## clean-trash — permanently remove every data snapshot parked by
+## clean-data. This is the ONLY place rm -rf touches user data.
+## Português: Remove de vez os snapshots estacionados pelo clean-data —
+## o ÚNICO lugar onde rm -rf toca dado de usuário.
+clean-trash:
+	rm -rf .trash
+	@echo "  ✓ .trash emptied."
 
 clean-files:
 	@echo ""

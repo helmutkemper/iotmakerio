@@ -376,6 +376,13 @@ func (s *CSurface) Header() string {
 	b.WriteString("#include <stdbool.h>\n")
 	b.WriteString("#include <stddef.h>\n")
 
+	// Slice 0 of the embedded ladder (2026-07-16): the Arduino sketch
+	// wrapper is C++ — without extern "C" the C symbols this header
+	// declares would be name-mangled at the include site and never
+	// link. Inert for gcc/C consumers. Português: O invólucro .ino é
+	// C++ — sem extern "C" os símbolos C não linkam; inócuo para gcc.
+	b.WriteString("\n#ifdef __cplusplus\nextern \"C\" {\n#endif\n")
+
 	// Wire types — opaque forward typedefs under the final names.
 	if len(s.def.WireTypes) > 0 {
 		b.WriteString("\n/* wire types (opaque handles) */\n")
@@ -450,6 +457,7 @@ func (s *CSurface) Header() string {
 			s.PrefixIdentifiers(fn.CParams) + ");\n")
 	}
 
+	b.WriteString("\n#ifdef __cplusplus\n} /* extern \"C\" */\n#endif\n")
 	b.WriteString("\n#endif /* " + guard + " */\n")
 	return b.String()
 }

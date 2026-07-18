@@ -47,6 +47,11 @@ import (
 
 // DeviceFactory creates and initializes devices.
 type DeviceFactory struct {
+	// manualTunnels — shells created by this factory, addressable by id
+	// so the wire layer's Delete menu can remove the whole device (the
+	// cord pattern). Português: Cascas criadas por este factory,
+	// endereçáveis por id para o Delete do menu remover o device todo.
+	manualTunnels map[string]*compFlow.StatementTunnel
 	Stage         sprite.Stage
 	WireMgr       *wire.Manager
 	SceneMgr      *scene.Serializer
@@ -628,6 +633,196 @@ func (f *DeviceFactory) CreateCase() {
 	stm.SetDragEnable(true)
 	stm.Append()
 	log.Printf("[Factory] Created StatementCase at (%v, %v)", cx, cy)
+	f.SceneMgr.NotifyChange()
+}
+
+// CreateSequence creates the ORDER container of the embedded family
+// (universal by design): N phases, ALL run, 0→1→2 — semantically
+// transparent, no selector pin, no inspect overlay (mirrors Loop); ＋/−
+// phase live on the pill. Server lowering shipped 2026-07-16
+// (emitSequence). Português: Container de ORDEM — N fases, todas rodam,
+// em ordem; sem pino, sem overlay; ＋/− na pill.
+// CreateFunction creates the LINKAGE container: the body lifts into a
+// named function above main (slice 2 — server side shipped 2026-07-16;
+// warning-loud on posix). The name travels in the "functionName"
+// property; the pill is its badge. Português: Container de VÍNCULO — o
+// corpo iça para função nomeada acima do main; a pill é o crachá.
+// CreateTunnel creates the pass-through waypoint (int-only v1): the
+// LabVIEW sequence-local as a device — one In, one Out, `out = in` in
+// codegen. Born from the Sequence's menus; drag it onto the border.
+// Português: O waypoint de passagem — In/Out, `out = in`; nasce nos
+// menus do Sequence, arraste para a borda.
+// CreateTunnelFor births a PHASE-tunnel: rail-bound to parentID's given
+// side at (x,y), drop-judged against occlusion, blinking until first
+// interaction. Returns the id so the Sequence can adopt it into the
+// active phase. The plain CreateTunnel below stays as the RESTORE
+// constructor (dispatch by type) — no blink, no judge, props rebind the
+// rail. Português: Pare um túnel-de-fase — trilho, juiz, pisca; devolve
+// o id para a fase adotar. O CreateTunnel simples fica para o RESTORE.
+// registerManualTunnel indexes a shell and (once) installs the wire
+// layer's Delete cord. Português: Indexa a casca e instala (uma vez) a
+// cordinha de Delete da wire layer.
+func (f *DeviceFactory) registerManualTunnel(stm *compFlow.StatementTunnel) {
+	if f.manualTunnels == nil {
+		f.manualTunnels = map[string]*compFlow.StatementTunnel{}
+		f.WireMgr.SetOnManualTunnelDelete(func(id string) {
+			if t, ok := f.manualTunnels[id]; ok {
+				delete(f.manualTunnels, id)
+				t.Remove()
+				f.SceneMgr.NotifyChange()
+			}
+		})
+	}
+	f.manualTunnels[stm.GetID()] = stm
+}
+
+func (f *DeviceFactory) CreateTunnelFor(parentID, side string, x, y float64, natalCase string,
+	judge func(cx, cy float64, side, selfID string) (float64, float64)) string {
+	stm := new(compFlow.StatementTunnel)
+	stm.SetStage(f.Stage)
+	stm.SetWireManager(f.WireMgr)
+	stm.SetResizerButton(f.ResizeButton)
+	stm.SetGridAdjust(f.GridAdjust)
+	stm.SetContextMenu(f.ContextMenu)
+
+	if err := stm.Init(); err != nil {
+		log.Printf("[Factory] StatementTunnel.Init: %v", err)
+		return ""
+	}
+
+	stm.SetRail(parentID, side)
+	// Stamp the natal phase BEFORE Register/NotifyChange: the Sequence's
+	// refreshTunnelViews runs inside the notify storm this function
+	// raises, and an unstamped tunnel fell into the phase-0 fallback —
+	// seated LEFT when created from a later phase, then re-seated RIGHT
+	// a beat later (the mid-storm race, field freeze forensics
+	// 2026-07-18). With the stamp first, every observer sees the truth
+	// from the first beat. Português: Carimba o natal ANTES do
+	// Register/NotifyChange: o refreshTunnelViews roda dentro da
+	// tempestade que esta função levanta, e um túnel sem carimbo caía no
+	// fallback fase 0 — assentado à ESQUERDA quando criado de uma fase
+	// posterior, re-assentado à DIREITA um instante depois. Com o
+	// carimbo primeiro, todo observador vê a verdade desde o primeiro
+	// compasso.
+	stm.SetNatalCase(natalCase)
+	stm.RegisterConnectors()
+	f.SceneMgr.Register(stm)
+	// Border furniture is SPATIALLY EXEMPT (scenegraph.SetHidden — the
+	// IfElse-branch mechanism): straddling the border is the tunnel's
+	// JOB, not a conflict; without this the conflict overlay painted the
+	// container pink and the containment scan thrashed (field freeze,
+	// 2026-07-17). Membership stays explicit via the Sequence's phases.
+	// Português: Móvel de borda é ISENTO espacialmente — cavalgar a
+	// borda é o TRABALHO dele, não conflito; sem isto o overlay pintou
+	// o container de rosa e o scan travou. Membership segue explícito.
+	f.SceneMgr.SetHidden(stm.GetID(), true)
+	stm.SetSceneNotify(f.SceneNotifyFn)
+	stm.SetOnRemove(f.makeOnRemove())
+
+	s := stm.SideLen()
+	stm.SetPosition(rulesDensity.Density(x-s/2), rulesDensity.Density(y-s/2))
+	// Seed the wire-layer record FRESH (birth-red until first
+	// interaction) and register the shell for the Delete cord.
+	// Português: Semeia o registro FRESCO e registra a casca para a
+	// cordinha de Delete.
+	f.WireMgr.AddManualTunnel(stm.GetID(), parentID, side,
+		wire.Point{X: x, Y: y}, true)
+	f.registerManualTunnel(stm)
+	log.Printf("[Factory] Created phase StatementTunnel %s on %s/%s", stm.GetID(), parentID, side)
+	f.SceneMgr.NotifyChange()
+	return stm.GetID()
+}
+
+func (f *DeviceFactory) CreateTunnel() {
+	// Setter list mirrors CreateSetVarInt — the Tunnel's REAL sibling
+	// (small device, not a container): no SetSceneMgr, no SetCanvasEl.
+	// Copying the container creator's list is what broke the 2026-07-16
+	// build. Português: Lista de setters espelha o irmão VERDADEIRO
+	// (SetVarInt) — device pequeno, não container.
+	stm := new(compFlow.StatementTunnel)
+	stm.SetStage(f.Stage)
+	stm.SetWireManager(f.WireMgr)
+	stm.SetResizerButton(f.ResizeButton)
+	stm.SetGridAdjust(f.GridAdjust)
+	stm.SetContextMenu(f.ContextMenu)
+
+	if err := stm.Init(); err != nil {
+		log.Printf("[Factory] StatementTunnel.Init: %v", err)
+		return
+	}
+
+	stm.RegisterConnectors()
+	f.SceneMgr.Register(stm)
+	// Same spatial exemption as CreateTunnelFor — a restored tunnel is
+	// border furniture too. Português: Mesma isenção — túnel restaurado
+	// também é móvel de borda.
+	f.SceneMgr.SetHidden(stm.GetID(), true)
+	f.registerManualTunnel(stm)
+	stm.SetSceneNotify(f.SceneNotifyFn)
+	stm.SetOnRemove(f.makeOnRemove())
+
+	cx, cy := f.devicePosition()
+	stm.SetPosition(cx, cy)
+	stm.SetDragEnable(true)
+	stm.Append()
+	log.Printf("[Factory] Created StatementTunnel at (%v, %v)", cx, cy)
+	f.SceneMgr.NotifyChange()
+}
+
+func (f *DeviceFactory) CreateFunction() {
+	stm := new(compFlow.StatementFunction)
+	stm.SetStage(f.Stage)
+	stm.SetWireManager(f.WireMgr)
+	stm.SetResizerButton(f.ResizeButton)
+	stm.SetGridAdjust(f.GridAdjust)
+	stm.SetSceneMgr(f.SceneMgr)
+	stm.SetContextMenu(f.ContextMenu)
+	stm.SetCanvasEl(f.CanvasEl)
+
+	if err := stm.Init(); err != nil {
+		log.Printf("[Factory] StatementFunction.Init: %v", err)
+		return
+	}
+
+	stm.RegisterConnectors()
+	f.SceneMgr.Register(stm)
+	stm.SetSceneNotify(f.SceneNotifyFn)
+	stm.SetOnRemove(f.makeOnRemove())
+
+	cx, cy := f.devicePosition()
+	stm.SetPosition(cx, cy)
+	stm.SetDragEnable(true)
+	stm.Append()
+	log.Printf("[Factory] Created StatementFunction at (%v, %v)", cx, cy)
+	f.SceneMgr.NotifyChange()
+}
+
+func (f *DeviceFactory) CreateSequence() {
+	stm := new(compFlow.StatementSequence)
+	stm.SetStage(f.Stage)
+	stm.SetWireManager(f.WireMgr)
+	stm.SetResizerButton(f.ResizeButton)
+	stm.SetGridAdjust(f.GridAdjust)
+	stm.SetSceneMgr(f.SceneMgr)
+	stm.SetContextMenu(f.ContextMenu)
+	stm.SetCanvasEl(f.CanvasEl)
+
+	if err := stm.Init(); err != nil {
+		log.Printf("[Factory] StatementSequence.Init: %v", err)
+		return
+	}
+
+	stm.RegisterConnectors()
+	f.SceneMgr.Register(stm)
+	stm.SetSceneNotify(f.SceneNotifyFn)
+	stm.SetCreateTunnel(f.CreateTunnelFor)
+	stm.SetOnRemove(f.makeOnRemove())
+
+	cx, cy := f.devicePosition()
+	stm.SetPosition(cx, cy)
+	stm.SetDragEnable(true)
+	stm.Append()
+	log.Printf("[Factory] Created StatementSequence at (%v, %v)", cx, cy)
 	f.SceneMgr.NotifyChange()
 }
 
@@ -2204,6 +2399,12 @@ func (f *DeviceFactory) CreateByType(deviceType string, x, y float64) bool {
 		f.CreateLoopDuration()
 	case "StatementCase":
 		f.CreateCase()
+	case "StatementSequence":
+		f.CreateSequence()
+	case "StatementFunction":
+		f.CreateFunction()
+	case "StatementTunnel":
+		f.CreateTunnel()
 	case "StatementConstInt":
 		f.CreateConstInt()
 	case "StatementDataFile":

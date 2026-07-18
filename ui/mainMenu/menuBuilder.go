@@ -71,6 +71,8 @@ type DeviceCreator interface {
 	CreateLoop()
 	CreateLoopDuration()
 	CreateCase()
+	CreateSequence()
+	CreateFunction()
 	CreateConstInt()
 	CreateDataFile()
 	CreateDataText()
@@ -1338,6 +1340,18 @@ func (b *MenuBuilder) logicSubmenu() []hexMenu.MenuItem {
 			OnClick:         func() { b.factory.SafeRun("CreateCase", b.factory.CreateCase) },
 			Styles:          styles,
 		},
+		{
+			// Sequence — ordered phases, all run (the ORDER axis)
+			ID:              "Sequence",
+			Col:             3,
+			Row:             2,
+			Label:           translate.T("menuMainSequence", "Sequence"),
+			FontAwesomePath: rulesIcon.KFAListOl,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemAction,
+			OnClick:         func() { b.factory.SafeRun("CreateSequence", b.factory.CreateSequence) },
+			Styles:          styles,
+		},
 	}
 }
 
@@ -2581,6 +2595,38 @@ func (b *MenuBuilder) registerFactories() {
 			ViewBox:         "0 0 512 512",
 			Type:            hexMenu.ItemAction,
 			OnClick:         func() { b.factory.SafeRun("CreateCase", b.factory.CreateCase) },
+			Styles:          styles,
+		}
+	}
+
+	b.factories["SysEmbedded"] = func(label string) hexMenu.MenuItem {
+		return hexMenu.MenuItem{
+			ID: "SysEmbedded", Label: label,
+			FontAwesomePath: rulesIcon.KFAMicrochip,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemSubmenu,
+			Styles:          styles,
+		}
+	}
+
+	b.factories["SysFunctionItem"] = func(label string) hexMenu.MenuItem {
+		return hexMenu.MenuItem{
+			ID: "SysFunctionItem", Label: label,
+			FontAwesomePath: rulesIcon.KFAFlorinSign,
+			ViewBox:         "0 0 384 512",
+			Type:            hexMenu.ItemAction,
+			OnClick:         func() { b.factory.SafeRun("CreateFunction", b.factory.CreateFunction) },
+			Styles:          styles,
+		}
+	}
+
+	b.factories["SysSequenceItem"] = func(label string) hexMenu.MenuItem {
+		return hexMenu.MenuItem{
+			ID: "SysSequenceItem", Label: label,
+			FontAwesomePath: rulesIcon.KFAListOl,
+			ViewBox:         "0 0 512 512",
+			Type:            hexMenu.ItemAction,
+			OnClick:         func() { b.factory.SafeRun("CreateSequence", b.factory.CreateSequence) },
 			Styles:          styles,
 		}
 	}

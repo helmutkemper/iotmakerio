@@ -46,6 +46,7 @@ import (
 
 	"github.com/helmutkemper/iotmakerio/blackbox"
 	"github.com/helmutkemper/iotmakerio/devices/block"
+	"github.com/helmutkemper/iotmakerio/devices/compFlow"
 	"github.com/helmutkemper/iotmakerio/factoryDevice"
 	"github.com/helmutkemper/iotmakerio/grid"
 	"github.com/helmutkemper/iotmakerio/rulesDensity"
@@ -470,6 +471,23 @@ func (w *Workspace) Init(cfg Config) error {
 	overlay.SetOnLoadExample(func(sceneJSON string) {
 		log.Printf("[Workspace:%s] Loading example from image (%d bytes)", w.Name, len(sceneJSON))
 		w.importScene(sceneJSON)
+		// A menu example is UNSAVED WORK the maker just chose to have —
+		// the same species as an imported PNG (see the import path
+		// below), so it earns the same explicit backup schedule:
+		// importScene suppresses the change-driven backup by design
+		// ("opening a file should not back up its own content"), which
+		// is right for saved files and wrong for examples. Field report
+		// 2026-07-16: "quando eu clico em um exemplo do sidebar menu,
+		// ele não salva o backup". Routed through the single backup
+		// owner; the scheduler is debounced — one extra write at most.
+		// Português: Exemplo do menu é TRABALHO NÃO SALVO que o maker
+		// escolheu ter — mesma espécie do PNG importado; ganha o mesmo
+		// agendamento explícito que o importScene suprime por design.
+		if w.backupScheduler != nil {
+			w.backupScheduler()
+		} else {
+			w.ScheduleBackupSave()
+		}
 	})
 	overlay.SetLoadExampleLabel(translate.T("loadExample", "▶ Load Example"))
 	overlay.SetOnBeforeLoadExample(func() {
@@ -841,6 +859,17 @@ func (w *Workspace) Init(cfg Config) error {
 				domEvent.Call("stopImmediatePropagation")
 				domEvent.Call("preventDefault")
 				w.openTunnelMenu(feeder, containerID, worldX, worldY)
+				return nil
+			}
+			// Manual phase-tunnels: same click contract as the automatic
+			// markers — the click itself counts as the first interaction
+			// (spec #3). Português: Mesmo contrato de clique dos
+			// automáticos; o próprio clique já conta como interação.
+			if id, ok := w.WireMgr.ManualTunnelAt(worldX, worldY); ok {
+				domEvent.Call("stopImmediatePropagation")
+				domEvent.Call("preventDefault")
+				w.WireMgr.TouchManualTunnel(id)
+				w.openManualTunnelMenu(id, worldX, worldY)
 			}
 			return nil
 		}
@@ -1651,6 +1680,128 @@ func (w *Workspace) openTunnelMenu(feeder wire.ConnectorID, containerID string, 
 	w.CtxMenu.OpenAtWorld(items, worldX, worldY)
 }
 
+// openManualTunnelMenu — the manual sibling of openTunnelMenu: Connect
+// starts a wire from the tunnel's PHASE-ROLE port (Kemper spec
+// 2026-07-18: "in" while viewing its natal phase, "out" in later ones);
+// Move enters the SAME move mode; Delete removes the whole device
+// through the factory cord. Português: Irmão manual do openTunnelMenu —
+// Connect parte da porta do PAPEL da fase em cena ("in" na natal, "out"
+// nas seguintes); Move entra no MESMO modo-mover; Delete remove o
+// device inteiro pela cordinha do factory.
+func (w *Workspace) openManualTunnelMenu(id string, worldX, worldY float64) {
+	if w.CtxMenu == nil {
+		return
+	}
+	items := []contextMenu.Item{
+		{
+			ID:              "mtunnel_connect",
+			Label:           translate.T("menuDeviceConnect", "Connect"),
+			FontAwesomePath: rulesIcon.KFALink,
+			ViewBox:         "0 0 640 512",
+			HelpKey:         "helpMenuTunnelConnect",
+			HelpFallback:    "Starts visual connect mode from this tunnel's pin.",
+			OnClick: func() {
+				// StartConnect lists opposite-direction candidates, so
+				// starting from "in" offers outputs to feed it, and
+				// starting from "out" offers inputs to tap it — each
+				// phase gets exactly its half of the crossing.
+				// Português: StartConnect lista candidatos do sentido
+				// oposto — cada fase recebe exatamente a sua metade.
+				port := w.WireMgr.ManualTunnelRole(id)
+				if port == "" {
+					port = "out"
+				}
+				pc := wire.ConnectorID{ElementID: id, PortName: port}
+				if candidates := w.WireMgr.StartConnect(pc); len(candidates) == 0 {
+					w.WireMgr.CancelConnect()
+					log.Printf("[WIRE:%s] No compatible target for manual tunnel %s (%s)",
+						w.Name, id, port)
+				}
+			},
+		},
+		{
+			ID:              "mtunnel_move",
+			Label:           translate.T("menuTunnelMove", "Move"),
+			FontAwesomePath: rulesIcon.KFAArrowsUpDownLeftRight,
+			ViewBox:         "0 0 512 512",
+			HelpKey:         "helpMenuTunnelMove",
+			HelpFallback:    "Drag the tunnel along its border. Click to drop it.",
+			OnClick: func() {
+				w.WireMgr.BeginMoveManualTunnel(id)
+			},
+		},
+	}
+
+	// Phase-hiding entries (Kemper 2026-07-18: "assim um túnel pode ser
+	// ocultado") — the SEQUENCE owns the phase semantics, so the menu
+	// reaches it through the record's container id and only assembles
+	// what applies to the phase on screen: per-phase removal only on
+	// "out" views (the natal is the tunnel's irremovable home), removal
+	// of the NEXT phases only when next phases exist, and the restore —
+	// which returns ALL — whenever anything is removed. A tunnel hidden
+	// in the phase on screen has no square, hence no menu: the restore
+	// is always reachable from the natal phase, the handle.
+	// Português: Entradas de ocultação — o SEQUENCE é dono da semântica
+	// de fases; o menu chega a ele pelo container do registro e só monta
+	// o que vale para a fase em cena: remoção desta fase só em visão
+	// "out" (a natal é o lar irremovível), remoção das PRÓXIMAS só
+	// quando existem, e o restore — que retorna TODOS — sempre que algo
+	// está removido. Túnel oculto na fase em cena não tem quadrado nem
+	// menu: o restore está sempre ao alcance pela natal, a alça.
+	if seq, ok := w.SceneMgr.FindDevice(
+		w.WireMgr.ManualTunnelContainer(id)).(*compFlow.StatementSequence); ok {
+		eyeSlash := rulesIcon.IconByNameOrDefault("eye-slash", "gear")
+		eye := rulesIcon.IconByNameOrDefault("eye", "gear")
+		if seq.TunnelCanRemoveFromCurrentPhase(id) {
+			items = append(items, contextMenu.Item{
+				ID:              "mtunnel_hide_phase",
+				Label:           translate.T("menuTunnelRemovePhase", "Remove from this phase"),
+				FontAwesomePath: eyeSlash.Path,
+				ViewBox:         eyeSlash.ViewBox,
+				HelpKey:         "helpMenuTunnelRemovePhase",
+				HelpFallback:    "Hides this tunnel's exit in the phase on screen only. Unavailable while a wire lands here.",
+				OnClick:         func() { seq.TunnelRemoveFromCurrentPhase(id) },
+			})
+		}
+		if seq.TunnelCanRemoveFromNextPhases(id) {
+			items = append(items, contextMenu.Item{
+				ID:              "mtunnel_hide_next",
+				Label:           translate.T("menuTunnelRemoveNext", "Remove from next phases"),
+				FontAwesomePath: eyeSlash.Path,
+				ViewBox:         eyeSlash.ViewBox,
+				HelpKey:         "helpMenuTunnelRemoveNext",
+				HelpFallback:    "Hides this tunnel's exit in the phases after this one — wired phases stay.",
+				OnClick:         func() { seq.TunnelRemoveFromNextPhases(id) },
+			})
+		}
+		if seq.TunnelHasRemovals(id) {
+			items = append(items, contextMenu.Item{
+				ID:              "mtunnel_restore",
+				Label:           translate.T("menuTunnelRestorePhases", "Return to next phases"),
+				FontAwesomePath: eye.Path,
+				ViewBox:         eye.ViewBox,
+				HelpKey:         "helpMenuTunnelRestorePhases",
+				HelpFallback:    "Shows this tunnel again in every phase it was removed from.",
+				OnClick:         func() { seq.TunnelRestorePhases(id) },
+			})
+		}
+	}
+
+	items = append(items, contextMenu.Item{
+		ID:              "mtunnel_delete",
+		Label:           translate.T("menuTunnelDelete", "Delete"),
+		FontAwesomePath: rulesIcon.KFATrashCan,
+		ViewBox:         "0 0 448 512",
+		Danger:          true,
+		HelpKey:         "helpMenuTunnelDelete",
+		HelpFallback:    "Removes this tunnel (its wires go with it).",
+		OnClick: func() {
+			w.WireMgr.RequestManualTunnelDelete(id)
+		},
+	})
+	w.CtxMenu.OpenAtWorld(items, worldX, worldY)
+}
+
 // updateConnectorTip drives the connector hover tooltip. Called on every
 // stage pointer move while NO wire draft is in progress:
 //
@@ -2438,15 +2589,14 @@ func (w *Workspace) previewCaseCode(scopeID, selectorType, casesJSON string) (co
 func showCodeForResult(res sseResult, language string) {
 	defaultLang := monacoLanguageHint(language)
 
-	// Normalise into a files map. The Go backend today returns a
-	// single source via res.code; synthesise an entry so the
-	// overlay/ZIP paths don't need a "if Go else C" branch.
+	// Both backends ship a files map since §7.4 (2026-07-16) — Go as
+	// {"main.go": source}, C as the multi-file tree. The synthesis
+	// branch that wrapped the legacy res.code lived here until the same
+	// day, removed under explicit authorization ("pode remover o código
+	// morto"). Português: Os dois backends viajam no mapa desde a §7.4;
+	// o ramo de síntese do res.code legado foi removido no mesmo dia,
+	// com autorização explícita.
 	files := res.files
-	if len(files) == 0 && res.code != "" {
-		files = map[string]string{
-			mainFilenameFor(language): res.code,
-		}
-	}
 	if len(files) == 0 {
 		// Empty success — shouldn't happen in practice, but log
 		// and bail rather than show a blank overlay.
@@ -2481,27 +2631,6 @@ func showCodeForResult(res sseResult, language string) {
 		defaultLang,
 		actions,
 	)
-}
-
-// mainFilenameFor returns the conventional "main" filename for a
-// given language token. Used by showCodeForResult to synthesise a
-// single-entry files map for backends (today: Go) that still return
-// a flat code string instead of a files map.
-//
-// The map is intentionally tiny — it covers exactly the languages
-// the codegen pipeline emits today. Adding a new language is a
-// one-line edit when the backend lands.
-//
-// Português: Devolve o nome canônico do arquivo "main" pra cada
-// linguagem. Pequeno por design — uma linha por linguagem suportada.
-func mainFilenameFor(language string) string {
-	switch language {
-	case "c":
-		return "main.c"
-	case "go", "":
-		return "main.go"
-	}
-	return "main.txt"
 }
 
 // monacoLanguageHint translates the project's language token into the

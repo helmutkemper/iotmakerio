@@ -101,4 +101,15 @@ func (e *StatementCase) RestoreCaseState(selectorType, selectedCase, defaultCase
 	// case overlapping. The NotifyChange that follows the import
 	// (assignNewChildren + applyCaseVisibility) is then idempotent.
 	e.applyCaseVisibility()
+
+	// Re-bake the ornament bitmap — same latent staleness the Sequence
+	// twin surfaced in the field (2026-07-18): SetCaseLabel/SetSelectorType
+	// above only update the MODEL, while the pill's pixels come from
+	// recacheOrnament, and the import's `go RefreshVisual()` usually
+	// bakes the Init-time label BEFORE this restore runs. Twin-symmetric
+	// fix, same idiom as selectCase. Português: Re-assa o bitmap — mesma
+	// desatualização latente que o gêmeo Sequence revelou em campo
+	// (2026-07-18): os setters acima só mudam o MODELO; o pixel vem do
+	// recacheOrnament. Correção simétrica, mesmo idioma do selectCase.
+	go e.recacheOrnament()
 }

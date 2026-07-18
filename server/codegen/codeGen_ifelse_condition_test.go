@@ -129,12 +129,12 @@ func TestIfElseConditionSourceOutsideAllowed(t *testing.T) {
 
 	// The comparator must still be emitted and its bool wired as the
 	// condition — i.e. the if/else genuinely accepted the comparator output.
-	if !strings.Contains(resp.Code, "==") {
-		t.Errorf("expected the equality comparison to be emitted, got:\n%s", resp.Code)
+	if !strings.Contains(resp.Files["main.go"], "==") {
+		t.Errorf("expected the equality comparison to be emitted, got:\n%s", resp.Files["main.go"])
 	}
 
 	if t.Failed() {
 		t.Logf("Errors (%d): %v", len(resp.Errors), resp.Errors)
-		t.Logf("Code:\n%s", resp.Code)
+		t.Logf("Code:\n%s", resp.Files["main.go"])
 	}
 }

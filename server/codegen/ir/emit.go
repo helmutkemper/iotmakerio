@@ -42,6 +42,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -127,6 +128,11 @@ type emitter struct {
 	// Português: Diagnósticos acumulados pelo passo de compatibilidade
 	// de tipos (emitBinOp / emitCmp). Consumidos no fim do run().
 	typeDiags []diagnostics.Diagnostic
+
+	// inFunctionScope guards against nested Function containers while a
+	// function body is being lowered. Português: Guarda contra Function
+	// aninhado durante o rebaixamento de um corpo.
+	inFunctionScope bool
 
 	// convertCounter produces unique register names for CONVERT
 	// instructions inserted by the type-compatibility pass. Never
@@ -883,6 +889,270 @@ func (e *emitter) emitIfElse(scopeID string) {
 // Português: Emite um bloco switch para um escopo StatementCase com selector
 // não-booleano. Os filhos são agrupados por case (CaseDef.IDs), ordenados
 // topologicamente e emitidos entre os labels. O default (se houver) vai por último.
+// emitSequence lowers a StatementSequence scope: N ordered phases, ALL of
+// them run. It emits NO construct — phase bodies are concatenated in phase
+// order, each phase topoSorted internally (Kemper's transparency law,
+// 2026-07-16: "any code with a sequencer equals the same code without one;
+// it only guarantees a clear order"). One diagnostic is unique to it: a wire
+// flowing BACKWARD between phases (producer in a later phase than its
+// consumer) is an order violation — the graph promises 0→1→2 and a
+// backward wire cannot be honoured.
+//
+// Português: Rebaixa um StatementSequence — N fases ordenadas, TODAS rodam.
+// Não emite construto: os corpos concatenam na ordem das fases, cada fase
+// com topoSort interno (a lei da transparência). Diagnóstico exclusivo:
+// fio PARA TRÁS entre fases (produtor em fase posterior à do consumidor)
+// é violação de ordem.
+// hasOutgoingWire reports whether ANY edge leaves the given device. Math
+// devices have a single output port, so device-level granularity is
+// exact for them; callers with multi-output devices should not use this.
+// Português: Diz se ALGUM fio sai do device — exato para devices de
+// saída única, como os de matemática.
+func (e *emitter) hasOutgoingWire(deviceID string) bool {
+	// Wires are DUAL-SOURCED (field lesson 2026-07-16, the gt_1 case):
+	// scenes carry an explicit "wires" array AND per-port "connections"
+	// on the consumer — real exports fill both, but connection-only
+	// scenes exist (tests, old exports). Edges materialise only from the
+	// array, so checking Edges alone false-flags a wired device. Scan
+	// both, like resolveInput's world does. Português: Fios têm DUAS
+	// fontes — o array "wires" e as "connections" por porta do
+	// consumidor; Edges nasce só do array, então checar só Edges acusa
+	// falso positivo. Varre as duas fontes.
+	for _, edge := range e.graph.Edges {
+		if edge.From.DeviceID == deviceID {
+			return true
+		}
+	}
+	for _, n := range e.graph.Nodes {
+		for _, port := range n.Inputs {
+			for _, ref := range port.Connected {
+				if ref.DeviceID == deviceID {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// tunnelRealSource follows a phase-tunnel chain upstream to the first
+// non-tunnel producer and returns that PortRef. ok=false when the chain
+// dangles (an unwired tunnel.in) or cycles. The cycle guard is not
+// paranoia: the scene file is CLIENT input — the server must never spin
+// on a hostile or buggy wire loop, so a revisited tunnel warns once and
+// resolves as unconnected.
+//
+// Português: Segue a cadeia de túneis rio acima até o primeiro produtor
+// que não é túnel. ok=false quando a cadeia está solta (tunnel.in sem
+// fio) ou cicla. A guarda de ciclo não é paranoia: o scene file é input
+// do CLIENTE — o servidor jamais pode girar em loop num fio hostil ou
+// bugado; túnel revisitado avisa uma vez e resolve como desconectado.
+func (e *emitter) tunnelRealSource(node *graph.Node) (graph.PortRef, bool) {
+	seen := map[string]bool{}
+	cur := node
+	for {
+		if seen[cur.ID] {
+			e.program.Warn("%s: tunnel cycle — treated as unconnected", cur.ID)
+			return graph.PortRef{}, false
+		}
+		seen[cur.ID] = true
+		srcs := e.graph.GetInputSources(cur.ID, "in")
+		if len(srcs) == 0 {
+			return graph.PortRef{}, false
+		}
+		next, ok := e.graph.Nodes[srcs[0].DeviceID]
+		if !ok || next.Type != "StatementTunnel" {
+			// An unknown node id falls through here on purpose:
+			// resolveInput2 renders it as "%<id>" — the same contract a
+			// direct wire to it would have. Português: Id desconhecido
+			// cai aqui de propósito — mesmo contrato de um fio direto.
+			return srcs[0], true
+		}
+		cur = next
+	}
+}
+
+// skipTunnel emits NOTHING for a phase-tunnel. The tunnel is FRONT-END
+// FURNITURE (Kemper, 2026-07-18: "eu vejo túnel como sendo uma peça de
+// front end... não vejo o túnel como algo que vá para o código"): pure
+// wire routing across a Sequence phase border. Consumers resolve
+// THROUGH it to the real source (resolveInput2 / resolveInputType), so
+// the generated program reads as if the wire never stopped — no
+// synthetic variable, nothing to mis-order. This supersedes the
+// 2026-07-16 "honest line" design (tunnel_1 = <source>): being
+// parentless border furniture, those lines fell OUTSIDE every phase and
+// were appended AFTER their consumers — use-before-declaration, field
+// 2026-07-18. The maker-mid-build warnings survive; only the code went
+// silent.
+//
+// Português: Túnel não emite NADA — é peça de FRONT-END (Kemper,
+// 2026-07-18), puro roteamento de fio pela borda de fase. Consumidores
+// resolvem ATRAVÉS dele até a fonte real; o programa gerado lê como se
+// o fio nunca tivesse parado — sem variável sintética, nada para
+// desordenar. Supersede a "linha honesta" de 2026-07-16: móvel de borda
+// não tem fase, então aquelas linhas caíam DEPOIS dos consumidores —
+// uso-antes-da-declaração, campo 2026-07-18. Os avisos de obra
+// continuam; só o código silenciou.
+func (e *emitter) skipTunnel(node *graph.Node) {
+	if len(e.graph.GetInputSources(node.ID, "in")) == 0 {
+		e.program.Warn("%s.in: not connected — consumers of this tunnel read nothing", node.ID)
+	}
+	if !e.hasOutgoingWire(node.ID) {
+		e.program.Warn("%s.out: not connected — the tunnel leads nowhere yet", node.ID)
+	}
+}
+
+// funcNameRe validates a Function container's name: emitted VERBATIM
+// into both targets (doctrine 1), so it must be a C identifier.
+// Português: O nome sai verbatim — precisa ser identificador C.
+var funcNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// emitFunction lowers a StatementFunction scope: the body between
+// OpFuncBegin/OpFuncEnd is lifted OUT of main by each backend into
+// `func <name>()` / `static void <name>(void)` — the linkage axis's new
+// emit muscle (ARDUINO_TARGET §3, slice 2). On this slice nothing calls
+// the function; a WARNING says so, loudly, by the portability-tiers
+// rule. Values crossing the boundary ride the existing VAR promotion —
+// the backends place VAR declarations at FILE scope whenever a program
+// contains functions, so both sides can see them.
+//
+// Português: Rebaixa StatementFunction — o corpo entre FuncBegin/End é
+// içado do main pelos backends para uma função nomeada. Nesta fatia
+// ninguém a chama (warning barulhento). Cruzamentos viajam pela promoção
+// a VAR existente; com funções no programa, os backends declaram VARs em
+// escopo de arquivo.
+func (e *emitter) emitFunction(scopeID string) {
+	scope, ok := e.graph.Scopes[scopeID]
+	if !ok || !scope.Function {
+		e.program.Warn("function scope %s not found or not a function", scopeID)
+		return
+	}
+	if e.inFunctionScope {
+		e.typeDiags = append(e.typeDiags, diagnostics.Diagnostic{
+			Kind:     diagnostics.KindFunctionNested,
+			Severity: diagnostics.SeverityError,
+			Devices:  []string{scopeID},
+			Message: fmt.Sprintf(
+				"%s: a Function container cannot live inside another Function — C has no nested functions; move it to the top level",
+				scopeID),
+		})
+		return
+	}
+	name := scope.FunctionName
+	if !funcNameRe.MatchString(name) {
+		e.typeDiags = append(e.typeDiags, diagnostics.Diagnostic{
+			Kind:     diagnostics.KindFunctionNameInvalid,
+			Severity: diagnostics.SeverityError,
+			Devices:  []string{scopeID},
+			Message: fmt.Sprintf(
+				"%s: function name %q is not a valid identifier (letters, digits, underscore; cannot start with a digit)",
+				scopeID, name),
+		})
+		return
+	}
+
+	e.program.Append(Instruction{Op: OpFuncBegin, Dest: name})
+	e.inFunctionScope = true
+
+	sorted, errs := e.topoSort(scope.NodeIDs)
+	for _, err := range errs {
+		e.program.Warn("function %s sort: %s", name, err)
+	}
+	for _, nodeID := range sorted {
+		if e.emitted[nodeID] {
+			continue
+		}
+		e.emitted[nodeID] = true
+		e.emitNode(nodeID)
+	}
+
+	e.inFunctionScope = false
+	e.program.Append(Instruction{Op: OpFuncEnd})
+
+	// Slice 2 is posix-only: nothing calls the function on this target.
+	// Loud by decision — see KindFunctionUncalled's doctrine.
+	e.typeDiags = append(e.typeDiags, diagnostics.Diagnostic{
+		Kind:     diagnostics.KindFunctionUncalled,
+		Severity: diagnostics.SeverityWarning,
+		Devices:  []string{scopeID},
+		Message: fmt.Sprintf(
+			"%s: function %q has no caller on this target — its logic never runs here (it stays callable from your own code)",
+			scopeID, name),
+	})
+}
+
+func (e *emitter) emitSequence(scopeID string) {
+	scope, ok := e.graph.Scopes[scopeID]
+	if !ok || !scope.Sequence {
+		e.program.Warn("sequence scope %s not found or not a sequence", scopeID)
+		return
+	}
+
+	// Membership: phase index per node; strays default to phase 0 with a
+	// warning (mirror of the Case policy). Português: Fase por nó; sem
+	// fase declarada cai na 0 com aviso, espelhando o Case.
+	phaseOf := map[string]int{}
+	groups := make([][]string, len(scope.Cases))
+	for pi, c := range scope.Cases {
+		for _, id := range c.IDs {
+			phaseOf[id] = pi
+		}
+	}
+	for _, nodeID := range scope.NodeIDs {
+		pi, assigned := phaseOf[nodeID]
+		if !assigned {
+			e.program.Warn(
+				"device %s inside Sequence %s not assigned to any phase, defaulting to phase 0",
+				nodeID, scopeID)
+			pi = 0
+			phaseOf[nodeID] = 0
+		}
+		if len(groups) == 0 {
+			groups = append(groups, nil)
+		}
+		groups[pi] = append(groups[pi], nodeID)
+	}
+
+	// The order-violation sweep: any edge whose producer lives in a LATER
+	// phase than its consumer breaks the 0→1→2 promise. Error severity —
+	// the maker drew a contradiction; emission proceeds so every violation
+	// is reported in one pass, but the result must not ship.
+	// Português: Varredura de violação — produtor em fase posterior à do
+	// consumidor quebra a promessa 0→1→2.
+	for _, edge := range e.graph.Edges {
+		fromPhase, fromIn := phaseOf[edge.From.DeviceID]
+		toPhase, toIn := phaseOf[edge.To.DeviceID]
+		if !fromIn || !toIn {
+			continue // crosses the sequence boundary — hoisting's business
+		}
+		if fromPhase > toPhase {
+			e.typeDiags = append(e.typeDiags, diagnostics.Diagnostic{
+				Kind:     diagnostics.KindSequenceOrderViolation,
+				Severity: diagnostics.SeverityError,
+				Devices:  []string{edge.From.DeviceID, edge.To.DeviceID},
+				Message: fmt.Sprintf(
+					"%s (phase %d) feeds %s (phase %d) — a wire cannot flow backward through a Sequence; move the producer to phase %d or earlier",
+					edge.From.DeviceID, fromPhase, edge.To.DeviceID, toPhase, toPhase),
+			})
+		}
+	}
+
+	// Emission: phases in order, each topoSorted; no wrapper construct.
+	for pi := range groups {
+		sorted, errs := e.topoSort(groups[pi])
+		for _, err := range errs {
+			e.program.Warn("sequence phase %d sort: %s", pi, err)
+		}
+		for _, nodeID := range sorted {
+			if e.emitted[nodeID] {
+				continue
+			}
+			e.emitted[nodeID] = true
+			e.emitNode(nodeID)
+		}
+	}
+}
+
 func (e *emitter) emitCase(scopeID string) {
 	scope, ok := e.graph.Scopes[scopeID]
 	if !ok {
@@ -1390,6 +1660,12 @@ func (e *emitter) emitNode(nodeID string) {
 		e.emitScope(node.ID)
 	case node.Type == "StatementLoopDuration":
 		e.emitScope(node.ID)
+	case node.Type == "StatementSequence":
+		e.emitSequence(node.ID)
+	case node.Type == "StatementFunction":
+		e.emitFunction(node.ID)
+	case node.Type == "StatementTunnel":
+		e.skipTunnel(node)
 	case node.Type == "StatementIfElse":
 		e.emitIfElse(node.ID)
 	case node.Type == "StatementCase":
@@ -2158,6 +2434,27 @@ func (e *emitter) emitDataBlob(node *graph.Node) {
 		e.program.Warn("data device %s has no content — emitting an empty blob", node.ID)
 	}
 
+	// The flash-asset ceiling (field rule 2026-07-16): a distracted maker
+	// can wire a 200 MB video into a Data · File; turning that into a C
+	// byte array would produce a source file no target could swallow.
+	// Refuse HERE — the one place every data path (file upload, text,
+	// legacy DataURL) converges — with the device named, and emit no
+	// instruction. Português: O teto do asset de flash — recusa AQUI, o
+	// único ponto onde todos os caminhos de dado convergem, nomeando o
+	// device, sem emitir instrução.
+	if len(data) > DataBlobMaxBytes {
+		e.typeDiags = append(e.typeDiags, diagnostics.Diagnostic{
+			Kind:     diagnostics.KindAssetTooLarge,
+			Severity: diagnostics.SeverityError,
+			Devices:  []string{node.ID},
+			Message: fmt.Sprintf(
+				"%s: asset is %d bytes — the flash-asset ceiling is %d (2 MB); shrink the file or serve it from storage instead of embedding it",
+				node.ID, len(data), DataBlobMaxBytes,
+			),
+		})
+		return
+	}
+
 	e.program.Append(Instruction{
 		Op:   OpDataBlob,
 		Dest: node.ID,
@@ -2336,6 +2633,23 @@ func isNumericElemType(elemType string) bool {
 }
 
 func (e *emitter) emitCmp(node *graph.Node, op Op) {
+	// §7.5 (decision 2026-06-30, shipped 2026-07-16): an unwired output
+	// here is a validation ERROR — the leaf assignment would not even
+	// compile on the Go backend. Checked in the ir so both languages
+	// inherit the rule (parity by construction). Português: Saída sem
+	// fio = erro de validação; checado no ir, as duas linguagens herdam.
+	if !e.hasOutgoingWire(node.ID) {
+		e.typeDiags = append(e.typeDiags, diagnostics.Diagnostic{
+			Kind:     diagnostics.KindMathOutputUnwired,
+			Severity: diagnostics.SeverityError,
+			Devices:  []string{node.ID},
+			Message: fmt.Sprintf(
+				"%s: output is not connected — wire it to a consumer or remove the device (an unread result does not compile on the Go target)",
+				node.ID),
+		})
+		return
+	}
+
 	argA := e.resolveInput(node.ID, "inputX")
 	argB := e.resolveInput(node.ID, "inputY")
 	if argA == "" {
@@ -2390,6 +2704,23 @@ func (e *emitter) emitCmp(node *graph.Node, op Op) {
 }
 
 func (e *emitter) emitBinOp(node *graph.Node, op Op) {
+	// §7.5 (decision 2026-06-30, shipped 2026-07-16): an unwired output
+	// here is a validation ERROR — the leaf assignment would not even
+	// compile on the Go backend. Checked in the ir so both languages
+	// inherit the rule (parity by construction). Português: Saída sem
+	// fio = erro de validação; checado no ir, as duas linguagens herdam.
+	if !e.hasOutgoingWire(node.ID) {
+		e.typeDiags = append(e.typeDiags, diagnostics.Diagnostic{
+			Kind:     diagnostics.KindMathOutputUnwired,
+			Severity: diagnostics.SeverityError,
+			Devices:  []string{node.ID},
+			Message: fmt.Sprintf(
+				"%s: output is not connected — wire it to a consumer or remove the device (an unread result does not compile on the Go target)",
+				node.ID),
+		})
+		return
+	}
+
 	argA := e.resolveInput(node.ID, "inputX")
 	argB := e.resolveInput(node.ID, "inputY")
 	dataType := e.inferOutputType(node)
@@ -2905,6 +3236,26 @@ func (e *emitter) resolveInput2(deviceID, portName string) string {
 		return "%" + vn
 	}
 
+	// A StatementTunnel is FRONT-END FURNITURE (Kemper, 2026-07-18) —
+	// the third alias sibling, next to GetVar above and the C99
+	// PassThrough below: it produces no value of its own. A consumer of
+	// tunnel.out reads whatever feeds tunnel.in, chains collapsing via
+	// tunnelRealSource. A dangling chain resolves "" so the CONSUMER's
+	// own unconnected policy speaks (binops warn and pass 0, prints warn
+	// and skip) — while skipTunnel names the tunnel itself in a warning.
+	// Português: Túnel é peça de FRONT-END — terceiro irmão de alias,
+	// junto do GetVar acima e do PassThrough abaixo: não produz valor.
+	// Quem lê tunnel.out lê o que alimenta tunnel.in (cadeias colapsam
+	// via tunnelRealSource). Cadeia solta resolve "" — a política do
+	// próprio consumidor fala, e o skipTunnel nomeia o túnel no aviso.
+	if srcNode.Type == "StatementTunnel" {
+		real, wired := e.tunnelRealSource(srcNode)
+		if !wired {
+			return ""
+		}
+		return e.resolveInput2(real.DeviceID, real.PortName)
+	}
+
 	// Any BlackBox node (Init or any named method) uses the compound register
 	// form "%instanceId:portName" so the backend can resolve it to a named
 	// Go variable (e.g. "i2cBus1_bus").
@@ -3021,6 +3372,23 @@ func (e *emitter) resolveInputType(nodeID, portName string) string {
 	srcNode, ok := e.graph.Nodes[src.DeviceID]
 	if !ok {
 		return ""
+	}
+	// See resolveInput2's tunnel branch: the tunnel is front-end
+	// furniture, so the TYPE also flows through it to the real
+	// producer's declared port. Without this hop, type checking would
+	// read the shell instead of the source. Português: O TIPO também
+	// atravessa o túnel até a porta declarada do produtor real — sem
+	// este pulo, a checagem leria a casca em vez da fonte.
+	if srcNode.Type == "StatementTunnel" {
+		real, wired := e.tunnelRealSource(srcNode)
+		if !wired {
+			return ""
+		}
+		src = real
+		srcNode, ok = e.graph.Nodes[src.DeviceID]
+		if !ok {
+			return ""
+		}
 	}
 	for _, p := range srcNode.Outputs {
 		if p.Name == src.PortName {

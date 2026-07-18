@@ -207,7 +207,7 @@ func TestLinear(t *testing.T) {
 	t.Log("=== IR ===")
 	t.Log(resp.IR)
 	t.Log("=== Go ===")
-	t.Log(resp.Code)
+	t.Log(resp.Files["main.go"])
 
 	// IR checks
 	assertContains(t, resp.IR, "CONST %constInt_1 int 10")
@@ -216,11 +216,11 @@ func TestLinear(t *testing.T) {
 	assertContains(t, resp.IR, "OUTPUT %gauge_1")
 
 	// Go code checks
-	assertContains(t, resp.Code, "package main")
-	assertContains(t, resp.Code, "constInt1 := int64(10)")
-	assertContains(t, resp.Code, "constInt3 := int64(20)")
-	assertContains(t, resp.Code, "add1 := constInt1 + constInt3")
-	assertContains(t, resp.Code, `fmt.Println("total"`)
+	assertContains(t, resp.Files["main.go"], "package main")
+	assertContains(t, resp.Files["main.go"], "constInt1 := int64(10)")
+	assertContains(t, resp.Files["main.go"], "constInt3 := int64(20)")
+	assertContains(t, resp.Files["main.go"], "add1 := constInt1 + constInt3")
+	assertContains(t, resp.Files["main.go"], `fmt.Println("total"`)
 }
 
 // =====================================================================
@@ -240,7 +240,7 @@ func TestLoop(t *testing.T) {
 	t.Log("=== IR ===")
 	t.Log(resp.IR)
 	t.Log("=== Go ===")
-	t.Log(resp.Code)
+	t.Log(resp.Files["main.go"])
 
 	// IR: add_1 crosses scope → must be promoted to VAR
 	// compare_1 does NOT cross scope (only connects to stop port)
@@ -261,14 +261,14 @@ func TestLoop(t *testing.T) {
 	}
 
 	// Go code: var before loop, for{}, break, output after loop
-	assertContains(t, resp.Code, "var add1 int64")
-	assertNotContains(t, resp.Code, "var compare1") // not promoted
-	assertContains(t, resp.Code, "for {")
-	assertContains(t, resp.Code, "add1 = constInt1 + constInt3")
-	assertContains(t, resp.Code, "compare1 := add1 > constInt5") // := not =
-	assertContains(t, resp.Code, "if compare1 {")
-	assertContains(t, resp.Code, "break")
-	assertContains(t, resp.Code, `fmt.Println("total"`)
+	assertContains(t, resp.Files["main.go"], "var add1 int64")
+	assertNotContains(t, resp.Files["main.go"], "var compare1") // not promoted
+	assertContains(t, resp.Files["main.go"], "for {")
+	assertContains(t, resp.Files["main.go"], "add1 = constInt1 + constInt3")
+	assertContains(t, resp.Files["main.go"], "compare1 := add1 > constInt5") // := not =
+	assertContains(t, resp.Files["main.go"], "if compare1 {")
+	assertContains(t, resp.Files["main.go"], "break")
+	assertContains(t, resp.Files["main.go"], `fmt.Println("total"`)
 }
 
 // =====================================================================

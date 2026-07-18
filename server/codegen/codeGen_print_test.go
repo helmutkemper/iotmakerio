@@ -146,13 +146,13 @@ func TestPrintSinksGo(t *testing.T) {
 		`fmt.Printf("alarm %d\n", `,
 		`"fmt"`,
 	} {
-		if !strings.Contains(resp.Code, want) {
-			t.Errorf("Go print missing %q in:\n%s", want, resp.Code)
+		if !strings.Contains(resp.Files["main.go"], want) {
+			t.Errorf("Go print missing %q in:\n%s", want, resp.Files["main.go"])
 		}
 	}
 
-	if _, err := parser.ParseFile(token.NewFileSet(), "gen.go", resp.Code, parser.AllErrors); err != nil {
-		t.Errorf("generated Go does not parse: %v\n%s", err, resp.Code)
+	if _, err := parser.ParseFile(token.NewFileSet(), "gen.go", resp.Files["main.go"], parser.AllErrors); err != nil {
+		t.Errorf("generated Go does not parse: %v\n%s", err, resp.Files["main.go"])
 	}
 }
 

@@ -648,33 +648,11 @@ func (e *StatementCase) snapCasesToBool() {
 //
 // Português: Atribui novos filhos ao case selecionado e remove os que saíram.
 func (e *StatementCase) assignNewChildren() {
-	if e.sceneMgr == nil {
-		return
-	}
-
-	containedIDs := e.sceneMgr.ChildrenOf(e.id)
-
-	known := make(map[string]bool)
-	for _, c := range e.cases {
-		for _, id := range c.ids {
-			known[id] = true
-		}
-	}
-
-	selIdx := e.caseIndexByID(e.selectedCase)
-	for _, id := range containedIDs {
-		if !known[id] && selIdx >= 0 {
-			e.cases[selIdx].ids = append(e.cases[selIdx].ids, id)
-		}
-	}
-
-	containedSet := make(map[string]bool, len(containedIDs))
-	for _, id := range containedIDs {
-		containedSet[id] = true
-	}
-	for i := range e.cases {
-		e.cases[i].ids = filterExisting(e.cases[i].ids, containedSet)
-	}
+	// Delegates to the shared resilient pass — see maintainCaseMembership
+	// in util.go for the 2026-07-18 collapse forensics and the doctrine.
+	// Português: Delega ao passe resiliente compartilhado (util.go).
+	maintainCaseMembership(e.sceneMgr, e.id, e.GetInnerBBox(),
+		e.cases, e.caseIndexByID(e.selectedCase))
 }
 
 // applyCaseVisibility shows the selected case's children and hides every other

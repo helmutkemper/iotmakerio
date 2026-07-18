@@ -133,6 +133,12 @@ func Emit(prog *ir.Program, profile TargetProfile, naming blackbox.Naming) map[s
 		indent:   1, // body lives inside main(); one level of indent
 		declared: make(map[string]bool),
 	}
+	for _, in := range prog.Instructions {
+		if in.Op == ir.OpFuncBegin {
+			e.hasFuncs = true
+			break
+		}
+	}
 
 	e.emit()
 
@@ -293,10 +299,21 @@ type ifFrame struct {
 //	o topo, IfEnd desempilha. Estado adicional (includes, topLevel)
 //	será introduzido pelas tarefas que precisarem.
 type cEmitter struct {
-	prog     *ir.Program
-	profile  TargetProfile
-	body     strings.Builder
-	indent   int
+	prog    *ir.Program
+	profile TargetProfile
+	body    strings.Builder
+	indent  int
+
+	// Function lifting — mirror of the Go emitter's cut-region trick
+	// (see its field doc); funcs collects `static void <name>(void)`
+	// bodies, fileVars the `static` shared declarations. Português:
+	// Espelho do truque de recorte do Go — funcs coleta os corpos
+	// `static void`, fileVars as declarações compartilhadas.
+	hasFuncs bool
+	funcMark int
+	funcName string
+	funcs    strings.Builder
+	fileVars strings.Builder
 	declared map[string]bool
 	ifStack  []ifFrame
 
@@ -470,6 +487,17 @@ func (e *cEmitter) emit() {
 		switch inst.Op {
 		case ir.OpConst:
 			e.emitConst(inst)
+		case ir.OpFuncBegin:
+			e.funcName = inst.Dest
+			e.funcMark = e.body.Len()
+		case ir.OpFuncEnd:
+			region := e.body.String()[e.funcMark:]
+			trunk := e.body.String()[:e.funcMark]
+			e.body.Reset()
+			e.body.WriteString(trunk)
+			e.funcs.WriteString("static void " + e.funcName + "(void) {\n")
+			e.funcs.WriteString(region)
+			e.funcs.WriteString("}\n\n")
 		case ir.OpVar:
 			e.emitVar(inst)
 		case ir.OpAssign:
@@ -626,6 +654,21 @@ func (e *cEmitter) emitVar(inst ir.Instruction) {
 	// e uma variável que nenhum SetVar escreve ficaria com lixo. Um OpVar de
 	// promoção de fio não tem o marcador: é atribuído logo em seguida, então
 	// continua declaração nua, como antes.
+	if e.hasFuncs {
+		// File-scope routing (mirror of the Go emitter): statics visible
+		// to the lifted bodies AND to main. C statics zero-initialise, so
+		// the varInit path folds into the same static line. Português:
+		// Estáticas em escopo de arquivo — visíveis aos corpos içados e
+		// ao main; static já zera, então varInit cabe na mesma linha.
+		if inst.Meta["varInit"] == "1" && len(inst.Args) > 0 {
+			fmt.Fprintf(&e.fileVars, "static %s %s = %s;\n",
+				cType, name, cLiteral(inst.Type, inst.Args[0], e.profile))
+		} else {
+			fmt.Fprintf(&e.fileVars, "static %s %s;\n", cType, name)
+		}
+		e.declared[inst.Dest] = true
+		return
+	}
 	if inst.Meta["varInit"] == "1" && len(inst.Args) > 0 {
 		e.writef("%s %s = %s;\n", cType, name, cLiteral(inst.Type, inst.Args[0], e.profile))
 	} else {
@@ -2237,6 +2280,15 @@ func (e *cEmitter) wrapMain() string {
 	}
 
 	// main(void) — the IR's body lives here, indented by writef.
+	if e.fileVars.Len() > 0 {
+		sb.WriteString("/* ── Shared state (crosses function boundaries) ── */\n")
+		sb.WriteString(e.fileVars.String())
+		sb.WriteString("\n")
+	}
+	if e.funcs.Len() > 0 {
+		sb.WriteString(e.funcs.String())
+	}
+
 	sb.WriteString("int main(void) {\n")
 	sb.WriteString(e.body.String())
 

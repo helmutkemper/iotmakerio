@@ -81,7 +81,7 @@ func TestCBackend_Scaffolding(t *testing.T) {
 // TestCBackend_GoPathUnchanged is the regression guard.
 //
 // It calls Generate with the exact same scene as TestCBackend_Scaffolding
-// but with Language="go" and asserts the legacy behaviour: resp.Code is
+// but with Language="go" and asserts the legacy behaviour: resp.Files["main.go"] is
 // populated, resp.Files is nil. If a future change accidentally routes
 // the Go path through the multi-file branch, this test catches it.
 //
@@ -100,12 +100,18 @@ func TestCBackend_GoPathUnchanged(t *testing.T) {
 		t.Fatalf("unexpected errors from Go backend: %v", resp.Errors)
 	}
 
-	if resp.Code == "" {
-		t.Fatal("expected resp.Code to be populated for language=\"go\"")
+	if resp.Files["main.go"] == "" {
+		t.Fatal("expected resp.Files[\"main.go\"] to be populated for language=\"go\"")
 	}
 
-	if resp.Files != nil {
-		t.Fatalf("expected resp.Files to be nil for language=\"go\"; got %d entries", len(resp.Files))
+	// §7.4 (2026-07-16): Go now ships as Files{"main.go": …} — this guard
+	// inverted with the contract; Code is legacy and stays empty.
+	// Português: O guarda inverteu com o contrato — Go viaja no mapa.
+	if len(resp.Files) != 1 {
+		t.Fatalf("expected exactly the main.go entry for language=\"go\"; got %d entries", len(resp.Files))
+	}
+	if resp.Code != "" {
+		t.Fatal("resp.Code is a legacy field and must stay empty since §7.4")
 	}
 }
 
@@ -126,12 +132,12 @@ func TestCBackend_EmptyLanguageStillGoesGo(t *testing.T) {
 		t.Fatalf("unexpected errors with empty language: %v", resp.Errors)
 	}
 
-	if resp.Code == "" {
-		t.Fatal("expected resp.Code to be populated when Language is empty (Go default)")
+	if resp.Files["main.go"] == "" {
+		t.Fatal("expected resp.Files[\"main.go\"] to be populated when Language is empty (Go default)")
 	}
 
-	if resp.Files != nil {
-		t.Fatalf("expected resp.Files to be nil when Language is empty; got %d entries", len(resp.Files))
+	if len(resp.Files) != 1 {
+		t.Fatalf("expected exactly the main.go entry when Language is empty; got %d entries", len(resp.Files))
 	}
 }
 

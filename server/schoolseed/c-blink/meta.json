@@ -1,0 +1,10 @@
+{
+  "language": "c",
+  "level": "ready",
+  "title": "Blink LED",
+  "subtitle": "A working device. Change the interval, re-parse, see it change.",
+  "ord": 1,
+  "visible": true,
+  "sourceProjectId": "",
+  "steps": []
+}

@@ -54,6 +54,12 @@ services:
       # ./data is a host bind-mount that survives container rebuilds.
       # Both the SQLite file and the user-files directory live here.
       - ./data:/app/data
+      # ./schoolseed carries the School's content (meta + code + manual,
+      # images as real binaries). Boot imports it; the /control Export
+      # button writes back — so a backup is one git commit away.
+      # Português: O conteúdo da School; boot importa, Export grava —
+      # backup vira um commit.
+      - ./schoolseed:/app/schoolseed
     environment:
       SERVER_PORT:    "8080"
       REDIS_ADDR:     "redis:6379"

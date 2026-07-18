@@ -111,6 +111,70 @@ const (
 	// cobertos por um case anterior (first-match-wins) — o ramo nunca
 	// executa. Warning.
 	KindCaseUnreachable = "case_unreachable"
+
+	// KindAssetTooLarge — a Data · File / Data · Text device carries more
+	// bytes than the flash-asset ceiling (ir.DataBlobMaxBytes, 2 MB). The
+	// blob is NOT emitted: on the small targets these arrays exist for,
+	// oversize assets brick the build at link time with a far worse
+	// message; refusing early with the device named is the kind path.
+	// Error severity — generation proceeds so every oversize device is
+	// reported in one pass, but the result must not ship.
+	//
+	// Português: Um device Data · File / Data · Text carrega mais bytes
+	// que o teto de asset de flash (2 MB). O blob NÃO é emitido — nos
+	// alvos pequenos para os quais esses arrays existem, um asset
+	// gigante quebra o build no link com mensagem bem pior; recusar cedo
+	// nomeando o device é o caminho gentil. Severidade Error.
+	KindAssetTooLarge = "asset_too_large"
+
+	// KindSequenceOrderViolation — a wire inside a StatementSequence flows
+	// BACKWARD: its producer sits in a later phase than its consumer. The
+	// Sequence's whole promise is 0→1→2; a backward wire is a drawn
+	// contradiction. Error severity; emission proceeds so every violation
+	// is reported in one pass, but the result must not ship.
+	//
+	// Português: Fio PARA TRÁS dentro de um Sequence — produtor em fase
+	// posterior à do consumidor. A promessa do device é 0→1→2; fio para
+	// trás é contradição desenhada. Severidade Error.
+	KindSequenceOrderViolation = "sequence_order_violation"
+
+	// KindMathOutputUnwired — a math or comparison device's output feeds
+	// nothing. An unwired math output becomes a leaf assignment nothing
+	// reads: C tolerates it (a warning), but Go REJECTS unused locals at
+	// build time — so the generated program would not compile. Decision
+	// 2026-06-30 (§7.5): validation error BEFORE generation, enforced in
+	// the ir (language-agnostic — both backends inherit it, the parity
+	// rule). No instruction is emitted for the offender.
+	//
+	// Português: Saída de math/comparação sem fio — vira atribuição-folha
+	// que nada lê; C tolera, Go REJEITA locals não usados. Erro de
+	// validação ANTES da geração, imposto no ir (as duas linguagens
+	// herdam). O infrator não emite instrução.
+	KindMathOutputUnwired = "math_output_unwired"
+
+	// KindFunctionNameInvalid — a Function container's name is empty or
+	// not a valid C identifier. The name is emitted VERBATIM into both
+	// targets (doctrine 1: prefix-exempt), so there is no sanitizer to
+	// hide behind: the maker owns the name, the validator owns the
+	// refusal. Error; the region is not emitted. Português: Nome vazio ou
+	// inválido como identificador C — emitido verbatim, então recusa
+	// clara em vez de sanitização escondida.
+	KindFunctionNameInvalid = "function_name_invalid"
+
+	// KindFunctionUncalled — a Function region emitted on a target where
+	// nothing calls it (posix in slice 2). WARNING, deliberately loud
+	// (upgraded from info by the portability-tiers rule): a PC test must
+	// not silently diverge from the embedded behaviour; the body remains
+	// manually testable from a harness. Português: Função sem chamador
+	// neste alvo — warning barulhento por decisão (tiers): teste no PC
+	// não pode divergir em silêncio.
+	KindFunctionUncalled = "function_uncalled"
+
+	// KindFunctionNested — a Function container inside another Function's
+	// scope. C has no nested functions; v1 refuses with the offender
+	// named. Português: Function dentro de Function — C não tem funções
+	// aninhadas; v1 recusa nomeando.
+	KindFunctionNested = "function_nested"
 )
 
 // Diagnostic is a single structured issue produced anywhere in the

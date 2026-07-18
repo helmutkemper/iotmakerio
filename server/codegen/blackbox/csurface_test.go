@@ -307,3 +307,23 @@ func TestCSurface_CustomRadical(t *testing.T) {
 		}
 	}
 }
+
+// Slice 0 of the embedded ladder (2026-07-16): generated headers carry
+// extern "C" guards so the C++ .ino wrapper links C symbols. Português:
+// Headers gerados carregam extern "C" para o invólucro .ino linkar.
+func TestHeaderCarriesExternCGuards(t *testing.T) {
+	s := NewCSurface(surfaceFixtureDef(), Naming{})
+	h := s.Header()
+	for _, want := range []string{
+		"#ifdef __cplusplus",
+		"extern \"C\" {",
+		"} /* extern \"C\" */",
+	} {
+		if !strings.Contains(h, want) {
+			t.Fatalf("header missing %q:\n%s", want, h)
+		}
+	}
+	if strings.Index(h, "extern \"C\" {") > strings.Index(h, "} /* extern") {
+		t.Fatal("extern \"C\" open must precede its close")
+	}
+}

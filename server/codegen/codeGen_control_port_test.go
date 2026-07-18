@@ -125,10 +125,10 @@ func TestControlPortProducerOutsideLoop(t *testing.T) {
 	})
 
 	if len(resp.Errors) == 0 {
-		t.Fatalf("expected an error about the outside producer, got none\n  Code:\n%s", resp.Code)
+		t.Fatalf("expected an error about the outside producer, got none\n  Code:\n%s", resp.Files["main.go"])
 	}
-	if resp.Code != "" {
-		t.Errorf("expected empty Code when control port source is invalid, got:\n%s", resp.Code)
+	if resp.Files["main.go"] != "" {
+		t.Errorf("expected empty Code when control port source is invalid, got:\n%s", resp.Files["main.go"])
 	}
 
 	joined := strings.Join(resp.Errors, "\n")

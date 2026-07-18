@@ -45,18 +45,18 @@ import (
 // reformatted, the replacement silently no-ops and the guard at the top of each
 // test fails loudly rather than testing the wrong scene.
 const oldCasesBlock = `        "cases": [
-          { "id": "case_a",   "label": "a",     "values": ["0","1"], "ids": ["const_a1","const_a2","add_a"] },
-          { "id": "case_b",   "label": "b",     "values": ["2"],     "ids": ["const_b1","const_b2","add_b"] },
-          { "id": "case_def", "label": "other", "values": [],        "ids": ["const_d1","const_d2","add_def"] }
+          { "id": "case_a",   "label": "a",     "values": ["0","1"], "ids": ["const_a1","const_a2","add_a","print_a"] },
+          { "id": "case_b",   "label": "b",     "values": ["2"],     "ids": ["const_b1","const_b2","add_b","print_b"] },
+          { "id": "case_def", "label": "other", "values": [],        "ids": ["const_d1","const_d2","add_def","print_def"] }
         ],`
 
 // newCasesBlock forces the if/else-if lowering: a range case and a threshold
 // case alongside the default. case_a matches 0..10 inclusive, case_b matches
 // anything greater than 100, and case_def is the catch-all.
 const newCasesBlock = `        "cases": [
-          { "id": "case_a",   "label": "low",   "matchKind": "between", "values": ["0","10"], "ids": ["const_a1","const_a2","add_a"] },
-          { "id": "case_b",   "label": "high",  "matchKind": "gt",      "values": ["100"],    "ids": ["const_b1","const_b2","add_b"] },
-          { "id": "case_def", "label": "other", "matchKind": "is",      "values": [],         "ids": ["const_d1","const_d2","add_def"] }
+          { "id": "case_a",   "label": "low",   "matchKind": "between", "values": ["0","10"], "ids": ["const_a1","const_a2","add_a","print_a"] },
+          { "id": "case_b",   "label": "high",  "matchKind": "gt",      "values": ["100"],    "ids": ["const_b1","const_b2","add_b","print_b"] },
+          { "id": "case_def", "label": "other", "matchKind": "is",      "values": [],         "ids": ["const_d1","const_d2","add_def","print_def"] }
         ],`
 
 // sceneCaseIntCond is sceneCaseIntSwitch with the cases block above swapped in.
@@ -100,8 +100,8 @@ func TestCaseIntCondChainGo(t *testing.T) {
 	}
 
 	// A range/comparison Case must NOT be a switch.
-	if strings.Contains(resp.Code, "switch") {
-		t.Errorf("expected an if/else-if chain, but found a switch in:\n%s", resp.Code)
+	if strings.Contains(resp.Files["main.go"], "switch") {
+		t.Errorf("expected an if/else-if chain, but found a switch in:\n%s", resp.Files["main.go"])
 	}
 
 	// The chain shape and both branch conditions.
@@ -112,27 +112,27 @@ func TestCaseIntCondChainGo(t *testing.T) {
 		"} else if ", // second branch
 		"} else {",   // default branch
 	} {
-		if !strings.Contains(resp.Code, want) {
-			t.Errorf("Go chain missing %q in:\n%s", want, resp.Code)
+		if !strings.Contains(resp.Files["main.go"], want) {
+			t.Errorf("Go chain missing %q in:\n%s", want, resp.Files["main.go"])
 		}
 	}
 
 	// Declared order is preserved (between before gt before default), because
 	// overlapping ranges resolve first-match-wins.
-	indexOrder(t, resp.Code, ">= 0 && ", "> 100", "} else {")
+	indexOrder(t, resp.Files["main.go"], ">= 0 && ", "> 100", "} else {")
 
 	// All three case bodies still emit (an Add per case).
-	if got := strings.Count(resp.Code, " + "); got < 3 {
-		t.Errorf("expected at least 3 additions (one per case body), got %d in:\n%s", got, resp.Code)
+	if got := strings.Count(resp.Files["main.go"], " + "); got < 3 {
+		t.Errorf("expected at least 3 additions (one per case body), got %d in:\n%s", got, resp.Files["main.go"])
 	}
 
 	// Syntactic validity (the unused Add result rules out a full build).
-	if _, err := parser.ParseFile(token.NewFileSet(), "gen.go", resp.Code, parser.AllErrors); err != nil {
-		t.Errorf("generated Go does not parse: %v\n%s", err, resp.Code)
+	if _, err := parser.ParseFile(token.NewFileSet(), "gen.go", resp.Files["main.go"], parser.AllErrors); err != nil {
+		t.Errorf("generated Go does not parse: %v\n%s", err, resp.Files["main.go"])
 	}
 
 	if t.Failed() {
-		t.Logf("Go code:\n%s", resp.Code)
+		t.Logf("Go code:\n%s", resp.Files["main.go"])
 	}
 }
 

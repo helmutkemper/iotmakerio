@@ -124,6 +124,9 @@ func SeedMenuTree() error {
 		{"SysGreaterThan", "system", "action", 1, "menuMainGreaterThan", "Greater than", "greater-than", "0 0 640 512", "", ""},
 		{"SysGreaterThanOrEqualTo", "system", "action", 1, "menuMainGreaterThanOrEqualTo", "Greater than or equal to", "greater-than-equal", "0 0 640 512", "", ""},
 		{"SysCaseItem", "system", "action", 1, "menuMainCase", "Case", "layer-group", "0 0 512 512", "", ""},
+		{"SysSequenceItem", "system", "action", 1, "menuMainSequence", "Sequence", "list-ol", "0 0 512 512", "", ""},
+		{"SysEmbedded", "system", "submenu", 1, "menuMainEmbedded", "Arduino / Embedded", "microchip", "0 0 512 512", "", ""},
+		{"SysFunctionItem", "system", "action", 1, "menuMainFunction", "Function", "florin-sign", "0 0 384 512", "", ""},
 
 		// ── Loop children ────────────────────────────────────────────────
 		{"SysLoopItem", "system", "action", 1, "menuMainLoop", "Loop", "repeat", "0 0 512 512", "", ""},
@@ -251,6 +254,9 @@ func SeedMenuTree() error {
 		{"SysGreaterThan", "SysLogic", 5},
 		{"SysGreaterThanOrEqualTo", "SysLogic", 6},
 		{"SysCaseItem", "SysLogic", 8},
+		{"SysSequenceItem", "SysLogic", 9},
+		{"SysEmbedded", "", 10},
+		{"SysFunctionItem", "SysEmbedded", 1},
 
 		// Loop children
 		{"SysLoopItem", "SysLoop", 1},
@@ -895,6 +901,215 @@ func MigrateMenuTreeCase() error {
 			loc.locale, msg,
 		); err != nil {
 			return err
+		}
+	}
+
+	return nil
+}
+
+// MigrateMenuTreeSequence inserts the SysSequenceItem (ORDER container,
+// "Sequence") into databases seeded before the device existed — the
+// embedded ladder's slice 1 (2026-07-16). Same shape as
+// MigrateMenuTreeCase: INSERT OR IGNORE everywhere; catalog row, a layout
+// row per existing profile under SysLogic (after the last child), and
+// fill-if-absent i18n keys. Called from migrate() in db.go right after
+// MigrateMenuTreeCase().
+//
+// Português: Insere o item Sequence (container de ORDEM) em bancos
+// existentes — fatia 1 da escada embedded. Tudo idempotente, espelho do
+// MigrateMenuTreeCase.
+func MigrateMenuTreeSequence() error {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	if _, err := DB.Exec(`
+		INSERT OR IGNORE INTO menu_items
+			(slot_id, slot_type, item_type, locked, label_key, label_fallback,
+			 icon_fa, icon_viewbox, created_at)
+		VALUES ('SysSequenceItem', 'system', 'action', 1, 'menuMainSequence',
+		        'Sequence', 'list-ol', '0 0 512 512', ?)`,
+		now,
+	); err != nil {
+		return err
+	}
+
+	rows, err := DB.Query(`SELECT profile_id, is_default FROM menu_profiles`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type prof struct {
+		id        string
+		isDefault bool
+	}
+	var profiles []prof
+	for rows.Next() {
+		var p prof
+		var isDef int
+		if err := rows.Scan(&p.id, &isDef); err != nil {
+			return err
+		}
+		p.isDefault = isDef == 1
+		profiles = append(profiles, p)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, p := range profiles {
+		var maxPos int
+		if err := DB.QueryRow(`
+			SELECT COALESCE(MAX(position), 0) FROM menu_layout
+			WHERE profile_id = ? AND parent_id = 'SysLogic'`, p.id,
+		).Scan(&maxPos); err != nil {
+			return err
+		}
+
+		visible := 0
+		if p.isDefault {
+			visible = 1
+		}
+
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO menu_layout
+				(profile_id, slot_id, parent_id, position, visible)
+			VALUES (?, 'SysSequenceItem', 'SysLogic', ?, ?)`,
+			p.id, maxPos+1, visible,
+		); err != nil {
+			return err
+		}
+	}
+
+	for _, loc := range []struct{ locale string }{{"en-US"}, {"pt-BR"}} {
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO i18n_bundles (locale, bundle_id, updated_at)
+			VALUES (?, ?, ?)`,
+			loc.locale, loc.locale+"-custom", now,
+		); err != nil {
+			return err
+		}
+		msg := "Sequence"
+		if loc.locale == "pt-BR" {
+			msg = "Sequência"
+		}
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO i18n_messages
+				(locale, message_id, other, one, description)
+			VALUES (?, 'menuMainSequence', ?, '', '')`,
+			loc.locale, msg,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// MigrateMenuTreeEmbedded inserts the "Arduino / Embedded" ROOT category
+// (SysEmbedded) and its first child, the Function device
+// (SysFunctionItem), into databases seeded before slice 2 existed
+// (2026-07-16). Same idempotent shape as MigrateMenuTreeSequence; the
+// category lands after the last ROOT entry, the leaf as its first
+// child. Português: Insere a categoria-raiz "Arduino / Embedded" e a
+// folha Function em bancos existentes — tudo idempotente.
+func MigrateMenuTreeEmbedded() error {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	for _, it := range []struct {
+		slot, itemType, key, fallback, icon, viewbox string
+	}{
+		{"SysEmbedded", "submenu", "menuMainEmbedded", "Arduino / Embedded", "microchip", "0 0 512 512"},
+		{"SysFunctionItem", "action", "menuMainFunction", "Function", "florin-sign", "0 0 384 512"},
+	} {
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO menu_items
+				(slot_id, slot_type, item_type, locked, label_key, label_fallback,
+				 icon_fa, icon_viewbox, created_at)
+			VALUES (?, 'system', ?, 1, ?, ?, ?, ?, ?)`,
+			it.slot, it.itemType, it.key, it.fallback, it.icon, it.viewbox, now,
+		); err != nil {
+			return err
+		}
+	}
+
+	rows, err := DB.Query(`SELECT profile_id, is_default FROM menu_profiles`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type prof struct {
+		id        string
+		isDefault bool
+	}
+	var profiles []prof
+	for rows.Next() {
+		var p prof
+		var isDef int
+		if err := rows.Scan(&p.id, &isDef); err != nil {
+			return err
+		}
+		p.isDefault = isDef == 1
+		profiles = append(profiles, p)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, p := range profiles {
+		visible := 0
+		if p.isDefault {
+			visible = 1
+		}
+
+		var maxRoot int
+		if err := DB.QueryRow(`
+			SELECT COALESCE(MAX(position), 0) FROM menu_layout
+			WHERE profile_id = ? AND parent_id = ''`, p.id,
+		).Scan(&maxRoot); err != nil {
+			return err
+		}
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO menu_layout
+				(profile_id, slot_id, parent_id, position, visible)
+			VALUES (?, 'SysEmbedded', '', ?, ?)`,
+			p.id, maxRoot+1, visible,
+		); err != nil {
+			return err
+		}
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO menu_layout
+				(profile_id, slot_id, parent_id, position, visible)
+			VALUES (?, 'SysFunctionItem', 'SysEmbedded', 1, ?)`,
+			p.id, visible,
+		); err != nil {
+			return err
+		}
+	}
+
+	for _, loc := range []struct{ locale, cat, fn string }{
+		{"en-US", "Arduino / Embedded", "Function"},
+		{"pt-BR", "Arduino / Embarcados", "Função"},
+	} {
+		if _, err := DB.Exec(`
+			INSERT OR IGNORE INTO i18n_bundles (locale, bundle_id, updated_at)
+			VALUES (?, ?, ?)`,
+			loc.locale, loc.locale+"-custom", now,
+		); err != nil {
+			return err
+		}
+		for key, msg := range map[string]string{
+			"menuMainEmbedded": loc.cat,
+			"menuMainFunction": loc.fn,
+		} {
+			if _, err := DB.Exec(`
+				INSERT OR IGNORE INTO i18n_messages
+					(locale, message_id, other, one, description)
+				VALUES (?, ?, ?, '', '')`,
+				loc.locale, key, msg,
+			); err != nil {
+				return err
+			}
 		}
 	}
 

@@ -212,17 +212,17 @@ func TestTypeCompat_Uint16VsInt_EmitsWarningAndConvert(t *testing.T) {
 	// exact register naming is backend-specific, so we look for the
 	// substring rather than a full match. Also, no `stmGreater1 :=
 	// apds99600_clear > constInt0` form without a cast.
-	if !strings.Contains(resp.Code, "uint16(") {
+	if !strings.Contains(resp.Files["main.go"], "uint16(") {
 		t.Error("expected uint16(...) cast in generated Go code")
-		t.Logf("Code:\n%s", resp.Code)
+		t.Logf("Code:\n%s", resp.Files["main.go"])
 	}
 
-	// (5) Code emission must not have been blocked — resp.Code has to
+	// (5) Code emission must not have been blocked — resp.Files["main.go"] has to
 	// be non-empty.
-	if resp.Code == "" {
+	if resp.Files["main.go"] == "" {
 		t.Error("expected generated code (warnings should not block emission)")
 	}
 
 	t.Logf("IR:\n%s", resp.IR)
-	t.Logf("Go:\n%s", resp.Code)
+	t.Logf("Go:\n%s", resp.Files["main.go"])
 }

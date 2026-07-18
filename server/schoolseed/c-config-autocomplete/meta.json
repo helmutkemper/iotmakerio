@@ -1,0 +1,41 @@
+{
+  "language": "c",
+  "level": "mission",
+  "title": "Config with autocomplete",
+  "subtitle": "Almost done. Finish the dictionary and watch Monaco suggest.",
+  "ord": 3,
+  "visible": true,
+  "sourceProjectId": "",
+  "steps": [
+    {
+      "title": "Add one more suggestion to the dictionary",
+      "detail": "Open config_dict.json and add an item — copy the server one and make a timeout. Parse when done.",
+      "check": {
+        "kind": "fileIsDict",
+        "path": "config_dict.json",
+        "minItems": 2
+      }
+    },
+    {
+      "title": "Point the port at your dictionary",
+      "detail": "Open the cfg port and pick yaml + config_dict.json in the Maker editor section.",
+      "check": {
+        "kind": "portHasDict",
+        "fn": "app_config",
+        "port": "cfg"
+      },
+      "action": {
+        "kind": "openPort",
+        "fn": "app_config",
+        "port": "cfg"
+      }
+    },
+    {
+      "title": "Parse and try it",
+      "detail": "Type ser in the port editor's try-it box — your suggestion appears.",
+      "check": {
+        "kind": "parseOk"
+      }
+    }
+  ]
+}

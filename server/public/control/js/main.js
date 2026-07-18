@@ -144,7 +144,10 @@ async function onLoginSuccess(claims) {
         }
     }
     renderShell(claims);
-    nav('users');
+    // Deep links: /control#school/c-blink boots straight into the
+    // lesson. Português: Deep link — o boot honra o hash.
+    const bootKey = (location.hash || '').slice(1).split('/')[0];
+    nav(PAGE_MAP[bootKey] ? bootKey : 'users');
 }
 
 // ── Shell ─────────────────────────────────────────────────────────────────────
@@ -202,6 +205,11 @@ export function registerLeaveGuard(fn) {
     _leaveGuard = fn;
 }
 
+// _hashNav marks navigation ORIGINATED by the hashchange listener, so
+// nav() doesn't write the hash back (loop). Português: Marca navegação
+// vinda do hashchange — o nav não regrava o hash (sem loop).
+let _hashNav = false;
+
 function nav(page) {
     // Ask the current page if it is safe to leave.
     if (_leaveGuard && !_leaveGuard(page)) {
@@ -223,7 +231,29 @@ function nav(page) {
     } else {
         root.innerHTML = `<div class="cp-empty"><i class="fa-solid fa-circle-question"></i>Página não encontrada.</div>`;
     }
+
+    // Every page owns a hash (#users, #school…) so the browser's back
+    // and forward buttons navigate the panel (field rule 2, 2026-07-16:
+    // "os botões de voltar e avançar devem reconhecer a navegação").
+    // Sub-routes (#school/<id>) belong to the page module — nav never
+    // stomps them. Português: Cada página tem hash; voltar/avançar
+    // navegam o painel. Sub-rotas são do módulo da página.
+    if (!_hashNav) {
+        const key = '#' + page;
+        if (location.hash !== key && !location.hash.startsWith(key + '/')) {
+            location.hash = page;
+        }
+    }
 }
+
+// The hash IS the top-level route: browser back/forward land here.
+// Português: O hash É a rota de topo — voltar/avançar caem aqui.
+window.addEventListener('hashchange', () => {
+    const key = (location.hash || '').slice(1).split('/')[0];
+    if (!key || !PAGE_MAP[key] || key === CS.page) return;
+    _hashNav = true;
+    try { nav(key); } finally { _hashNav = false; }
+});
 
 // Expose to window for inline onclick handlers.
 window.cpNav = nav;

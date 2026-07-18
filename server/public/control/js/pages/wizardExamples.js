@@ -19,12 +19,88 @@
 // intenção. Só o "Snapshot from project" segue modal.
 
 import { cpApi }              from '../api.js';
+import { CS }                 from '../state.js';
 import { cpToast, cpConfirm } from '../toast.js';
 import { esc }                from '../utils.js';
 
 const API = '/api/control/v1/school/examples';
 
+// _hasIOTMHeader — faithful copy of the portal's reader
+// (help_files.js), itself a reader of the CANONICAL format in
+// steganography/stego.go: "Save Stage as Image" embeds gzipped scene
+// JSON in the LSBs of the first pixels; bytes 0-3 spell "IOTM". A PNG
+// wearing this magic is a LIVING EXAMPLE (the picture IS a scene) and
+// belongs under examples/ — the wizard's routing, mirrored here (field
+// rule 2026-07-16). Português: Cópia fiel do leitor do portal; a lei
+// mora no stego.go. PNG com o magic é EXEMPLO VIVO → examples/.
+async function _hasIOTMHeader(file) {
+    if (file.size < 100) return false;
+    const blobUrl = URL.createObjectURL(file);
+    try {
+        const img = await new Promise((resolve, reject) => {
+            const i = new Image();
+            i.onload  = () => resolve(i);
+            i.onerror = () => reject(new Error('PNG decode failed'));
+            i.src = blobUrl;
+        });
+        if (img.naturalWidth * img.naturalHeight < 27) return false;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.min(img.naturalWidth, 32);
+        canvas.height = 1;
+        const ctx = canvas.getContext('2d', { willReadFrequently: false });
+        if (!ctx) return false;
+        ctx.drawImage(img, 0, 0);
+        const { data } = ctx.getImageData(0, 0, canvas.width, 1);
+        const PIXELS_FOR_MAGIC = 11;
+        if (canvas.width < PIXELS_FOR_MAGIC) return false;
+        let bitIdx = 0;
+        const magicBytes = [0, 0, 0, 0];
+        for (let p = 0; p < PIXELS_FOR_MAGIC && bitIdx < 32; p++) {
+            const base = p * 4;
+            for (let ch = 0; ch < 3 && bitIdx < 32; ch++) {
+                const bit = data[base + ch] & 1;
+                const byteIdx = bitIdx >> 3;
+                const bitInByte = 7 - (bitIdx & 7);
+                magicBytes[byteIdx] |= bit << bitInByte;
+                bitIdx++;
+            }
+        }
+        return magicBytes[0] === 0x49 && magicBytes[1] === 0x4F &&
+               magicBytes[2] === 0x54 && magicBytes[3] === 0x4D;
+    } catch (_) {
+        return false;
+    } finally {
+        URL.revokeObjectURL(blobUrl);
+    }
+}
+
 let _root = null;
+
+// ── Sub-routes: #school (list) ⇄ #school/<id> (lesson editor) ────────────
+// The hash is the single source of navigation truth: UI actions SET it,
+// this listener PAINTS it — so browser back/forward replay the trail for
+// free (field rule 2, 2026-07-16). _painted prevents double paints.
+// Português: O hash é a única fonte de navegação — a UI o grava, este
+// listener pinta; voltar/avançar ganham a trilha de graça.
+let _hashWired = false;
+let _painted = '';
+
+function _routeFromHash() {
+    if (CS.page !== 'school') return; // another page owns the root now
+    const h = location.hash || '';
+    if (h === _painted) return;
+    if (h.startsWith('#school/')) {
+        _renderEditor(decodeURIComponent(h.slice('#school/'.length)));
+    } else if (h === '#school') {
+        _renderList();
+    }
+}
+
+function _wireHash() {
+    if (_hashWired) return;
+    _hashWired = true;
+    window.addEventListener('hashchange', _routeFromHash);
+}
 
 // _ensureMonaco lazy-loads the SAME Monaco the portal serves at
 // /monaco/vs — same task, same tool (design correction 2026-07-15: the
@@ -62,7 +138,13 @@ function _langOf(path) {
 
 export async function renderWizardExamples(root) {
     _root = root;
-    await _renderList();
+    _wireHash();
+    _painted = '';
+    if ((location.hash || '').startsWith('#school/')) {
+        _routeFromHash(); // deep link straight into a lesson
+    } else {
+        await _renderList();
+    }
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -70,12 +152,21 @@ export async function renderWizardExamples(root) {
 // ═════════════════════════════════════════════════════════════════════════
 
 async function _renderList() {
+    _painted = '#school';
     _root.innerHTML = `
 <div class="cp-page">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
     <h2 style="margin:0"><i class="fa-solid fa-graduation-cap" style="color:var(--primary);margin-right:8px"></i>School</h2>
-    <button class="cp-btn cp-btn-primary" id="cp-school-snap">
-      <i class="fa-solid fa-camera"></i> Snapshot from project</button>
+    <span style="display:flex;gap:8px">
+      <button class="cp-btn cp-btn-ghost" id="cp-school-export"
+              title="Write every example to the server's schoolseed/ folder — commit it for backup">
+        <i class="fa-solid fa-download"></i> Export to folder</button>
+      <button class="cp-btn cp-btn-ghost" id="cp-school-reload"
+              title="Re-import the schoolseed/ folder into the database">
+        <i class="fa-solid fa-rotate"></i> Reload folder</button>
+      <button class="cp-btn cp-btn-primary" id="cp-school-snap">
+        <i class="fa-solid fa-camera"></i> Snapshot from project</button>
+    </span>
   </div>
   <p style="margin:0 0 16px;font-size:13px;color:var(--text-dim)">
     Examples shown under Devices → + New → School. Snapshots are frozen —
@@ -85,6 +176,26 @@ async function _renderList() {
 </div>`;
     document.getElementById('cp-school-snap')
         .addEventListener('click', () => _snapModal());
+    document.getElementById('cp-school-export')
+        .addEventListener('click', async () => {
+            const r = await cpApi('POST', '/api/control/v1/school/export');
+            if (r?.metadata?.status === 200) {
+                cpToast('success',
+                    `Exported ${r.data?.exported} example(s) to ${r.data?.dir} — commit it for backup.`);
+            } else {
+                cpToast('danger', r?.metadata?.error || 'Export failed.');
+            }
+        });
+    document.getElementById('cp-school-reload')
+        .addEventListener('click', async () => {
+            const r = await cpApi('POST', '/api/control/v1/school/reload');
+            if (r?.metadata?.status === 200) {
+                cpToast('success', 'Folder re-imported.');
+                await _renderList();
+            } else {
+                cpToast('danger', r?.metadata?.error || 'Reload failed.');
+            }
+        });
 
     const box = document.getElementById('cp-school-list');
     const r = await cpApi('GET', API);
@@ -136,7 +247,9 @@ async function _renderList() {
   </tbody>
 </table>`;
     box.querySelectorAll('[data-edit]').forEach(b =>
-        b.addEventListener('click', () => _renderEditor(b.dataset.edit)));
+        b.addEventListener('click', () => {
+            location.hash = 'school/' + encodeURIComponent(b.dataset.edit);
+        }));
     box.querySelectorAll('[data-del]').forEach(b =>
         b.addEventListener('click', () => _del(b.dataset.del)));
     // Visibility is a one-click affair (field: "finalizar o /control"):
@@ -241,6 +354,7 @@ function _isDict(content, minItems) {
 }
 
 async function _renderEditor(id) {
+    _painted = '#school/' + encodeURIComponent(id);
     const r = await cpApi('GET', `${API}/${encodeURIComponent(id)}`);
     if (r?.metadata?.status !== 200) {
         cpToast('danger', r?.metadata?.error || 'Load failed.');
@@ -299,7 +413,7 @@ async function _renderEditor(id) {
       <div class="cp-lesson-tabs" id="cpl-tabs"></div>
       <div id="cpl-monaco" class="cp-lesson-monaco"></div>
       <p style="margin:8px 0 0;font-size:12px;color:var(--text-dim)" id="cpl-source"></p>
-      <input type="file" id="cpl-upload" multiple style="display:none">
+
     </div>
 
     <div>
@@ -315,6 +429,24 @@ async function _renderEditor(id) {
       <div class="cp-lesson-test" id="cpl-test"></div>
     </div>
   </div>
+
+  <!-- The Manual rides FULL-WIDTH below the grid — exempt from the
+       focus-follows-work column squeeze (field request 2026-07-16:
+       "a lista de arquivos pode ficar fora do ajuste de coluna").
+       Português: O Manual anda em largura total, imune ao ajuste. -->
+  <div style="display:flex;align-items:center;margin:18px 0 8px">
+    <p class="cp-lesson-label" style="margin:0">Manual — the device's sidebar entry</p>
+    <span style="flex:1"></span>
+    <button class="cp-btn cp-btn-ghost cp-btn-sm" id="cpl-man-new" title="New markdown page">
+      <i class="fa-solid fa-plus"></i> .md</button>
+    <button class="cp-btn cp-btn-ghost cp-btn-sm" id="cpl-man-up" title="Upload manual files — markdown and images">
+      <i class="fa-solid fa-upload"></i> Upload</button>
+    <span id="cpl-man-namer" style="display:none;margin-left:6px">
+      <input class="cp-input cp-btn-sm" id="cpl-man-name"
+             placeholder="readme.en.md" style="width:150px"></span>
+  </div>
+  <div class="cp-lesson-card" id="cpl-manual"></div>
+  <input type="file" id="cpl-upload" multiple style="display:none">
 </div>`;
 
     // ── header wiring ─────────────────────────────────────────────────────
@@ -343,7 +475,9 @@ async function _renderEditor(id) {
             }, true);
         }
     }
-    $('#cpl-back').addEventListener('click', () => _renderList());
+    $('#cpl-back').addEventListener('click', () => {
+        location.hash = 'school'; // the listener paints the list
+    });
     ['#cpl-title', '#cpl-sub'].forEach(sel =>
         $(sel).addEventListener('input', () => { _harvestHead(); renderPreview(); }));
     $('#cpl-level').addEventListener('change', () => { _harvestHead(); renderAll(); });
@@ -427,11 +561,15 @@ async function _renderEditor(id) {
     }
 
     function renderTabs() {
+        // The wizard's anatomy (rule 1, 2026-07-16): the tab strip is
+        // CODE-only; the manual lives in its own panel below, like the
+        // wizard's "Manual attachments". Português: Anatomia do wizard —
+        // abas SÓ de código; o manual tem painel próprio.
         const box = $('#cpl-tabs');
         box.innerHTML = `
-          ${state.files.map((f, i) => `
+          ${state.files.map((f, i) => f.kind === 'help' ? '' : `
           <span class="cp-lesson-tab ${i === state.tab ? 'is-active' : ''}" data-tab="${i}">
-            ${f.kind === 'help' ? '<i class="fa-solid fa-book" title="Manual file" style="font-size:10px;opacity:.7"></i> ' : ''}${_isBinary(f) ? '<i class="fa-solid fa-image" title="Image asset"></i> ' : ''}${esc(f.path || '(unnamed)')}
+            ${esc(f.path || '(unnamed)')}
             <i class="fa-solid fa-xmark" data-tab-rm="${i}" title="Remove file"></i>
           </span>`).join('')}
           <button class="cp-btn cp-btn-ghost cp-btn-sm" id="cpl-file-new" title="New file">
@@ -489,48 +627,165 @@ async function _renderEditor(id) {
                 editor?.setModel(modelFor(state.tab));
             });
         });
-        box.querySelector('#cpl-file-up').addEventListener('click', () =>
-            $('#cpl-upload').click());
+        box.querySelector('#cpl-file-up').addEventListener('click', () => {
+            _uploadKind = '';
+            $('#cpl-upload').click();
+        });
     }
 
-    $('#cpl-upload').addEventListener('change', (ev) => {
+    // The Manual panel: markdown rows open in the SAME Monaco; images
+    // show a live thumbnail (data: URL from the base64 the wire already
+    // carries). Português: Painel do Manual — .md abre no MESMO Monaco;
+    // imagem mostra miniatura viva.
+    function renderManual() {
+        const box = $('#cpl-manual');
+        const rows = state.files
+            .map((f, i) => ({ f, i }))
+            .filter(x => x.f.kind === 'help');
+        box.innerHTML = rows.map(({ f, i }) => {
+            const active = i === state.tab ? 'is-picked' : '';
+            if (_isBinary(f)) {
+                const ext = (f.path.split('.').pop() || 'png').toLowerCase();
+                return `
+                <div class="cp-man-row ${active}" data-man="${i}">
+                  <img class="cp-man-thumb"
+                       src="data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${f.content}"
+                       alt="${esc(f.path)}">
+                  <code>${esc(f.path)}</code>
+                  <span style="margin-left:auto;font-size:11px;color:var(--text-dim)">
+                    ${Math.round(f.content.length * 3 / 4 / 1024)} kB</span>
+                  <button class="cp-btn cp-btn-ghost cp-btn-sm" data-man-del="${i}" title="Remove">
+                    <i class="fa-solid fa-trash" style="color:var(--danger)"></i></button>
+                </div>`;
+            }
+            return `
+            <div class="cp-man-row ${active}" data-man="${i}">
+              <i class="fa-solid fa-book" style="color:var(--text-dim)"></i>
+              <code>${esc(f.path)}</code>
+              <span style="margin-left:auto;font-size:11px;color:var(--text-dim)">
+                ${(f.content || '').length} B</span>
+              <button class="cp-btn cp-btn-ghost cp-btn-sm" data-man-del="${i}" title="Remove">
+                <i class="fa-solid fa-trash" style="color:var(--danger)"></i></button>
+            </div>`;
+        }).join('')
+            || `<p style="font-size:12.5px;color:var(--text-dim);margin:2px">
+                  No manual yet — <strong>readme.&lt;lang&gt;.md</strong> becomes the
+                  device's introduction in the sidebar; images referenced from the
+                  markdown are inlined automatically.</p>`;
+        box.querySelectorAll('[data-man]').forEach(r =>
+            r.addEventListener('click', () => {
+                harvestFiles();
+                state.tab = +r.dataset.man;
+                renderTabs();
+                renderManual();
+                const m = modelFor(state.tab);
+                editor?.setModel(m);
+                $('#cpl-monaco').style.opacity = m ? '1' : '.25';
+                if (!m) cpToast('info',
+                    'Image asset — replace it by uploading a file with the same name.');
+            }));
+        box.querySelectorAll('[data-man-del]').forEach(b =>
+            b.addEventListener('click', async (ev) => {
+                ev.stopPropagation();
+                const i = +b.dataset.manDel;
+                const f = state.files[i];
+                const yes = await cpConfirm('Remove manual file',
+                    `Remove "${f?.path}" from the manual?`, 'Remove');
+                if (!yes) return;
+                harvestFiles();
+                models.get(f.path)?.dispose();
+                models.delete(f.path);
+                state.files.splice(i, 1);
+                if (state.tab >= state.files.length) state.tab = 0;
+                renderAll();
+            }));
+    }
+
+    let _uploadKind = '';
+    $('#cpl-man-up').addEventListener('click', () => {
+        _uploadKind = 'help';
+        $('#cpl-upload').click();
+    });
+    $('#cpl-man-new').addEventListener('click', () => {
+        const wrap = $('#cpl-man-namer');
+        wrap.style.display = 'inline';
+        const inp = $('#cpl-man-name');
+        inp.focus();
+        inp.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Escape') { wrap.style.display = 'none'; return; }
+            if (ev.key !== 'Enter') return;
+            const name = inp.value.trim();
+            if (!name) return;
+            harvestFiles();
+            state.files.push({ path: name, content: '', kind: 'help' });
+            state.tab = state.files.length - 1;
+            renderAll();
+            editor?.setModel(modelFor(state.tab));
+        });
+    });
+
+    $('#cpl-upload').addEventListener('change', async (ev) => {
         harvestFiles();
         const picked = Array.from(ev.target.files || []);
         let pending = picked.length;
-        picked.forEach(file => {
+        for (const file of picked) {
+            // Living examples (IOTM stego magic) file themselves under
+            // examples/ — the wizard's routing, mirrored. Português:
+            // Exemplos vivos se arquivam em examples/ sozinhos.
+            let dir = '';
             // Images ride as base64 assets (kind:help — the manual is
             // their only home); .md defaults to help too (readmes);
             // everything else is code. Português: Imagem = asset base64
             // do manual; .md = manual; o resto é código.
             const isImg = /\.(png|jpe?g|gif|webp|svg)$/i.test(file.name)
                 || (file.type || '').startsWith('image/');
+            const toManual = _uploadKind === 'help';
+            if (isImg && toManual && /\.png$/i.test(file.name)) {
+                try {
+                    if (await _hasIOTMHeader(file)) dir = 'examples/';
+                } catch (_) { /* plain PNG then */ }
+            }
             const rd = new FileReader();
             rd.onload = () => {
-                const existing = state.files.find(f => f.path === file.name);
+                const target = dir + file.name;
+                const existing = state.files.find(f => f.path === target);
                 const entry = existing
-                    || { path: file.name, content: '' };
+                    || { path: target, content: '' };
                 if (isImg) {
                     entry.content = String(rd.result || '').split(',')[1] || '';
                     entry.encoding = 'base64';
-                    entry.kind = 'help';
+                    entry.kind = 'help'; // images only make sense in the manual
                     models.get(entry.path)?.dispose();
                     models.delete(entry.path);
                 } else {
                     entry.content = String(rd.result || '');
                     delete entry.encoding;
-                    if (/\.md$/i.test(file.name) && !entry.kind) entry.kind = 'help';
+                    if (toManual) entry.kind = 'help';
+                    else delete entry.kind; // the code button means CODE
                     models.get(entry.path)?.setValue(entry.content);
                 }
                 if (!existing) state.files.push(entry);
                 if (--pending === 0) {
-                    state.tab = state.files.length - 1;
-                    renderTabs();
-                    editor?.setModel(modelFor(state.tab));
-                    renderTest();
+                    // Field bug 2026-07-16 ("o código apagou e não
+                    // apareceu a imagem"): blindly selecting the newest
+                    // file blanked Monaco on image uploads
+                    // (setModel(null)) while renderManual was never
+                    // called — the row stayed invisible. Now: renderAll
+                    // paints every panel, and selection only moves if
+                    // the newcomer is TEXT-editable; images join the
+                    // list without hijacking the editor. Português:
+                    // Seleção só muda se o recém-chegado for editável;
+                    // imagem entra na lista sem sequestrar o editor.
+                    const last = state.files.length - 1;
+                    if (modelFor(last)) state.tab = last;
+                    renderAll();
+                    const m = modelFor(state.tab);
+                    editor?.setModel(m);
+                    $('#cpl-monaco').style.opacity = m ? '1' : '.25';
                 }
             };
             if (isImg) rd.readAsDataURL(file); else rd.readAsText(file);
-        });
+        }
         ev.target.value = '';
     });
 
@@ -844,6 +1099,7 @@ async function _renderEditor(id) {
     function renderAll() {
         renderPreview();
         renderTabs();
+        renderManual();
         renderSteps();
         renderTest();
     }

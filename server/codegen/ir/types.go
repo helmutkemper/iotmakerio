@@ -25,9 +25,20 @@ type Op string
 
 const (
 	// Constants and variables
-	OpConst  Op = "CONST"  // CONST %dest type value
-	OpVar    Op = "VAR"    // VAR %dest type initialValue
-	OpAssign Op = "ASSIGN" // ASSIGN %dest type %source
+	OpConst Op = "CONST" // CONST %dest type value
+	OpVar   Op = "VAR"   // VAR %dest type initialValue
+
+	// OpFuncBegin / OpFuncEnd delimit a NAMED-FUNCTION region: everything
+	// between them is the function's body, lifted OUT of main by each
+	// backend (the linkage axis of the embedded family — ARDUINO_TARGET
+	// §3). Dest carries the exact function name; doctrine 1 applies: the
+	// name is emitted verbatim, EXEMPT from the iotm_ prefix (maker's own
+	// code, not a third-party black-box). Português: Delimitam uma
+	// região-função nomeada, içada para fora do main pelos backends;
+	// Dest é o nome exato, isento do prefixo (doutrina 1).
+	OpFuncBegin Op = "FUNC_BEGIN" // FUNC_BEGIN %name
+	OpFuncEnd   Op = "FUNC_END"   // FUNC_END
+	OpAssign    Op = "ASSIGN"     // ASSIGN %dest type %source
 
 	// OpConstArray declares a fixed-size CONSTANT COLLECTION literal — the
 	// IR form of the StatementConstArray{Int,Float,String} device (e.g. []int{1, 2, 3}).
@@ -71,6 +82,14 @@ const (
 	// (NUL de Text anexado mas nunca contado), a origem e o nome humano.
 	// O backend C o renderiza em ESCOPO DE ARQUIVO com IOTM_ASSET_ATTR.
 	OpDataBlob Op = "DATA_BLOB"
+
+	// DataBlobMaxBytes is the flash-asset ceiling for one Data · File /
+	// Data · Text device: 2 MB of payload (before the optional NUL). Chosen
+	// for the small targets these arrays exist for — beyond it, embedding
+	// stops being a kindness. Enforced at emit time (KindAssetTooLarge).
+	// Português: Teto de 2 MB por asset de flash; acima disso, embutir
+	// deixa de ser gentileza. Imposto no emit.
+	DataBlobMaxBytes = 2 << 20
 
 	OpConstArray Op = "CONST_ARRAY" // CONST_ARRAY %dest elemType v1 v2 v3 …
 

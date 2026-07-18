@@ -497,6 +497,12 @@ func migrate() error {
 	if err := MigrateMenuTreeConstArrays(); err != nil {
 		return err
 	}
+	if err := MigrateMenuTreeSequence(); err != nil {
+		return err
+	}
+	if err := MigrateMenuTreeEmbedded(); err != nil {
+		return err
+	}
 	if err := MigrateMenuTreeCase(); err != nil {
 		return err
 	}

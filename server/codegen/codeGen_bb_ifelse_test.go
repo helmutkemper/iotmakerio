@@ -195,13 +195,13 @@ func TestBlackBoxInstanceDeclaredBeforeIfElse(t *testing.T) {
 	})
 
 	if len(resp.Errors) > 0 {
-		t.Fatalf("expected no errors, got: %v\nCode:\n%s", resp.Errors, resp.Code)
+		t.Fatalf("expected no errors, got: %v\nCode:\n%s", resp.Errors, resp.Files["main.go"])
 	}
-	if resp.Code == "" {
+	if resp.Files["main.go"] == "" {
 		t.Fatalf("expected Go code, got empty")
 	}
 
-	code := resp.Code
+	code := resp.Files["main.go"]
 
 	// goIdent collapses "test_0" → "test0"; tolerate either form defensively.
 	declA := "var test0 Test"

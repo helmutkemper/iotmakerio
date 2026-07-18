@@ -977,3 +977,33 @@ a:hover { text-decoration: underline; }
 .cp-snap-row:last-child { border-bottom: none; }
 .cp-snap-row:hover      { background: rgba(127,127,127,.08); }
 .cp-snap-row.is-picked  { background: rgba(108,140,255,.12); }
+
+/* Manual panel rows — the wizard anatomy in the lesson editor (rule 1,
+   2026-07-16). Português: Linhas do painel do Manual. */
+.cp-man-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+}
+.cp-man-row:hover     { background: rgba(127,127,127,.08); }
+.cp-man-row.is-picked { background: rgba(108,140,255,.12); }
+.cp-man-thumb {
+    width: 42px;
+    height: 30px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid var(--border, rgba(127,127,127,.25));
+}
+
+/* Manual as a full-width band: rows flow in responsive columns
+   (2026-07-16). Português: Manual em faixa — linhas fluem em colunas. */
+#cpl-manual {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 2px 18px;
+}
+#cpl-manual > p { grid-column: 1 / -1; }

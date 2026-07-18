@@ -89,13 +89,13 @@ func TestConflictBlocksCodegen(t *testing.T) {
 	if len(resp.Errors) == 0 {
 		t.Fatalf("expected at least one error, got none\n"+
 			"  Warnings: %v\n  IR: %q\n  Code: %q",
-			resp.Warnings, resp.IR, resp.Code)
+			resp.Warnings, resp.IR, resp.Files["main.go"])
 	}
 
 	// Must NOT emit any Go code — a broken canvas should never produce
 	// a .go file, even a syntactically-valid one.
-	if resp.Code != "" {
-		t.Errorf("expected empty Code when conflict present, got:\n%s", resp.Code)
+	if resp.Files["main.go"] != "" {
+		t.Errorf("expected empty Code when conflict present, got:\n%s", resp.Files["main.go"])
 	}
 
 	// The error message must identify the offending device and the kind

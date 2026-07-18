@@ -8,6 +8,8 @@ package wire
 import (
 	"math"
 	"syscall/js"
+
+	"github.com/helmutkemper/iotmakerio/rulesConnection"
 )
 
 // =====================================================================
@@ -154,6 +156,63 @@ func drawTunnelMarker(ctx js.Value, x float64, y float64, color string, d float6
 	ctx.Call("fillRect", x-half, y-half, side, side)
 	ctx.Set("strokeStyle", "#1e1e1e")
 	ctx.Set("lineWidth", 1.0*d)
+	ctx.Call("strokeRect", x-half, y-half, side, side)
+}
+
+// Manual phase-tunnel palette — the INTERNAL family (violet), red while
+// fresh (spec #4, 2026-07-17). Português: Paleta do túnel manual —
+// família interna (violeta), vermelho enquanto fresco.
+const (
+	manualTunnelViolet = "#8b5cf6"
+	manualTunnelRed    = "#ef4444"
+)
+
+// drawManualTunnelMarker — same square grammar as drawTunnelMarker, with
+// an outline (unwired) vs filled (wired) state and the internal palette.
+// The phase role (Kemper spec 2026-07-18) adds the STANDARD PIN — the
+// MathAdd reference: PinLength×PinThickness, no stroke — always
+// pointing INTO the sequence: role "in" = square on the right border,
+// pin protruding LEFT; role "out" = square on the left border, pin
+// protruding RIGHT. pinColor is the tunnel's STAMPED type colour (the
+// chameleon v2, all types including []T pointer+len slices): the caller
+// derives it from the feed wire so pin and wire read as one continuous
+// piece; while unwired (no stamp yet) the pin stays the internal violet
+// — "awaiting a type". An empty role draws the bare square.
+// Português: Mesma gramática do quadrado; o papel adiciona o PINO
+// PADRÃO apontando PARA DENTRO. pinColor é a cor do tipo CARIMBADO
+// (camaleão v2, todos os tipos, incluindo fatias []T ponteiro+len) —
+// derivada do fio de alimentação para pino e fio lerem como peça
+// contínua; sem fio, violeta interno — "aguardando tipo".
+func drawManualTunnelMarker(ctx js.Value, x, y float64, filled, fresh bool, role, pinColor string, d float64) {
+	side := 9.0 * d
+	half := side / 2
+	color := manualTunnelViolet
+	if fresh {
+		color = manualTunnelRed
+	}
+
+	// The pin goes UNDER the square (drawn first) so the junction face
+	// stays crisp. Português: Pino por baixo do quadrado.
+	if role == "in" || role == "out" {
+		pinLen := rulesConnection.PinLength()
+		pinThick := rulesConnection.PinThickness()
+		pinX := x + half // "out": protrudes right of the square
+		if role == "in" {
+			pinX = x - half - pinLen // "in": protrudes left of the square
+		}
+		ctx.Set("fillStyle", pinColor)
+		ctx.Call("fillRect", pinX, y-pinThick/2, pinLen, pinThick)
+	}
+
+	if filled {
+		ctx.Set("fillStyle", color)
+		ctx.Call("fillRect", x-half, y-half, side, side)
+	} else {
+		ctx.Set("fillStyle", "#ffffff")
+		ctx.Call("fillRect", x-half, y-half, side, side)
+	}
+	ctx.Set("strokeStyle", color)
+	ctx.Set("lineWidth", 2.0*d)
 	ctx.Call("strokeRect", x-half, y-half, side, side)
 }
 

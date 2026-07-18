@@ -287,17 +287,20 @@ func Generate(ctx context.Context, req Request) Response {
 	// Step 5: Backend
 	//
 	// Each branch consumes the same ir.Program and writes its own
-	// target output. Branches are mutually exclusive: at most one of
-	// resp.Code and resp.Files is populated per call. The empty string
-	// language defaults to Go for backward compatibility with the
-	// earliest clients that did not send the field.
+	// target output. Since 2026-07-16 BOTH languages populate resp.Files
+	// (§7.4 parity — Go ships as {"main.go": source}); resp.Code is a
+	// legacy wire field no longer written, kept only so payloads stay
+	// decodable by old clients. The empty string language defaults to Go
+	// for backward compatibility with the earliest clients that did not
+	// send the field.
 	//
-	// Português: cada caso consome o mesmo IR e escreve para o alvo
-	// dele. Code (Go) e Files (C) são mutuamente exclusivos por call.
-	// Language vazio cai em Go por compat com clientes antigos.
+	// Português: desde 2026-07-16 as DUAS linguagens populam resp.Files
+	// (paridade §7.4 — Go viaja como {"main.go": fonte}); resp.Code é
+	// campo legado, não mais escrito, mantido só para decodificação por
+	// clientes antigos. Language vazio cai em Go por compat.
 	switch req.Language {
 	case "go", "":
-		resp.Code = golang.Emit(program)
+		resp.Files = map[string]string{"main.go": golang.Emit(program)}
 	case "c":
 		// Pick the C type profile and the string-buffer size for this
 		// generation. Two paths:
@@ -348,12 +351,14 @@ func Generate(ctx context.Context, req Request) Response {
 			program.StringBufferSize = scene.Metadata.StringBufferSize
 		}
 		// Generated-name family: the maker's per-scene radical override
-		// (Metadata.ExportPrefix, UI pending — docs/C99_EXPORT_NAMING.md)
+		// (Metadata.ExportPrefix — the board picker's advanced panel writes
+		// it since 2026-07-08; docs/C99_EXPORT_NAMING.md)
 		// or the default "iotm_" when unset/invalid. One knob names every
 		// folder, file, symbol prefix and guard of this export.
 		//
-		// Português: Família de nomes gerados — radical da cena (UI é
-		// pendência futura) ou o default "iotm_". Um botão nomeia tudo.
+		// Português: Família de nomes gerados — radical da cena (o painel
+		// avançado do board picker o grava desde 2026-07-08) ou o default
+		// "iotm_". Um botão nomeia tudo.
 		naming := blackbox.NewNaming(scene.Metadata.ExportPrefix)
 		resp.Files = ansic.Emit(program, profile, naming)
 	default:

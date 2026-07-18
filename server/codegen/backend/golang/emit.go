@@ -89,10 +89,31 @@ type goEmitter struct {
 	// previous branch with `} else if` rather than open a fresh `if`. Pushed
 	// on COND_BEGIN, popped on COND_END. Mirrors switchStack.
 	condStack []bool
+
+	// Function lifting (slice 2 of the embedded ladder, 2026-07-16): a
+	// FUNC_BEGIN marks where the body builder stood; FUNC_END cuts the
+	// region out of body and rewraps it in `func <name>() {…}` inside
+	// funcs — the surgical trick that touches no write site. hasFuncs
+	// (pre-scanned) routes every OpVar declaration to fileVars (package
+	// scope, zero-valued) so values crossing the boundary are visible on
+	// both sides. Português: FUNC_BEGIN marca o corpo; FUNC_END recorta a
+	// região para funcs; com funções no programa, OpVar declara em escopo
+	// de pacote (fileVars) — o cruzamento enxerga dos dois lados.
+	hasFuncs bool
+	funcMark int
+	funcName string
+	funcs    strings.Builder
+	fileVars strings.Builder
 }
 
 func (e *goEmitter) emit(prog *ir.Program) string {
 	e.declared = make(map[string]bool)
+	for _, in := range prog.Instructions {
+		if in.Op == ir.OpFuncBegin {
+			e.hasFuncs = true
+			break
+		}
+	}
 	e.bbEmitted = make(map[string]bool)
 
 	for _, inst := range prog.Instructions {
@@ -111,6 +132,17 @@ func (e *goEmitter) emit(prog *ir.Program) string {
 		// Native opcodes
 		case ir.OpConst:
 			e.emitConst(inst)
+		case ir.OpFuncBegin:
+			e.funcName = inst.Dest
+			e.funcMark = e.body.Len()
+		case ir.OpFuncEnd:
+			region := e.body.String()[e.funcMark:]
+			trunk := e.body.String()[:e.funcMark]
+			e.body.Reset()
+			e.body.WriteString(trunk)
+			e.funcs.WriteString("func " + e.funcName + "() {\n")
+			e.funcs.WriteString(region)
+			e.funcs.WriteString("}\n\n")
 		case ir.OpVar:
 			e.emitVar(inst)
 		case ir.OpAssign:
@@ -219,6 +251,16 @@ func (e *goEmitter) emitVar(inst ir.Instruction) {
 	// consumer referenciarem a mesma variável.
 	name := goOperand("%" + inst.Dest)
 	goType := goTypeName(inst.Type)
+	if e.hasFuncs {
+		// File-scope routing: with functions in the program, a main-local
+		// declaration would be invisible to the lifted bodies. Zero init
+		// is implicit at package scope; assignments stay where they are.
+		// Português: Com funções, declaração local ao main seria invisível
+		// aos corpos içados — declara em escopo de pacote.
+		fmt.Fprintf(&e.fileVars, "var %s %s\n", name, goType)
+		e.declared[inst.Dest] = true
+		return
+	}
 	e.writef("var %s %s\n", name, goType)
 	e.declared[inst.Dest] = true
 }
@@ -1289,6 +1331,15 @@ func (e *goEmitter) wrapMain() string {
 	// Top-level code (black-box struct definitions and methods)
 	if e.topLevel.Len() > 0 {
 		sb.WriteString(e.topLevel.String())
+	}
+
+	if e.fileVars.Len() > 0 {
+		sb.WriteString("// ── Shared state (crosses function boundaries) ──\n")
+		sb.WriteString(e.fileVars.String())
+		sb.WriteString("\n")
+	}
+	if e.funcs.Len() > 0 {
+		sb.WriteString(e.funcs.String())
 	}
 
 	// main function

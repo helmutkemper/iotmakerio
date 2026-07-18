@@ -167,6 +167,15 @@ var catalog = []DeviceMetadata{
 	{TypeName: "StatementLoop", SupportedLanguages: universalLanguages},
 	{TypeName: "StatementLoopDuration", SupportedLanguages: universalLanguages},
 	{TypeName: "StatementCase", SupportedLanguages: universalLanguages},
+	// Sequence — the ORDER axis (embedded ladder slice 1); pure emission
+	// order in ir, so both backends inherit it. Tier-1 universal.
+	{TypeName: "StatementSequence", SupportedLanguages: universalLanguages},
+	// Function — the LINKAGE axis (slice 2). Universal: on posix it emits
+	// with a loud "uncalled" warning (the tiers rule).
+	{TypeName: "StatementFunction", SupportedLanguages: universalLanguages},
+	// Tunnel — the pass-through waypoint (LabVIEW sequence-local as a
+	// device); int-only v1. Universal by transparency.
+	{TypeName: "StatementTunnel", SupportedLanguages: universalLanguages},
 
 	// ── Constants ───────────────────────────────────────────────────────
 	// ConstInt, Bool, ConstFloat, ConstString, ConstDuration — straight
