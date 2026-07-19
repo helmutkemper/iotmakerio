@@ -204,8 +204,110 @@ func (r *ZIndexRegistry) EnsureChildAbove(childID, parentID string) {
 		childID, parentID, r.indexOf(childID), r.indexOf(parentID))
 }
 
+// PositionOf returns the entry's position in the z table (0 = bottom)
+// and whether it is registered — the stacking law compares positions:
+// a container may only parent a REGISTERED subject stacked above it.
+// Português: Posição na tabela de z (0 = fundo) e se está registrado —
+// a lei de empilhamento compara posições.
+func (r *ZIndexRegistry) PositionOf(id string) (int, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i, e := range r.entries {
+		if e.id == id {
+			return i, true
+		}
+	}
+	return -1, false
+}
+
+// Order returns the current bottom-to-top id list — persisted in the
+// scene so the maker's z gestures survive reload (z became SEMANTIC
+// with the stacking law of 2026-07-19: raising a Loop above a Sequence
+// pulls the Sequence out of it). Português: A ordem fundo-a-topo —
+// persistida na cena para os gestos de z sobreviverem ao reload (z
+// virou SEMÂNTICO com a lei de empilhamento).
+func (r *ZIndexRegistry) Order() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, 0, len(r.entries))
+	for _, e := range r.entries {
+		out = append(out, e.id)
+	}
+	return out
+}
+
+// SetOrder re-seats the table to the given bottom-to-top order —
+// unknown ids are ignored, registered ids missing from the list keep
+// their relative order ABOVE the listed ones. Called on scene restore.
+// Português: Reassenta a tabela na ordem dada — ids desconhecidos são
+// ignorados; registrados fora da lista mantêm a ordem relativa ACIMA
+// dos listados. Chamado no restore da cena.
+func (r *ZIndexRegistry) SetOrder(ids []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	pos := make(map[string]int, len(ids))
+	for i, id := range ids {
+		pos[id] = i
+	}
+	known := make([]ZEntry, 0, len(r.entries))
+	rest := make([]ZEntry, 0)
+	for _, e := range r.entries {
+		if _, ok := pos[e.id]; ok {
+			known = append(known, e)
+		} else {
+			rest = append(rest, e)
+		}
+	}
+	sortByPos := func(a, b ZEntry) bool { return pos[a.id] < pos[b.id] }
+	for i := 1; i < len(known); i++ {
+		for j := i; j > 0 && sortByPos(known[j], known[j-1]); j-- {
+			known[j], known[j-1] = known[j-1], known[j]
+		}
+	}
+	r.entries = append(known, rest...)
+	r.reassign()
+}
+
+// OccludesPoint reports whether any VISIBLE element registered ABOVE
+// the given one covers the world point — the wire layer asks this
+// before painting a manual tunnel's border furniture, so a container
+// sent Backward takes its tunnels down with it (field 2026-07-19: "o
+// túnel continuou acima do loop"). By the phantom-pin law the same
+// verdict gates hit-tests: what does not paint must not click.
+// Português: Diz se algum element VISÍVEL registrado ACIMA do dado
+// cobre o ponto — a wire layer pergunta antes de pintar a mobília de
+// borda de um túnel manual, então container mandado para trás leva
+// seus túneis junto. Pela lei do pino fantasma, o mesmo veredito trava
+// hit-tests: o que não pinta não clica.
+func (r *ZIndexRegistry) OccludesPoint(id string, x, y float64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	idx := -1
+	for i, e := range r.entries {
+		if e.id == id {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return false
+	}
+	for _, e := range r.entries[idx+1:] {
+		if e.elem == nil || !e.elem.IsVisible() {
+			continue
+		}
+		ex, ey := e.elem.GetPosition()
+		ew, eh := e.elem.GetSize()
+		if x >= ex && x <= ex+ew && y >= ey && y <= ey+eh {
+			return true
+		}
+	}
+	return false
+}
+
 // reassign sets the z-index of every registered element based on its
 // position in the table. Position 0 gets baseZ, position 1 gets baseZ+1, etc.
+
 func (r *ZIndexRegistry) reassign() {
 	for i, e := range r.entries {
 		z := r.baseZ + i

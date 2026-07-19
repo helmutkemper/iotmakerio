@@ -45,6 +45,7 @@ import (
 	"time"
 
 	"github.com/helmutkemper/iotmakerio/blackbox"
+	"github.com/helmutkemper/iotmakerio/devices"
 	"github.com/helmutkemper/iotmakerio/devices/block"
 	"github.com/helmutkemper/iotmakerio/devices/compFlow"
 	"github.com/helmutkemper/iotmakerio/factoryDevice"
@@ -450,6 +451,25 @@ func (w *Workspace) Init(cfg Config) error {
 	ctx := doc.Call("getElementById", w.CanvasID).Call("getContext", "2d")
 	w.canvasCtx = ctx
 	w.WireMgr.SetRenderContext(ctx)
+	// Marker occlusion by z-order (field 2026-07-19: a Sequence sent
+	// Backward left its tunnels floating above the Loop). The backend
+	// registry answers; the frontend manager has no manual tunnels, so
+	// the predicate simply never fires there. Português: Oclusão de
+	// marcador por z-order — o registro backend responde; o manager do
+	// frontend não tem túneis manuais, o predicado nunca dispara lá.
+	w.WireMgr.SetMarkerOccluder(func(cid string, x, y float64) bool {
+		return devices.BackendZRegistry.OccludesPoint(cid, x, y)
+	})
+	w.WireMgr.SetWireOccluder(func(devID string, x, y float64) bool {
+		cid := w.WireMgr.ManualTunnelContainer(devID)
+		if cid == "" {
+			cid = w.SceneMgr.ParentOf(devID)
+		}
+		if cid == "" {
+			return false
+		}
+		return devices.BackendZRegistry.OccludesPoint(cid, x, y)
+	})
 	w.WireMgr.SetCameraFunc(func() (float64, float64, float64) {
 		c := w.Stage.GetCamera()
 		if c == nil {
@@ -501,6 +521,27 @@ func (w *Workspace) Init(cfg Config) error {
 
 	// --- Scene Serializer ---
 	w.SceneMgr = scene.NewSerializer()
+	// The stacking law (Kemper 2026-07-19) and z persistence wire in
+	// HERE — at the serializer's birth, not in the render cluster: the
+	// 2026-07-18 boot panic came from injecting into a SceneMgr that
+	// did not exist yet. Português: A lei de empilhamento e a
+	// persistência de z entram AQUI — no nascimento do serializer, não
+	// no cluster de render: o panic de boot veio de injetar num
+	// SceneMgr que ainda não existia.
+	w.SceneMgr.SetStackingResolver(func(containerID, subjectID string) bool {
+		ci, cok := devices.BackendZRegistry.PositionOf(containerID)
+		if !cok {
+			return true
+		}
+		si, sok := devices.BackendZRegistry.PositionOf(subjectID)
+		if !sok {
+			return true
+		}
+		return ci < si
+	})
+	w.SceneMgr.SetZOrderProvider(func() []string {
+		return devices.BackendZRegistry.Order()
+	})
 	w.SceneMgr.SetWireManager(w.WireMgr)
 	// Stamp this workspace's identity ("backend" / "frontend") onto every
 	// exported device so the combined scene document records which stage
@@ -1732,6 +1773,26 @@ func (w *Workspace) openManualTunnelMenu(id string, worldX, worldY float64) {
 		},
 	}
 
+	// Rename — opens the shell's EXISTING inspect form (label + comment
+	// + preview), unreachable for manual tunnels since the G3 shell
+	// conversion retired the sprite's own menu. The `go` law applies
+	// (overlay from a menu click must run in a goroutine). Português:
+	// Abre o formulário JÁ EXISTENTE da casca (rótulo + comentário +
+	// preview), inalcançável para túneis manuais desde a conversão G3.
+	// A lei do `go` vale (overlay de clique de menu roda em goroutine).
+	if t, ok := w.SceneMgr.FindDevice(id).(*compFlow.StatementTunnel); ok {
+		pen := rulesIcon.IconByNameOrDefault("pen", "gear")
+		items = append(items, contextMenu.Item{
+			ID:              "mtunnel_rename",
+			Label:           translate.T("menuTunnelRename", "Rename"),
+			FontAwesomePath: pen.Path,
+			ViewBox:         pen.ViewBox,
+			HelpKey:         "helpMenuTunnelRename",
+			HelpFallback:    "Names this tunnel. The name shows next to the square; on a function it will become the parameter name.",
+			OnClick:         func() { go t.ShowInspect() },
+		})
+	}
+
 	// Phase-hiding entries (Kemper 2026-07-18: "assim um túnel pode ser
 	// ocultado") — the SEQUENCE owns the phase semantics, so the menu
 	// reaches it through the record's container id and only assembles
@@ -1831,6 +1892,40 @@ func (w *Workspace) updateConnectorTip(event sprite.PointerEvent) {
 	worldX, worldY := w.screenToWorld(event.CanvasX, event.CanvasY)
 	hit := w.WireMgr.HitTestAnyConnector(worldX, worldY)
 	if hit == nil {
+		// Tunnel stage of the hover machine (Kemper 2026-07-19: "o
+		// comentário e o nome aparecerem no mouseover"): a manual
+		// tunnel square is a wire-layer citizen with no sprite, so the
+		// body stage below can never see it — this stage catches it
+		// first, same rest delay, same generation arbitration.
+		// Português: Estágio de túnel da máquina de hover: o quadrado é
+		// cidadão da wire layer, sem sprite — o estágio de corpo nunca
+		// o veria; este estágio o pega antes, mesma pausa, mesma
+		// arbitragem de geração.
+		if lbl, cmt, ok := w.WireMgr.ManualTunnelHoverInfo(worldX, worldY); ok {
+			key := "mtunnel|" + lbl + "|" + cmt
+			if key == w.tipHoverKey {
+				return
+			}
+			w.tipHoverKey = key
+			w.tipGen++
+			gen := w.tipGen
+			text := lbl
+			if cmt != "" {
+				text += "\n" + cmt
+			}
+			canvasX, canvasY := event.CanvasX, event.CanvasY
+			go func() {
+				time.Sleep(350 * time.Millisecond)
+				if gen != w.tipGen {
+					return
+				}
+				rect := w.CanvasEl.Call("getBoundingClientRect")
+				connectorTip.ShowComment(text,
+					rect.Get("left").Float()+canvasX+14,
+					rect.Get("top").Float()+canvasY+14)
+			}()
+			return
+		}
 		// No pin under the pointer — fall back to the DEVICE BODY: if the
 		// element under the cursor belongs to a device with a non-empty
 		// comment, show it (multi-line) after the same rest delay.
@@ -4798,6 +4893,25 @@ func (w *Workspace) importScene(sceneJSON string) {
 	// import's old→new ID remap. Without this every contained child is dumped
 	// into the first case on reload. Run it BEFORE the NotifyChange below so the
 	// assignNewChildren that NotifyChange triggers becomes a no-op.
+	// Restore the maker's container stacking — AFTER creation (the
+	// registry must hold the new entries) and TRANSLATED through idMap
+	// (the saved order carries old ids; import mints new ones). Runs
+	// before restoreImportedCases so the membership and visibility
+	// passes already see the stacking law's truth. Português: Restaura
+	// o empilhamento — DEPOIS da criação (o registry precisa das
+	// entradas novas) e TRADUZIDO pelo idMap (a ordem salva carrega ids
+	// antigos). Antes do restoreImportedCases, para os passes de
+	// filiação e visibilidade já verem a verdade da lei.
+	if len(sc.Metadata.ZOrder) > 0 {
+		mapped := make([]string, 0, len(sc.Metadata.ZOrder))
+		for _, oldID := range sc.Metadata.ZOrder {
+			if newID, ok := idMap[oldID]; ok {
+				mapped = append(mapped, newID)
+			}
+		}
+		devices.BackendZRegistry.SetOrder(mapped)
+	}
+
 	w.restoreImportedCases(sc.Devices, idMap)
 
 	// Step 6: update scene state.

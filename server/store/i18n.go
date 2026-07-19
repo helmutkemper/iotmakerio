@@ -517,3 +517,25 @@ func InsertMissingMessage(m TrMessage) error {
 
 	return tx.Commit()
 }
+
+// MigrateSeqRemovePhaseText — 2026-07-19. The Sequence's phase-removal
+// menu item generalized from "remove the LAST phase" to "remove the
+// phase ON SCREEN" (phase surgery), but the auto-registered i18n row
+// (INSERT OR IGNORE above: first sighting wins, fallbacks never
+// overwrite) still carried the old label, so the field kept seeing
+// "− Remove last phase" over the new behavior. SURGICAL update: only
+// rows still holding the exact old English fallback flip to the new
+// one — any human-edited translation is untouched, in every locale.
+// Português: O item de remoção de fase generalizou de "última" para
+// "a fase em cena", mas a linha auto-registrada (primeira aparição
+// vence; fallback nunca sobrescreve) ainda carregava o rótulo antigo.
+// Atualização CIRÚRGICA: só linhas com o fallback inglês antigo exato
+// mudam — tradução editada por humano fica intacta, em todo locale.
+func MigrateSeqRemovePhaseText() error {
+	_, err := DB.Exec(`
+		UPDATE i18n_messages
+		   SET other = '− Remove this phase'
+		 WHERE message_id = 'seqRemovePhase'
+		   AND other      = '− Remove last phase'`)
+	return err
+}

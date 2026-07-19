@@ -762,13 +762,32 @@ func (e *StatementCase) wireEvents() {
 			if e.ctxMenu == nil {
 				return
 			}
-			if e.ctxMenu.IsOpen() {
-				e.ctxMenu.Close()
-				return
-			}
+			// Always open — Open() self-replaces (closes any live menu
+			// first), so the old IsOpen/Close/return toggle is gone: it
+			// was unreachable on the happy path (the menu's fullscreen
+			// overlay swallows canvas clicks while open) and a stuck
+			// IsOpen turned it into a silent click-eater (field
+			// 2026-07-19: "o menu contextual parou de funcionar perto
+			// do dropdown"). The shield logs the IsOpen state and names
+			// any item-building panic instead of killing the runtime.
+			// Português: Sempre abrir — o Open() se substitui; a dança
+			// IsOpen/Close/return era inalcançável no caminho feliz (o
+			// overlay do menu engole cliques do canvas enquanto aberto)
+			// e um IsOpen preso a tornava um comedor de cliques. O
+			// escudo loga o estado e nomeia panic de montagem de itens.
 			elemX, elemY := e.elem.GetPosition()
 			menuX, menuY := elemX+event.LocalX, elemY+event.LocalY
-			go e.ctxMenu.OpenAtWorld(e.caseSelectMenuItems(), menuX, menuY)
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[MENU-PANIC] case pill: %v", r)
+					}
+				}()
+				if e.ctxMenu.IsOpen() {
+					log.Printf("[MENU] case pill: replacing an already-open menu")
+				}
+				e.ctxMenu.OpenAtWorld(e.caseSelectMenuItems(), menuX, menuY)
+			}()
 			return
 		}
 
@@ -795,13 +814,21 @@ func (e *StatementCase) wireEvents() {
 		if e.ctxMenu == nil {
 			return
 		}
-		if e.ctxMenu.IsOpen() {
-			e.ctxMenu.Close()
-			return
-		}
+		// Same always-open doctrine as the pill branch above.
+		// Português: Mesma doutrina de sempre-abrir do ramo da pílula.
 		elemX, elemY := e.elem.GetPosition()
 		menuX, menuY := elemX+event.LocalX, elemY+event.LocalY
-		go e.ctxMenu.OpenForDevice(e, e.getBodyMenuItems(), menuX, menuY)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[MENU-PANIC] case body: %v", r)
+				}
+			}()
+			if e.ctxMenu.IsOpen() {
+				log.Printf("[MENU] case body: replacing an already-open menu")
+			}
+			e.ctxMenu.OpenForDevice(e, e.getBodyMenuItems(), menuX, menuY)
+		}()
 	})
 
 	// Drag — scenegraph lifecycle.

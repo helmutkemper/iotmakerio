@@ -6,6 +6,7 @@
 package wire
 
 import (
+	"fmt"
 	"math"
 	"syscall/js"
 
@@ -183,7 +184,7 @@ const (
 // (camaleão v2, todos os tipos, incluindo fatias []T ponteiro+len) —
 // derivada do fio de alimentação para pino e fio lerem como peça
 // contínua; sem fio, violeta interno — "aguardando tipo".
-func drawManualTunnelMarker(ctx js.Value, x, y float64, filled, fresh bool, role, pinColor string, d float64) {
+func drawManualTunnelMarker(ctx js.Value, x, y float64, filled, fresh bool, role, pinColor, label string, d float64) {
 	side := 9.0 * d
 	half := side / 2
 	color := manualTunnelViolet
@@ -214,6 +215,29 @@ func drawManualTunnelMarker(ctx js.Value, x, y float64, filled, fresh bool, role
 	ctx.Set("strokeStyle", color)
 	ctx.Set("lineWidth", 2.0*d)
 	ctx.Call("strokeRect", x-half, y-half, side, side)
+
+	// The maker's name, on the OUTSIDE face — away from the phase
+	// interior, mirroring the pin that points inward: role "in" (right
+	// border, pin left) → text to the RIGHT; role "out" (left border,
+	// pin right) → text to the LEFT. The caller only passes a label
+	// when the maker renamed the tunnel. Português: O nome do maker na
+	// face EXTERNA — longe do interior da fase, espelhando o pino que
+	// aponta para dentro. O caller só passa rótulo quando o maker
+	// renomeou.
+	if label != "" && (role == "in" || role == "out") {
+		gap := 4.0 * d
+		tx := x + half + gap
+		align := "left"
+		if role == "out" {
+			tx = x - half - gap
+			align = "right"
+		}
+		ctx.Set("font", fmt.Sprintf("%.0fpx sans-serif", 11*d))
+		ctx.Set("textAlign", align)
+		ctx.Set("textBaseline", "middle")
+		ctx.Set("fillStyle", manualTunnelViolet)
+		ctx.Call("fillText", label, tx, y)
+	}
 }
 
 // pointInRect reports whether (x,y) lies inside (or on) the rectangle.

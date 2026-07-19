@@ -482,6 +482,16 @@ func validate(g *graph.Graph, bbDefs map[string]*blackbox.BlackBoxDef, projectCl
 	// Português: O portão de classe de hardware.
 	diags = append(diags, minTargetDiagnostics(bbDefs, projectClass)...)
 
+	// [PHASE-ORDER] the C99 §7 rule, server-side: a phase-tunnel's feed
+	// lands in its birth phase and its consumers in later phases — the
+	// frontend enforces this by gating, but imported, hand-edited or
+	// legacy scenes bypass the UI, and a wrong order would generate
+	// silently misordered code. See validatePhaseTunnels.
+	// Português: A regra §7 no servidor: feed na fase natal, consumos em
+	// fases posteriores — o frontend garante por gating, mas cenas
+	// importadas/editadas/antigas passam por fora da UI.
+	diags = append(diags, validatePhaseTunnels(g)...)
+
 	// [INCLUDES] Export-time resolution of quoted includes in authored C
 	// files: a tab-name typo or a forgotten asset must fail HERE, in the
 	// IDE, with the file, the line and a nearest-name suggestion — not

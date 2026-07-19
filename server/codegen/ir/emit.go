@@ -134,6 +134,18 @@ type emitter struct {
 	// aninhado durante o rebaixamento de um corpo.
 	inFunctionScope bool
 
+	// funcParamName/funcParamType — the FOURTH alias sibling (Fatia C):
+	// while emitting a function body, a consumer of a PARAMETER
+	// tunnel's out resolves to the parameter identifier itself (raw,
+	// the folded-const channel), never piercing outward — there is no
+	// outward; the caller supplies the value. Populated at emitFunction
+	// entry, cleared at exit. Português: O QUARTO irmão de alias —
+	// dentro do corpo, consumidor de túnel-parâmetro resolve para o
+	// identificador do parâmetro (cru, canal dos consts dobrados), sem
+	// atravessar — não há fora; o caller fornece o valor.
+	funcParamName map[string]string
+	funcParamType map[string]string
+
 	// convertCounter produces unique register names for CONVERT
 	// instructions inserted by the type-compatibility pass. Never
 	// touched by other passes — the counter is a monotonic serial
@@ -1005,6 +1017,16 @@ func (e *emitter) skipTunnel(node *graph.Node) {
 // funcNameRe validates a Function container's name: emitted VERBATIM
 // into both targets (doctrine 1), so it must be a C identifier.
 // Português: O nome sai verbatim — precisa ser identificador C.
+// encodePorts flattens a signature group into Meta form: "n1:t1,n2:t2".
+// Português: Achata um grupo da assinatura na forma do Meta.
+func encodePorts(ports []graph.FuncPort) string {
+	parts := make([]string, 0, len(ports))
+	for _, p := range ports {
+		parts = append(parts, p.Name+":"+p.Type)
+	}
+	return strings.Join(parts, ",")
+}
+
 var funcNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // emitFunction lowers a StatementFunction scope: the body between
@@ -1051,8 +1073,64 @@ func (e *emitter) emitFunction(scopeID string) {
 		return
 	}
 
-	e.program.Append(Instruction{Op: OpFuncBegin, Dest: name})
+	// ── Tunnel-derived signature (Fatia C, 2026-07-19) ──
+	// Validate the slots before anything emits: every parameter and
+	// return needs a concrete type (the chameleon's stamp), and names
+	// must be unique across the whole signature. Português: Valida os
+	// slots antes de emitir: todo parâmetro/retorno precisa de tipo
+	// concreto, e os nomes são únicos na assinatura inteira.
+	sigOK := true
+	seenNames := map[string]string{}
+	for _, group := range [][]graph.FuncPort{scope.FuncParams, scope.FuncReturns} {
+		for _, p := range group {
+			if p.Type == "" {
+				e.typeDiags = append(e.typeDiags, diagnostics.Diagnostic{
+					Kind:     diagnostics.KindFunctionSignature,
+					Severity: diagnostics.SeverityError,
+					Devices:  []string{p.TunnelID},
+					Message: fmt.Sprintf(
+						"%s: signature slot %q (tunnel %s) has no type — wire something to it so the chameleon stamps",
+						name, p.Name, p.TunnelID),
+				})
+				sigOK = false
+			}
+			if other, dup := seenNames[p.Name]; dup {
+				e.typeDiags = append(e.typeDiags, diagnostics.Diagnostic{
+					Kind:     diagnostics.KindFunctionSignature,
+					Severity: diagnostics.SeverityError,
+					Devices:  []string{p.TunnelID, other},
+					Message: fmt.Sprintf(
+						"%s: signature name %q is used by two tunnels (%s, %s) — rename one",
+						name, p.Name, other, p.TunnelID),
+				})
+				sigOK = false
+			}
+			seenNames[p.Name] = p.TunnelID
+		}
+	}
+	if !sigOK {
+		return
+	}
+
+	sigMeta := map[string]string{}
+	if s := encodePorts(scope.FuncParams); s != "" {
+		sigMeta["params"] = s
+	}
+	if s := encodePorts(scope.FuncReturns); s != "" {
+		sigMeta["returns"] = s
+	}
+
+	e.program.Append(Instruction{Op: OpFuncBegin, Dest: name, Meta: sigMeta})
 	e.inFunctionScope = true
+
+	// Seat the parameters for the fourth-alias resolution.
+	// Português: Assenta os parâmetros para a resolução do quarto irmão.
+	e.funcParamName = map[string]string{}
+	e.funcParamType = map[string]string{}
+	for _, p := range scope.FuncParams {
+		e.funcParamName[p.TunnelID] = p.Name
+		e.funcParamType[p.TunnelID] = p.Type
+	}
 
 	sorted, errs := e.topoSort(scope.NodeIDs)
 	for _, err := range errs {
@@ -1066,6 +1144,44 @@ func (e *emitter) emitFunction(scopeID string) {
 		e.emitNode(nodeID)
 	}
 
+	// ── Returns: each RIGHT tunnel's feed, resolved through the
+	// transparency machinery, becomes one return value — in stage-Y
+	// order. A feedless return is an error: the function promises a
+	// value it never computes. Português: Cada túnel da direita vira um
+	// valor de retorno (ordem de Y); retorno sem alimentação é erro.
+	if len(scope.FuncReturns) > 0 {
+		args := make([]string, 0, len(scope.FuncReturns))
+		names := make([]string, 0, len(scope.FuncReturns))
+		types := make([]string, 0, len(scope.FuncReturns))
+		retOK := true
+		for _, r := range scope.FuncReturns {
+			v := e.resolveInput2(r.TunnelID, "in")
+			if v == "" {
+				e.typeDiags = append(e.typeDiags, diagnostics.Diagnostic{
+					Kind:     diagnostics.KindFunctionSignature,
+					Severity: diagnostics.SeverityError,
+					Devices:  []string{r.TunnelID},
+					Message: fmt.Sprintf(
+						"%s: return %q (tunnel %s) has no feed — wire a value into it",
+						name, r.Name, r.TunnelID),
+				})
+				retOK = false
+				continue
+			}
+			args = append(args, v)
+			names = append(names, r.Name)
+			types = append(types, r.Type)
+		}
+		if retOK {
+			e.program.Append(Instruction{Op: OpReturn, Args: args, Meta: map[string]string{
+				"names": strings.Join(names, ","),
+				"types": strings.Join(types, ","),
+			}})
+		}
+	}
+
+	e.funcParamName = nil
+	e.funcParamType = nil
 	e.inFunctionScope = false
 	e.program.Append(Instruction{Op: OpFuncEnd})
 
@@ -3249,6 +3365,15 @@ func (e *emitter) resolveInput2(deviceID, portName string) string {
 	// via tunnelRealSource). Cadeia solta resolve "" — a política do
 	// próprio consumidor fala, e o skipTunnel nomeia o túnel no aviso.
 	if srcNode.Type == "StatementTunnel" {
+		// FOURTH alias sibling (Fatia C): a function PARAMETER tunnel
+		// resolves to the parameter identifier itself — raw, the
+		// folded-const channel — and never pierces outward: the caller
+		// supplies the value. Português: QUARTO irmão de alias — túnel
+		// de PARÂMETRO resolve para o identificador do parâmetro (cru),
+		// sem atravessar: o caller fornece o valor.
+		if pname, ok := e.funcParamName[srcNode.ID]; ok {
+			return pname
+		}
 		real, wired := e.tunnelRealSource(srcNode)
 		if !wired {
 			return ""
@@ -3380,6 +3505,13 @@ func (e *emitter) resolveInputType(nodeID, portName string) string {
 	// atravessa o túnel até a porta declarada do produtor real — sem
 	// este pulo, a checagem leria a casca em vez da fonte.
 	if srcNode.Type == "StatementTunnel" {
+		// FOURTH alias sibling, type side (Fatia C): a parameter
+		// tunnel's type is the signature slot's type — no piercing.
+		// Português: Quarto irmão, lado do tipo — túnel de parâmetro
+		// responde o tipo do slot da assinatura, sem atravessar.
+		if ptype, ok := e.funcParamType[srcNode.ID]; ok {
+			return ptype
+		}
 		real, wired := e.tunnelRealSource(srcNode)
 		if !wired {
 			return ""

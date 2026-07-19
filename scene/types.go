@@ -298,6 +298,13 @@ type MetadataJSON struct {
 	Camera       CameraJSON            `json:"camera"`
 	Cameras      map[string]CameraJSON `json:"cameras,omitempty"`
 	Language     string                `json:"language,omitempty"`
+	// ZOrder persists the container stacking order (bottom-to-top) —
+	// SEMANTIC since the 2026-07-19 stacking law: containment requires
+	// the subject above the container, so the maker's Forward/Backward
+	// gestures must survive reload. Português: Ordem de empilhamento
+	// dos containers (fundo-a-topo) — SEMÂNTICA desde a lei de
+	// 2026-07-19; os gestos do maker precisam sobreviver ao reload.
+	ZOrder []string `json:"zOrder,omitempty"`
 
 	// Target is the id of the hardware preset the maker chose (e.g.
 	// "arduino_uno") — see the target registry on the server. The C code

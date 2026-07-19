@@ -123,6 +123,8 @@ type Serializer struct {
 	// do C) no export — valor do painel avançado do picker, guardado no
 	// workspace. Injetada como a targetFunc. Vazio não escreve override.
 	exportPrefixFunc func() string
+	zOrderFunc       func() []string
+	stackingFn       func(containerID, subjectID string) bool
 
 	// observer is installed on the graph and bridges graph events to
 	// the Serializer's OnExport callback and to external consumers.
@@ -435,6 +437,31 @@ func (s *Serializer) SetHidden(deviceID string, hidden bool) {
 // autocura de filiação: o container precisa recensear órfãos
 // encalhados que o ChildrenOf não enxerga (sem pai = fora de toda
 // lista de filhos).
+// SetZOrderProvider injects the registry's Order() for export — z is
+// semantic now (stacking law) and must persist. Português: Injeta o
+// Order() do registry para o export — z é semântico e persiste.
+func (s *Serializer) SetZOrderProvider(fn func() []string) {
+	s.zOrderFunc = fn
+}
+
+// SetStackingResolver stores the stacking law and forwards it into the
+// graph. STORE-AND-FORWARD, not a bare deref: the 2026-07-18 boot panic
+// (nil SceneMgr at Workspace.Init — signal 0xb, blank app) taught the
+// call-time lesson, and RemoveAll REPLACES the graph on every import —
+// a bare forward would silently drop the law right after the first
+// scene load. The reset re-applies it, same ceremony as the observer.
+// Português: Guarda a lei e a encaminha ao grafo. STORE-AND-FORWARD,
+// não deref nu: o panic de boot de 2026-07-18 ensinou a lição do
+// momento-da-chamada, e o RemoveAll SUBSTITUI o grafo a cada import —
+// um forward nu derrubaria a lei em silêncio após o primeiro load. O
+// reset a re-aplica, mesma cerimônia do observer.
+func (s *Serializer) SetStackingResolver(fn func(containerID, subjectID string) bool) {
+	s.stackingFn = fn
+	if s.graph != nil {
+		s.graph.SetStackingResolver(fn)
+	}
+}
+
 func (s *Serializer) RegisteredIDs() []string {
 	out := make([]string, 0, len(s.refs))
 	for id := range s.refs {
@@ -601,6 +628,13 @@ func (s *Serializer) RemoveAll() {
 	s.graph = scenegraph.NewGraph()
 	s.observer = &graphObserver{serializer: s}
 	s.graph.SetObserver(s.observer)
+	if s.stackingFn != nil {
+		// The stacking law survives the graph replacement — same
+		// re-apply ceremony as the observer above. Português: A lei de
+		// empilhamento sobrevive à troca do grafo — mesma cerimônia de
+		// re-aplicação do observer.
+		s.graph.SetStackingResolver(s.stackingFn)
+	}
 	log.Printf("[SCENE] RemoveAll: stage cleared")
 }
 
@@ -815,6 +849,13 @@ func (s *Serializer) buildSceneJSON() SceneJSON {
 		// The maker's export-prefix override (the C naming radical); empty
 		// means none, and the codegen keeps the default "iotm_".
 		sc.Metadata.ExportPrefix = s.exportPrefixFunc()
+	}
+	if s.zOrderFunc != nil {
+		// The container stacking order — semantic since the 2026-07-19
+		// stacking law, so the maker's z gestures survive reload.
+		// Português: A ordem de empilhamento — semântica desde a lei de
+		// 2026-07-19; os gestos de z sobrevivem ao reload.
+		sc.Metadata.ZOrder = s.zOrderFunc()
 	}
 	if s.canvasSizeFunc != nil {
 		sc.Metadata.CanvasWidth, sc.Metadata.CanvasHeight = s.canvasSizeFunc()

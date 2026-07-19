@@ -32,6 +32,8 @@ type Graph struct {
 	refs     map[string]DeviceRef // same keys as nodes
 	order    []string             // registration order; used by Snapshot
 	observer Observer             // may be nil (treated as NoopObserver)
+
+	stackingOK func(containerID, subjectID string) bool
 }
 
 // NewGraph creates an empty graph with a NoopObserver. Install a real
@@ -285,7 +287,7 @@ func (g *Graph) EndDrag(deviceID string, dx, dy float64) {
 	}
 
 	if len(conflicts) == 0 {
-		newParentID := findParent(node.Outer, deviceID, g.candidates())
+		newParentID := g.findParentZ(node.Outer, deviceID)
 		if newParentID != node.ParentID {
 			oldParent := node.ParentID
 			if oldParent != "" {
@@ -393,7 +395,7 @@ func (g *Graph) EndResize(deviceID string) {
 // Português: Retorna o ID do menor Complex cuja border 3 contém outer
 // totalmente, ignorando excludeID.
 func (g *Graph) FindParent(outer Rect, excludeID string) string {
-	return findParent(outer, excludeID, g.candidates())
+	return g.findParentZ(outer, excludeID)
 }
 
 // FindConflicts returns every current conflict involving deviceID.
@@ -696,7 +698,7 @@ func (g *Graph) RefreshAll() {
 		if len(node.lastNotifiedConflicts) > 0 {
 			continue // conflicted — keep old parent
 		}
-		newParentID := findParent(node.Outer, id, g.candidates())
+		newParentID := g.findParentZ(node.Outer, id)
 		if newParentID == node.ParentID {
 			continue
 		}
@@ -728,8 +730,43 @@ func (g *Graph) Has(deviceID string) bool {
 // suitable for feeding into findParent and findConflicts. Called from
 // public methods whenever rules need the full graph state.
 //
+// SetStackingResolver injects the z-stacking law (Kemper 2026-07-19,
+// "o compilador deveria reconhecer o sequence como fora do loop"):
+// containment now REQUIRES the subject to be stacked ABOVE the
+// container. Raising a Loop over a Sequence is the gesture of pulling
+// the Sequence out — geometry alone no longer parents. nil = the old
+// pure-geometry behavior (tests, headless). Português: Injeta a lei de
+// empilhamento por z: contenção agora EXIGE o sujeito empilhado ACIMA
+// do container. Subir um Loop sobre um Sequence é o gesto de tirá-lo
+// de dentro — geometria sozinha não parenteia mais. nil = comportamento
+// antigo.
+func (g *Graph) SetStackingResolver(fn func(containerID, subjectID string) bool) {
+	g.stackingOK = fn
+}
+
+// findParentZ applies the stacking law before the geometric resolver:
+// candidates stacked ABOVE the subject cannot parent it. Português:
+// Aplica a lei antes do resolvedor geométrico: candidato empilhado
+// ACIMA do sujeito não pode ser pai.
+func (g *Graph) findParentZ(outer Rect, subjectID string) string {
+	cands := g.candidates()
+	if g.stackingOK != nil {
+		kept := cands[:0]
+		for _, c := range cands {
+			if c.ID == subjectID || g.stackingOK(c.ID, subjectID) {
+				kept = append(kept, c)
+			}
+		}
+		cands = kept
+	}
+	return findParent(outer, subjectID, cands)
+}
+
+// candidates snapshots every visible node for the rule engine.
 // Not cached: the slice is rebuilt on every call. This is cheap (a
 // handful of field copies per node) and keeps the rule engine stateless.
+// Português: Fotografa todo nó visível para o motor de regras — sem
+// cache, barato, sem estado.
 func (g *Graph) candidates() []candidate {
 	result := make([]candidate, 0, len(g.nodes))
 	for _, node := range g.nodes {
@@ -780,7 +817,7 @@ func (g *Graph) computeParent(deviceID string) string {
 	if !ok {
 		return ""
 	}
-	return findParent(node.Outer, deviceID, g.candidates())
+	return g.findParentZ(node.Outer, deviceID)
 }
 
 // flattenDescendants performs a depth-first walk starting at deviceID

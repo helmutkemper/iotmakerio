@@ -512,6 +512,9 @@ func migrate() error {
 	if err := MigrateMenuTreeData(); err != nil {
 		return err
 	}
+	if err := MigrateSeqRemovePhaseText(); err != nil {
+		return err
+	}
 	if err := MigrateI18nBackfillKeys(); err != nil {
 		return err
 	}

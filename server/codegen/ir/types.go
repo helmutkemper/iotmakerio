@@ -217,7 +217,15 @@ const (
 
 	// Output
 	OpOutput Op = "OUTPUT" // OUTPUT %source "channelName"
-	OpReturn Op = "RETURN" // RETURN %source
+	// OpReturn — extended by Fatia C (2026-07-19): Args may carry 1..n
+	// resolved values (the function's RIGHT-side tunnels in stage-Y
+	// order) with Meta["names"]/Meta["types"] mirroring the signature.
+	// Go renders `return a, b`; C99 assigns each out-param and returns.
+	// The legacy single-source form stays valid. Português: Estendido
+	// pela Fatia C — Args levam 1..n valores (túneis da direita em
+	// ordem de Y), Meta espelha a assinatura; a forma legada de fonte
+	// única segue válida.
+	OpReturn Op = "RETURN" // RETURN %a [%b ...]
 
 	// OpPrint emits a debug print of ONE value to standard output — the
 	// StatementPrint{Int,Float,String,Bool,Byte,ByteArray} sink devices.

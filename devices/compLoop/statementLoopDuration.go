@@ -639,7 +639,18 @@ func (e *StatementLoopDuration) getBodyMenuItems() []contextMenu.Item {
 			FontAwesomePath: rulesIcon.KFAPlus,
 			ViewBox:         "0 0 448 512",
 			HelpFallback:    "Brings this container above overlapping devices.",
-			OnClick:         func() { devices.BackendZRegistry.MoveForward(e.id) },
+			OnClick: func() {
+				devices.BackendZRegistry.MoveForward(e.id)
+				// Z became SEMANTIC (stacking law 2026-07-19): the gesture
+				// must summon a re-parent pass NOW — without the notify,
+				// RefreshAll never ran and the law stayed dormant (field:
+				// "continua com o problema"). Português: Z virou SEMÂNTICO —
+				// o gesto convoca o re-parenting AGORA; sem o notify, o
+				// RefreshAll não rodava e a lei ficava dormente.
+				if e.sceneNotify != nil {
+					e.sceneNotify()
+				}
+			},
 		},
 		{
 			ID:              "backward",
@@ -647,7 +658,18 @@ func (e *StatementLoopDuration) getBodyMenuItems() []contextMenu.Item {
 			FontAwesomePath: rulesIcon.KFAMinus,
 			ViewBox:         "0 0 448 512",
 			HelpFallback:    "Sends this container below overlapping devices.",
-			OnClick:         func() { devices.BackendZRegistry.MoveBackward(e.id) },
+			OnClick: func() {
+				devices.BackendZRegistry.MoveBackward(e.id)
+				// Z became SEMANTIC (stacking law 2026-07-19): the gesture
+				// must summon a re-parent pass NOW — without the notify,
+				// RefreshAll never ran and the law stayed dormant (field:
+				// "continua com o problema"). Português: Z virou SEMÂNTICO —
+				// o gesto convoca o re-parenting AGORA; sem o notify, o
+				// RefreshAll não rodava e a lei ficava dormente.
+				if e.sceneNotify != nil {
+					e.sceneNotify()
+				}
+			},
 		},
 	}
 }

@@ -309,13 +309,15 @@ type cEmitter struct {
 	// bodies, fileVars the `static` shared declarations. Português:
 	// Espelho do truque de recorte do Go — funcs coleta os corpos
 	// `static void`, fileVars as declarações compartilhadas.
-	hasFuncs bool
-	funcMark int
-	funcName string
-	funcs    strings.Builder
-	fileVars strings.Builder
-	declared map[string]bool
-	ifStack  []ifFrame
+	hasFuncs    bool
+	funcMark    int
+	funcName    string
+	funcParams  []funcSigPort
+	funcReturns []funcSigPort
+	funcs       strings.Builder
+	fileVars    strings.Builder
+	declared    map[string]bool
+	ifStack     []ifFrame
 
 	// bbSurfaces caches the computed public surface of each multi-file
 	// black-box, keyed by BlackBoxDef.ID. Lazily filled by surfaceFor the
@@ -490,14 +492,43 @@ func (e *cEmitter) emit() {
 		case ir.OpFuncBegin:
 			e.funcName = inst.Dest
 			e.funcMark = e.body.Len()
+			// Tunnel-derived signature (Fatia C): params by value,
+			// returns as OUT-PARAMS (the black-box pattern) — the
+			// function stays void. Português: Assinatura derivada de
+			// túneis — parâmetros por valor, retornos como OUT-PARAMS
+			// (o padrão das black-boxes); a função segue void.
+			e.funcParams = parseFuncSig(inst.Meta["params"])
+			e.funcReturns = parseFuncSig(inst.Meta["returns"])
 		case ir.OpFuncEnd:
 			region := e.body.String()[e.funcMark:]
 			trunk := e.body.String()[:e.funcMark]
 			e.body.Reset()
 			e.body.WriteString(trunk)
-			e.funcs.WriteString("static void " + e.funcName + "(void) {\n")
+			sig := make([]string, 0, len(e.funcParams)+len(e.funcReturns))
+			for _, p := range e.funcParams {
+				sig = append(sig, cTypeName(p.typ, e.profile)+" "+p.name)
+			}
+			for _, r := range e.funcReturns {
+				sig = append(sig, cTypeName(r.typ, e.profile)+" *"+r.name)
+			}
+			args := "void"
+			if len(sig) > 0 {
+				args = strings.Join(sig, ", ")
+			}
+			e.funcs.WriteString("static void " + e.funcName + "(" + args + ") {\n")
 			e.funcs.WriteString(region)
 			e.funcs.WriteString("}\n\n")
+			e.funcParams, e.funcReturns = nil, nil
+		case ir.OpReturn:
+			// Fatia C: each return value lands in its out-param, then a
+			// bare return — the function is void by contract. Português:
+			// Cada valor de retorno cai no seu out-param; return seco.
+			for i, a := range inst.Args {
+				if i < len(e.funcReturns) {
+					e.writef("*%s = %s;\n", e.funcReturns[i].name, cOperand(a))
+				}
+			}
+			e.writef("return;\n")
 		case ir.OpVar:
 			e.emitVar(inst)
 		case ir.OpAssign:
@@ -1673,6 +1704,29 @@ func (e *cEmitter) emitSleep(inst ir.Instruction) {
 // comprimento, sem exigir NUL. CAVEAT AVR: o printf do avr-libc não imprime
 // float sem -Wl,-u,vfprintf -lprintf_flt — %g sai "?"; é propriedade do
 // LINKER, então o emitter fica uniforme e o help do device avisa.
+
+// funcSigPort is one parsed slot of the FuncBegin signature Meta.
+// Português: Um slot decodificado do Meta de assinatura.
+type funcSigPort struct{ name, typ string }
+
+// parseFuncSig decodes Meta["params"]/Meta["returns"] ("n1:t1,n2:t2").
+// Português: Decodifica o Meta da assinatura.
+func parseFuncSig(s string) []funcSigPort {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]funcSigPort, 0, len(parts))
+	for _, p := range parts {
+		i := strings.IndexByte(p, ':')
+		if i < 0 {
+			continue
+		}
+		out = append(out, funcSigPort{name: p[:i], typ: p[i+1:]})
+	}
+	return out
+}
+
 func (e *cEmitter) emitPrint(inst ir.Instruction) {
 	if len(inst.Args) == 0 {
 		return

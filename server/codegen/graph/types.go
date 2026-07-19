@@ -26,6 +26,15 @@ type Node struct {
 	// the method doc comment). Value 0 means unordered. Lower values run first within
 	// a scope when no wire dependency exists between the devices.
 	ExecutionOrder int
+
+	// Y is the device's stage vertical position — the ONLY geometry the
+	// graph carries. Function signatures order their parameters by it
+	// (Fatia C, 2026-07-19): declaration order = top-to-bottom on the
+	// stage, so the maker reorders by dragging. Português: A posição
+	// vertical no palco — a única geometria do grafo. Assinaturas de
+	// função ordenam parâmetros por ela: ordem de declaração = ordem
+	// vertical; o maker reordena arrastando.
+	Y float64
 }
 
 // Port represents a connector on a device with its connections.
@@ -52,6 +61,15 @@ type Edge struct {
 }
 
 // Scope represents a containment scope (a loop or the global scope).
+// FuncPort is one slot of a function's tunnel-derived signature.
+// Português: Um slot da assinatura derivada de túneis.
+type FuncPort struct {
+	TunnelID string
+	Name     string
+	Type     string // "" = untyped (diagnosed at emit)
+	Y        float64
+}
+
 type Scope struct {
 	ID       string   // scope ID (device ID for loops, "" for global)
 	ParentID string   // parent scope ID ("" for top-level)
@@ -77,7 +95,19 @@ type Scope struct {
 	// main; no posix ninguém a chama (warning barulhento).
 	Function     bool
 	FunctionName string
-	StopPort     *PortRef // for loops: the device+port connected to the stop input
+
+	// FuncParams / FuncReturns are the function's SIGNATURE, derived
+	// from its phase-tunnels (Fatia C): LEFT-side tunnels are
+	// parameters, RIGHT-side are returns (the F2 normal convention —
+	// in-left/out-right; the Sequence's inversion is its own). Ordered
+	// by stage Y. Name = the tunnel's label, identifier-sanitized;
+	// Type = the wire-stamped concrete type. Português: A ASSINATURA da
+	// função, derivada dos túneis: lado ESQUERDO = parâmetros, DIREITO
+	// = retornos (convenção normal F2). Ordenados por Y. Nome = label
+	// sanitizado; tipo = o carimbo concreto do fio.
+	FuncParams  []FuncPort
+	FuncReturns []FuncPort
+	StopPort    *PortRef // for loops: the device+port connected to the stop input
 
 	// IntervalPort is set for StatementLoopDuration scopes.
 	// Points to the device+port providing the time.Duration value for
@@ -144,6 +174,14 @@ type Scope struct {
 // se algum usar range ou comparação, o escopo inteiro vira uma cadeia
 // if/else-if.
 type CaseDef struct {
+	// ID is the case's stable identifier ("stmCase_1_c2") as serialized by
+	// the frontend since the family's birth. Phase-tunnel validation
+	// resolves tunnelNatal against it; the collapsible-function work will
+	// too. Português: Identificador estável do case, como o frontend
+	// serializa desde o nascimento. A validação de túnel de fase resolve o
+	// tunnelNatal por ele.
+	ID string
+
 	// Label is the case's display name from the inspector (e.g. "condição 0").
 	// It carries NO execution meaning and the real emitters ignore it — only
 	// the inspect-panel preview (PreviewCase / caseBodyComment) uses it, to

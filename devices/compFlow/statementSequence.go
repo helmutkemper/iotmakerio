@@ -40,6 +40,7 @@ package compFlow
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"syscall/js"
 	"time"
@@ -81,6 +82,7 @@ var (
 	seqIconTunnel = rulesIcon.IconByNameOrDefault("signs-post", "gear")
 	seqIconPlus   = rulesIcon.IconByNameOrDefault("plus", "gear")
 	seqIconMinus  = rulesIcon.IconByNameOrDefault("minus", "gear")
+	seqIconPen    = rulesIcon.IconByNameOrDefault("pen", "gear")
 )
 
 // caseEntry is one case of a StatementSequence device: the literal selector values
@@ -369,15 +371,16 @@ func (e *StatementSequence) tunnelJudge(cx, cy float64, side, selfID string) (fl
 func (e *StatementSequence) createTunnel() {
 	// Panic shield (field freeze forensics 2026-07-18): under wasm an
 	// unrecovered panic kills the Go runtime and the whole IDE freezes
-	// with it. If anything on this path blows, the console NAMES it and
-	// the app survives. The numbered checkpoints bracket every stage —
-	// if the tab still locks, the LAST number printed names the
-	// survivor, the bisection method that cracked the 2026-07-17
-	// freezes. Português: Escudo de panic — em wasm, panic não
-	// recuperado mata o runtime e congela a IDE inteira; aqui o console
-	// NOMEIA o estouro e o app sobrevive. Os checkpoints numerados
-	// cercam cada etapa — se ainda travar, o ÚLTIMO número impresso
-	// nomeia o sobrevivente (o método de bisseção de 2026-07-17).
+	// with it. If anything on this path blows, the console NAMES it
+	// ([TUNNEL-PANIC]) and the app survives. The numbered [TUNNEL-CK]
+	// checkpoints that bisected the TunnelPointsFor nil-deref dragon
+	// retired on 2026-07-19 after the field confirmed calm; the shield
+	// is cheap life insurance and STAYS. Português: Escudo de panic —
+	// em wasm, panic não recuperado mata o runtime e congela a IDE;
+	// aqui o console NOMEIA o estouro e o app sobrevive. Os checkpoints
+	// numerados que bissectaram o dragão se aposentaram em 2026-07-19
+	// com a calmaria confirmada em campo; o escudo é seguro de vida
+	// barato e FICA.
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[TUNNEL-PANIC] createTunnel: %v", r)
@@ -386,25 +389,19 @@ func (e *StatementSequence) createTunnel() {
 	if e.createTunnelFn == nil || e.elem == nil {
 		return
 	}
-	log.Printf("[TUNNEL-CK] 1 judge (phase=%s)", e.selectedCase)
 	ox, oy, ow, oh := e.ornamentRect()
 	cx, cy := ox+ow, oy+oh*0.25
 	cx, cy = e.tunnelJudge(cx, cy, "right", "")
-	log.Printf("[TUNNEL-CK] 2 factory at (%.0f, %.0f)", cx, cy)
 	id := e.createTunnelFn(e.id, "right", cx, cy, e.selectedCase, e.tunnelJudge)
 	if id == "" {
 		return
 	}
 	e.tunnelIDs = append(e.tunnelIDs, id)
-	log.Printf("[TUNNEL-CK] 3 refresh views")
 	e.refreshTunnelViews()
-	log.Printf("[TUNNEL-CK] 4 recache ornament")
 	go e.recacheOrnament()
-	log.Printf("[TUNNEL-CK] 5 scene notify")
 	if e.sceneNotify != nil {
 		e.sceneNotify()
 	}
-	log.Printf("[TUNNEL-CK] 6 done (%s)", id)
 }
 
 func (e *StatementSequence) SetSceneNotify(fn func()) {
@@ -577,23 +574,42 @@ func (e *StatementSequence) caseIndexByID(id string) int {
 	return -1
 }
 
-// activeCaseLabel returns the pill text for the currently-selected case.
+// activeCaseLabel returns the pill text for the currently-selected
+// case — the MAKER'S NAME first, position as the fallback. The old
+// doctrine ("the position IS the name", Slice-2 era) predated the
+// rename feature and made both painters ignore c.label — a rename
+// wrote the data perfectly and the screen never showed it (field
+// forensics 2026-07-19: "[RENAME] applied" in the console, "nada
+// mudou" on the stage). Default labels are literal "phase N" strings
+// kept position-synced by renumberDefaultLabels, so unrenamed phases
+// still read exactly as before. Português: O texto da pílula — o NOME
+// DO MAKER primeiro, posição como fallback. A doutrina antiga ("a
+// posição É o nome") era pré-rename e fazia os dois pintores ignorarem
+// c.label — o rename gravava e a tela nunca mostrava. Rótulos padrão
+// são "phase N" literais mantidos em sincronia pelo
+// renumberDefaultLabels, então fases não renomeadas leem igual.
 func (e *StatementSequence) activeCaseLabel() string {
 	idx := e.caseIndexByID(e.selectedCase)
 	if idx < 0 {
 		return "phase"
 	}
+	if l := e.cases[idx].label; l != "" {
+		return l
+	}
 	return fmt.Sprintf("phase %d", idx)
 }
 
-// caseMenuLabel renders phases BY INDEX — the Sequence's whole meaning is
-// the order, so the position IS the name. Português: Fases por ÍNDICE — a
-// posição É o nome.
+// caseMenuLabel — the menu's painter, same label-first doctrine as
+// activeCaseLabel above. Português: O pintor do menu — mesma doutrina
+// nome-primeiro do activeCaseLabel.
 func (e *StatementSequence) caseMenuLabel(c caseEntry) string {
+	if c.label != "" {
+		return c.label
+	}
 	if i := e.caseIndexByID(c.id); i >= 0 {
 		return fmt.Sprintf("phase %d", i)
 	}
-	return c.label
+	return c.id
 }
 
 // caseSelectMenuItems builds the pill dropdown: one entry per case, in order.
@@ -652,14 +668,41 @@ func (e *StatementSequence) caseSelectMenuItems() []contextMenu.Item {
 		HelpFallback:    "Append a new phase after the last one.",
 		OnClick:         func() { e.addPhase() },
 	})
+	items = append(items, contextMenu.Item{
+		ID:              "seq_ins_before",
+		Label:           translate.T("seqInsertBefore", "＋ Insert phase before"),
+		FontAwesomePath: seqIconPlus.Path,
+		ViewBox:         seqIconPlus.ViewBox,
+		HelpKey:         "helpSeqInsertBefore",
+		HelpFallback:    "Adds an empty phase immediately before the phase on screen.",
+		OnClick:         func() { e.insertPhaseAt(e.caseIndexByID(e.selectedCase)) },
+	})
+	items = append(items, contextMenu.Item{
+		ID:              "seq_ins_after",
+		Label:           translate.T("seqInsertAfter", "＋ Insert phase after"),
+		FontAwesomePath: seqIconPlus.Path,
+		ViewBox:         seqIconPlus.ViewBox,
+		HelpKey:         "helpSeqInsertAfter",
+		HelpFallback:    "Adds an empty phase immediately after the phase on screen.",
+		OnClick:         func() { e.insertPhaseAt(e.caseIndexByID(e.selectedCase) + 1) },
+	})
+	items = append(items, contextMenu.Item{
+		ID:              "seq_rename",
+		Label:           translate.T("seqRenamePhase", "Rename phase"),
+		FontAwesomePath: seqIconPen.Path,
+		ViewBox:         seqIconPen.ViewBox,
+		HelpKey:         "helpSeqRenamePhase",
+		HelpFallback:    "Gives the phase on screen a meaningful name (display only).",
+		OnClick:         func() { go e.renameSelectedPhase() },
+	})
 	if len(e.cases) > 1 {
 		items = append(items, contextMenu.Item{
 			ID:              "seq_del",
-			Label:           translate.T("seqRemovePhase", "− Remove last phase"),
+			Label:           translate.T("seqRemovePhase", "− Remove this phase"),
 			FontAwesomePath: seqIconMinus.Path,
 			ViewBox:         seqIconMinus.ViewBox,
-			HelpFallback:    "Remove the last phase; its devices move to the previous one.",
-			OnClick:         func() { e.removeLastPhase() },
+			HelpFallback:    "Removes the phase on screen; its devices move to the neighbor phase.",
+			OnClick:         func() { e.removePhaseAt(e.caseIndexByID(e.selectedCase)) },
 		})
 	}
 	return items
@@ -686,20 +729,91 @@ func (e *StatementSequence) addPhase() {
 	}
 }
 
-// removeLastPhase drops the last phase, moving its children to the new
-// last phase so no device is orphaned on the device side.
-// Português: Remove a última fase; os filhos migram para a nova última.
-func (e *StatementSequence) removeLastPhase() {
-	if len(e.cases) < 2 {
+// insertPhaseAt splices a fresh phase at idx (0 = before the first;
+// len = append) and selects it. Ids come from nextCaseID — position
+// never mints an id, so tunnels' natal references and the removal sets
+// stay valid across any surgery. Default "phase N" labels renumber to
+// match their new positions; custom names are preserved.
+// Português: Insere uma fase nova em idx e a seleciona. Ids vêm do
+// nextCaseID — posição nunca cunha id, então as referências de natal e
+// os conjuntos de remoção dos túneis seguem válidos em qualquer
+// cirurgia. Rótulos padrão "phase N" renumeram; nomes customizados são
+// preservados.
+func (e *StatementSequence) insertPhaseAt(idx int) {
+	if idx < 0 {
+		idx = 0
+	}
+	if idx > len(e.cases) {
+		idx = len(e.cases)
+	}
+	e.assignNewChildren()
+	taken := map[string]bool{}
+	for _, c := range e.cases {
+		taken[c.id] = true
+	}
+	fresh := caseEntry{
+		id:        nextCaseID(e.id, taken),
+		label:     fmt.Sprintf("phase %d", idx),
+		matchKind: "is",
+		values:    []string{fmt.Sprintf("%d", idx)},
+	}
+	e.cases = append(e.cases, caseEntry{})
+	copy(e.cases[idx+1:], e.cases[idx:])
+	e.cases[idx] = fresh
+	e.renumberDefaultLabels()
+	e.selectCase(fresh.id)
+	if e.sceneNotify != nil {
+		e.sceneNotify()
+	}
+}
+
+// removePhaseAt removes the phase at idx. Its member devices move to
+// the NEIGHBOR phase (previous; next when removing the first) — never
+// deleted: overlaps there show as honest conflicts and the maker
+// redistributes, the same doctrine as the membership self-heal. Tunnels
+// whose NATAL was the removed phase are re-stamped to the same neighbor
+// (manager record + shell, so persistence follows), and the dead phase
+// id is scrubbed from every tunnel's removal set — the pre-tunnel-era
+// removeLastPhase silently orphaned natal references; this fixes that
+// path too. Português: Remove a fase em idx. Os membros vão para a fase
+// VIZINHA (anterior; a próxima ao remover a primeira) — nunca apagados:
+// sobreposições viram conflitos honestos e o maker redistribui, a mesma
+// doutrina da autocura de filiação. Túneis com NATAL na fase removida
+// são re-carimbados para a mesma vizinha (registro + casca), e o id
+// morto sai de todo conjunto de remoção — o removeLastPhase da era
+// pré-túnel orfanava referências de natal em silêncio; isto cura esse
+// caminho também.
+func (e *StatementSequence) removePhaseAt(idx int) {
+	if len(e.cases) < 2 || idx < 0 || idx >= len(e.cases) {
 		return
 	}
 	e.assignNewChildren()
-	last := len(e.cases) - 1
-	e.cases[last-1].ids = append(e.cases[last-1].ids, e.cases[last].ids...)
-	removedID := e.cases[last].id
-	e.cases = e.cases[:last]
+	removedID := e.cases[idx].id
+	neighbor := idx - 1
+	if neighbor < 0 {
+		neighbor = idx + 1
+	}
+	neighborID := e.cases[neighbor].id
+	e.cases[neighbor].ids = append(e.cases[neighbor].ids, e.cases[idx].ids...)
+
+	if e.wireMgr != nil {
+		for _, tid := range e.wireMgr.ManualTunnelIDsFor(e.id) {
+			if e.wireMgr.ManualTunnelNatal(tid) == removedID {
+				e.wireMgr.SetManualTunnelNatal(tid, neighborID)
+				if e.sceneMgr != nil {
+					if t, ok := e.sceneMgr.FindDevice(tid).(*StatementTunnel); ok {
+						t.SetNatalCase(neighborID)
+					}
+				}
+			}
+			e.wireMgr.ClearManualTunnelRemovedCase(tid, removedID)
+		}
+	}
+
+	e.cases = append(e.cases[:idx], e.cases[idx+1:]...)
+	e.renumberDefaultLabels()
 	if e.selectedCase == removedID {
-		e.selectCase(e.cases[len(e.cases)-1].id)
+		e.selectCase(neighborID)
 	} else {
 		e.applyCaseVisibility()
 	}
@@ -710,6 +824,84 @@ func (e *StatementSequence) removeLastPhase() {
 	if e.sceneNotify != nil {
 		e.sceneNotify()
 	}
+}
+
+// renumberDefaultLabels keeps machine-given "phase N" labels aligned
+// with their positions after surgery; anything the maker renamed is
+// left untouched. Português: Realinha rótulos automáticos "phase N" com
+// as posições após cirurgia; nomes dados pelo maker ficam intactos.
+func (e *StatementSequence) renumberDefaultLabels() {
+	for i := range e.cases {
+		rest, ok := strings.CutPrefix(e.cases[i].label, "phase ")
+		if !ok {
+			continue
+		}
+		if _, err := strconv.Atoi(rest); err != nil {
+			continue
+		}
+		e.cases[i].label = fmt.Sprintf("phase %d", i)
+	}
+}
+
+// renameSelectedPhase opens the house form (the Function-rename
+// pattern) for the phase on screen. Labels are display-only — the
+// server's CaseDef.Label carries no execution meaning — so this is
+// pure legibility. Português: Abre o formulário da casa para a fase em
+// cena. Rótulos são só exibição — legibilidade pura.
+func (e *StatementSequence) renameSelectedPhase() {
+	idx := e.caseIndexByID(e.selectedCase)
+	if idx < 0 {
+		return
+	}
+	caseID := e.cases[idx].id
+	overlay.Show(overlay.Config{
+		Title: translate.T("seqRenameTitle", "Rename phase"),
+		Width: "420px",
+		Tabs: []overlay.Tab{
+			{
+				Label: translate.T("tabProperties", "Properties"),
+				Type:  overlay.TabForm,
+				Fields: []overlay.Field{
+					{
+						Key:         "label",
+						Label:       translate.T("seqPhaseLabel", "Phase name"),
+						Type:        overlay.FieldText,
+						Value:       e.cases[idx].label,
+						Placeholder: translate.T("seqPhasePlaceholder", "read sensors"),
+					},
+				},
+			},
+		},
+		OnSave: func(values map[string]string) {
+			v := strings.TrimSpace(values["label"])
+			if v == "" {
+				return
+			}
+			i := e.caseIndexByID(caseID)
+			if i < 0 {
+				return
+			}
+			e.cases[i].label = v
+			if e.ornamentDraw != nil {
+				e.ornamentDraw.SetCaseLabel(e.activeCaseLabel())
+			}
+			go e.recacheOrnament()
+			if e.sceneNotify != nil {
+				e.sceneNotify()
+			}
+		},
+	})
+}
+
+// removeLastPhase drops the last phase, moving its children to the new
+// last phase so no device is orphaned on the device side.
+// Português: Remove a última fase; os filhos migram para a nova última.
+// removeLastPhase — kept as a thin wrapper for any external caller;
+// removePhaseAt carries the tunnel care the original lacked.
+// Português: Mantida como casca fina; o removePhaseAt carrega o cuidado
+// com túneis que a original não tinha.
+func (e *StatementSequence) removeLastPhase() {
+	e.removePhaseAt(len(e.cases) - 1)
 }
 
 // selectCase makes the case with the given id the visible/edited one. It first
@@ -1230,11 +1422,38 @@ func (e *StatementSequence) getBodyMenuItems() []contextMenu.Item {
 	if len(e.cases) > 1 {
 		phase = append(phase, contextMenu.Item{
 			ID:              "seq_del_body",
-			Label:           translate.T("seqRemovePhase", "− Remove last phase"),
+			Label:           translate.T("seqRemovePhase", "− Remove this phase"),
 			FontAwesomePath: seqIconMinus.Path,
 			ViewBox:         seqIconMinus.ViewBox,
-			HelpFallback:    "Remove the last phase; its devices move to the previous one.",
-			OnClick:         func() { e.removeLastPhase() },
+			HelpFallback:    "Removes the phase on screen; its devices move to the neighbor phase.",
+			OnClick:         func() { e.removePhaseAt(e.caseIndexByID(e.selectedCase)) },
+		})
+		phase = append(phase, contextMenu.Item{
+			ID:              "seq_ins_before_body",
+			Label:           translate.T("seqInsertBefore", "＋ Insert phase before"),
+			FontAwesomePath: seqIconPlus.Path,
+			ViewBox:         seqIconPlus.ViewBox,
+			HelpKey:         "helpSeqInsertBefore",
+			HelpFallback:    "Adds an empty phase immediately before the phase on screen.",
+			OnClick:         func() { e.insertPhaseAt(e.caseIndexByID(e.selectedCase)) },
+		})
+		phase = append(phase, contextMenu.Item{
+			ID:              "seq_ins_after_body",
+			Label:           translate.T("seqInsertAfter", "＋ Insert phase after"),
+			FontAwesomePath: seqIconPlus.Path,
+			ViewBox:         seqIconPlus.ViewBox,
+			HelpKey:         "helpSeqInsertAfter",
+			HelpFallback:    "Adds an empty phase immediately after the phase on screen.",
+			OnClick:         func() { e.insertPhaseAt(e.caseIndexByID(e.selectedCase) + 1) },
+		})
+		phase = append(phase, contextMenu.Item{
+			ID:              "seq_rename_body",
+			Label:           translate.T("seqRenamePhase", "Rename phase"),
+			FontAwesomePath: seqIconPen.Path,
+			ViewBox:         seqIconPen.ViewBox,
+			HelpKey:         "helpSeqRenamePhase",
+			HelpFallback:    "Gives the phase on screen a meaningful name (display only).",
+			OnClick:         func() { go e.renameSelectedPhase() },
 		})
 	}
 	return append(phase, e.bodyMenuTail()...)
@@ -1275,7 +1494,18 @@ func (e *StatementSequence) bodyMenuTail() []contextMenu.Item {
 			FontAwesomePath: rulesIcon.KFAPlus,
 			ViewBox:         "0 0 448 512",
 			HelpFallback:    "Brings this container above overlapping devices.",
-			OnClick:         func() { devices.BackendZRegistry.MoveForward(e.id) },
+			OnClick: func() {
+				devices.BackendZRegistry.MoveForward(e.id)
+				// Z became SEMANTIC (stacking law 2026-07-19): the gesture
+				// must summon a re-parent pass NOW — without the notify,
+				// RefreshAll never ran and the law stayed dormant (field:
+				// "continua com o problema"). Português: Z virou SEMÂNTICO —
+				// o gesto convoca o re-parenting AGORA; sem o notify, o
+				// RefreshAll não rodava e a lei ficava dormente.
+				if e.sceneNotify != nil {
+					e.sceneNotify()
+				}
+			},
 		},
 		{
 			ID:              "backward",
@@ -1283,7 +1513,18 @@ func (e *StatementSequence) bodyMenuTail() []contextMenu.Item {
 			FontAwesomePath: rulesIcon.KFAMinus,
 			ViewBox:         "0 0 448 512",
 			HelpFallback:    "Sends this container below overlapping devices.",
-			OnClick:         func() { devices.BackendZRegistry.MoveBackward(e.id) },
+			OnClick: func() {
+				devices.BackendZRegistry.MoveBackward(e.id)
+				// Z became SEMANTIC (stacking law 2026-07-19): the gesture
+				// must summon a re-parent pass NOW — without the notify,
+				// RefreshAll never ran and the law stayed dormant (field:
+				// "continua com o problema"). Português: Z virou SEMÂNTICO —
+				// o gesto convoca o re-parenting AGORA; sem o notify, o
+				// RefreshAll não rodava e a lei ficava dormente.
+				if e.sceneNotify != nil {
+					e.sceneNotify()
+				}
+			},
 		},
 	}
 }
@@ -1299,13 +1540,32 @@ func (e *StatementSequence) wireEvents() {
 			if e.ctxMenu == nil {
 				return
 			}
-			if e.ctxMenu.IsOpen() {
-				e.ctxMenu.Close()
-				return
-			}
+			// Always open — Open() self-replaces (closes any live menu
+			// first), so the old IsOpen/Close/return toggle is gone: it
+			// was unreachable on the happy path (the menu's fullscreen
+			// overlay swallows canvas clicks while open) and a stuck
+			// IsOpen turned it into a silent click-eater (field
+			// 2026-07-19: "o menu contextual parou de funcionar perto
+			// do dropdown"). The shield logs the IsOpen state and names
+			// any item-building panic instead of killing the runtime.
+			// Português: Sempre abrir — o Open() se substitui; a dança
+			// IsOpen/Close/return era inalcançável no caminho feliz (o
+			// overlay do menu engole cliques do canvas enquanto aberto)
+			// e um IsOpen preso a tornava um comedor de cliques. O
+			// escudo loga o estado e nomeia panic de montagem de itens.
 			elemX, elemY := e.elem.GetPosition()
 			menuX, menuY := elemX+event.LocalX, elemY+event.LocalY
-			go e.ctxMenu.OpenAtWorld(e.caseSelectMenuItems(), menuX, menuY)
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[MENU-PANIC] sequence pill: %v", r)
+					}
+				}()
+				if e.ctxMenu.IsOpen() {
+					log.Printf("[MENU] sequence pill: replacing an already-open menu")
+				}
+				e.ctxMenu.OpenAtWorld(e.caseSelectMenuItems(), menuX, menuY)
+			}()
 			return
 		}
 
@@ -1318,13 +1578,21 @@ func (e *StatementSequence) wireEvents() {
 		if e.ctxMenu == nil {
 			return
 		}
-		if e.ctxMenu.IsOpen() {
-			e.ctxMenu.Close()
-			return
-		}
+		// Same always-open doctrine as the pill branch above.
+		// Português: Mesma doutrina de sempre-abrir do ramo da pílula.
 		elemX, elemY := e.elem.GetPosition()
 		menuX, menuY := elemX+event.LocalX, elemY+event.LocalY
-		go e.ctxMenu.OpenForDevice(e, e.getBodyMenuItems(), menuX, menuY)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[MENU-PANIC] sequence body: %v", r)
+				}
+			}()
+			if e.ctxMenu.IsOpen() {
+				log.Printf("[MENU] sequence body: replacing an already-open menu")
+			}
+			e.ctxMenu.OpenForDevice(e, e.getBodyMenuItems(), menuX, menuY)
+		}()
 	})
 
 	// Drag — scenegraph lifecycle.

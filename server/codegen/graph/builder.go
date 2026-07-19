@@ -240,6 +240,7 @@ func Build(scene SceneInput) (*Graph, []diagnostics.Diagnostic) {
 			ID:         dev.ID,
 			Type:       dev.Type,
 			Label:      dev.Label,
+			Y:          dev.Position.Y,
 			Properties: dev.Properties,
 			Inputs:     make([]Port, 0),
 			Outputs:    make([]Port, 0),
@@ -509,7 +510,123 @@ func Build(scene SceneInput) (*Graph, []diagnostics.Diagnostic) {
 		}
 	}
 
+	collectFunctionSignatures(g)
+
 	return g, diags
+}
+
+// collectFunctionSignatures derives every Function scope's signature
+// from its phase-tunnels (Fatia C, 2026-07-19): LEFT tunnels →
+// parameters, RIGHT tunnels → returns (the F2 normal convention),
+// ordered by stage Y; Name = the tunnel's label sanitized to a C
+// identifier (fallback: the tunnel id); Type = the first concrete
+// DataType on any edge touching the tunnel ("" stays for the emitter
+// to diagnose — a signature slot needs a type). Runs AFTER nodes and
+// edges exist. Português: Deriva a assinatura de cada função dos seus
+// túneis: esquerda → parâmetros, direita → retornos (convenção F2),
+// ordenados por Y; nome = label sanitizado (fallback: id); tipo = o
+// primeiro DataType concreto de qualquer fio do túnel ("" fica para o
+// emitter diagnosticar). Roda DEPOIS de nós e arestas.
+func collectFunctionSignatures(g *Graph) {
+	for scopeID, scope := range g.Scopes {
+		if scope == nil || !scope.Function {
+			continue
+		}
+		for id, node := range g.Nodes {
+			if node == nil || node.Type != "StatementTunnel" || node.Properties == nil {
+				continue
+			}
+			parent, _ := node.Properties["tunnelParent"].(string)
+			if parent != scopeID {
+				continue
+			}
+			side, _ := node.Properties["tunnelSide"].(string)
+			// The maker's label lives in properties.label (the shell's
+			// serialization); Node.Label is the legacy top-level field.
+			// Português: O rótulo do maker mora em properties.label.
+			label, _ := node.Properties["label"].(string)
+			if label == "" {
+				label = node.Label
+			}
+			port := FuncPort{
+				TunnelID: id,
+				Name:     sanitizePortName(label, id),
+				Type:     tunnelWireType(g, id),
+				Y:        node.Y,
+			}
+			if side == "right" {
+				scope.FuncReturns = append(scope.FuncReturns, port)
+			} else {
+				scope.FuncParams = append(scope.FuncParams, port)
+			}
+		}
+		sortPortsByY(scope.FuncParams)
+		sortPortsByY(scope.FuncReturns)
+	}
+}
+
+// tunnelWireType returns the first concrete stamped type on any edge
+// touching the tunnel, either orientation (the inverted-wire lesson).
+// Português: O primeiro tipo concreto de qualquer fio do túnel, nas
+// duas orientações (lição do fio invertido).
+func tunnelWireType(g *Graph, tunnelID string) string {
+	for _, e := range g.Edges {
+		if e == nil {
+			continue
+		}
+		if e.From.DeviceID != tunnelID && e.To.DeviceID != tunnelID {
+			continue
+		}
+		if e.DataType != "" && e.DataType != "*" {
+			return e.DataType
+		}
+	}
+	return ""
+}
+
+// sanitizePortName turns a maker label into a C identifier: invalid
+// runes become '_', a leading digit gains a '_' prefix, and an empty
+// result falls back to the tunnel id (same treatment). Português:
+// Transforma o rótulo do maker em identificador C.
+func sanitizePortName(label, fallback string) string {
+	clean := func(s string) string {
+		out := make([]rune, 0, len(s))
+		for _, r := range s {
+			ok := r == '_' ||
+				(r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+				(r >= '0' && r <= '9')
+			if !ok {
+				r = '_'
+			}
+			out = append(out, r)
+		}
+		if len(out) == 0 {
+			return ""
+		}
+		if out[0] >= '0' && out[0] <= '9' {
+			out = append([]rune{'_'}, out...)
+		}
+		return string(out)
+	}
+	if v := clean(label); v != "" && v != "_" {
+		return v
+	}
+	return clean(fallback)
+}
+
+// sortPortsByY — stable insertion by stage Y (ties by tunnel id, so the
+// order is fully deterministic). Português: Ordena por Y (empate pelo
+// id — determinístico).
+func sortPortsByY(ports []FuncPort) {
+	for i := 1; i < len(ports); i++ {
+		for j := i; j > 0; j-- {
+			a, b := ports[j-1], ports[j]
+			if a.Y < b.Y || (a.Y == b.Y && a.TunnelID <= b.TunnelID) {
+				break
+			}
+			ports[j-1], ports[j] = ports[j], ports[j-1]
+		}
+	}
 }
 
 // =====================================================================
@@ -630,7 +747,9 @@ func extractCases(props map[string]interface{}) []CaseDef {
 				c.MatchKind = "is"
 			}
 		}
-		if id, _ := m["id"].(string); id != "" && id == defaultID {
+		id, _ := m["id"].(string)
+		c.ID = id
+		if id != "" && id == defaultID {
 			c.IsDefault = true
 		}
 		if b, ok := m["isDefault"].(bool); ok && b {

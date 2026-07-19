@@ -99,11 +99,13 @@ type goEmitter struct {
 	// both sides. Português: FUNC_BEGIN marca o corpo; FUNC_END recorta a
 	// região para funcs; com funções no programa, OpVar declara em escopo
 	// de pacote (fileVars) — o cruzamento enxerga dos dois lados.
-	hasFuncs bool
-	funcMark int
-	funcName string
-	funcs    strings.Builder
-	fileVars strings.Builder
+	hasFuncs    bool
+	funcMark    int
+	funcName    string
+	funcParams  []funcSigPort
+	funcReturns []funcSigPort
+	funcs       strings.Builder
+	fileVars    strings.Builder
 }
 
 func (e *goEmitter) emit(prog *ir.Program) string {
@@ -135,14 +137,36 @@ func (e *goEmitter) emit(prog *ir.Program) string {
 		case ir.OpFuncBegin:
 			e.funcName = inst.Dest
 			e.funcMark = e.body.Len()
+			// Tunnel-derived signature (Fatia C): stashed for the
+			// FuncEnd header. Português: Assinatura derivada de túneis,
+			// guardada para o cabeçalho no FuncEnd.
+			e.funcParams = parseFuncSig(inst.Meta["params"])
+			e.funcReturns = parseFuncSig(inst.Meta["returns"])
 		case ir.OpFuncEnd:
 			region := e.body.String()[e.funcMark:]
 			trunk := e.body.String()[:e.funcMark]
 			e.body.Reset()
 			e.body.WriteString(trunk)
-			e.funcs.WriteString("func " + e.funcName + "() {\n")
+			sig := make([]string, 0, len(e.funcParams))
+			for _, p := range e.funcParams {
+				sig = append(sig, p.name+" "+goTypeName(p.typ))
+			}
+			rets := make([]string, 0, len(e.funcReturns))
+			for _, r := range e.funcReturns {
+				rets = append(rets, goTypeName(r.typ))
+			}
+			header := "func " + e.funcName + "(" + strings.Join(sig, ", ") + ")"
+			switch len(rets) {
+			case 0:
+			case 1:
+				header += " " + rets[0]
+			default:
+				header += " (" + strings.Join(rets, ", ") + ")"
+			}
+			e.funcs.WriteString(header + " {\n")
 			e.funcs.WriteString(region)
 			e.funcs.WriteString("}\n\n")
+			e.funcParams, e.funcReturns = nil, nil
 		case ir.OpVar:
 			e.emitVar(inst)
 		case ir.OpAssign:
@@ -679,9 +703,17 @@ func (e *goEmitter) emitOutput(inst ir.Instruction) {
 	e.writef("fmt.Println(%s, %s)\n", channel, src)
 }
 
+// emitReturn renders the function's return statement (Fatia C: 1..n
+// values from the RIGHT-side tunnels). The pre-Fatia-C placeholder
+// (`_ = src`) retired with the real signature. Português: O `return`
+// da função (1..n valores dos túneis da direita); o estacionamento
+// pré-Fatia-C aposentou.
 func (e *goEmitter) emitReturn(inst ir.Instruction) {
-	src := goOperand(inst.Args[0])
-	e.writef("_ = %s // return value\n", src)
+	vals := make([]string, 0, len(inst.Args))
+	for _, a := range inst.Args {
+		vals = append(vals, goOperand(a))
+	}
+	e.writef("return %s\n", strings.Join(vals, ", "))
 }
 
 // emitPrint translates OpPrint into a fmt.Printf call. The printed line is
@@ -1456,6 +1488,29 @@ func goOperand(arg string) string {
 //
 //	Mapeia tipos IR para Go. Tipos abstratos (int, float, bool, string)
 //	são expandidos; tipos Go concretos vindos de BlackBox passam direto.
+
+// funcSigPort is one parsed slot of the FuncBegin signature Meta.
+// Português: Um slot decodificado do Meta de assinatura.
+type funcSigPort struct{ name, typ string }
+
+// parseFuncSig decodes Meta["params"]/Meta["returns"] ("n1:t1,n2:t2").
+// Português: Decodifica o Meta da assinatura.
+func parseFuncSig(s string) []funcSigPort {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]funcSigPort, 0, len(parts))
+	for _, p := range parts {
+		i := strings.IndexByte(p, ':')
+		if i < 0 {
+			continue
+		}
+		out = append(out, funcSigPort{name: p[:i], typ: p[i+1:]})
+	}
+	return out
+}
+
 func goTypeName(irType string) string {
 	switch irType {
 	case "int":

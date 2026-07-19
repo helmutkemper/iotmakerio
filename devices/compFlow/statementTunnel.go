@@ -516,6 +516,12 @@ func (e *StatementTunnel) bodyMenuItems() []contextMenu.Item {
 
 func (e *StatementTunnel) showInspectOverlay() { overlay.Show(e.inspectConfig()) }
 
+// ShowInspect — the exported door the workspace's manual-tunnel menu
+// uses (the shell's own bodyMenuItems retired with the G3 conversion).
+// Português: A porta exportada que o menu do workspace usa (o
+// bodyMenuItems da casca aposentou na conversão G3).
+func (e *StatementTunnel) ShowInspect() { e.showInspectOverlay() }
+
 func (e *StatementTunnel) inspectConfig() overlay.Config {
 	return overlay.Config{
 		Title: e.id,
@@ -555,9 +561,15 @@ func (e *StatementTunnel) inspectConfig() overlay.Config {
 			// esta linha o comentário digitado seria perdido em silêncio.
 			if v, ok := values["comment"]; ok {
 				e.comment = v
+				if e.wireMgr != nil {
+					e.wireMgr.SetManualTunnelComment(e.id, e.comment)
+				}
 			}
 			if lbl, ok := values["label"]; ok {
 				e.label = lbl
+				if e.wireMgr != nil {
+					e.wireMgr.SetManualTunnelLabel(e.id, e.label)
+				}
 			}
 			go func() {
 				time.Sleep(200 * time.Millisecond)
@@ -726,6 +738,12 @@ func (e *StatementTunnel) syncManagerRecord(fresh bool) {
 	if e.natalCase != "" {
 		e.wireMgr.SetManualTunnelNatal(e.id, e.natalCase)
 	}
+	// The label rides every sync AND has a live setter path (the
+	// inspect form's OnSave) — the renderer paints from the record.
+	// Português: O rótulo vai em todo sync E tem via de setter vivo
+	// (OnSave do formulário) — o renderer pinta do registro.
+	e.wireMgr.SetManualTunnelLabel(e.id, e.label)
+	e.wireMgr.SetManualTunnelComment(e.id, e.comment)
 	// One-shot: the restore snapshot is pushed exactly once, then
 	// forgotten — later position syncs must not overwrite menu edits.
 	// Português: Um tiro — o snapshot do restore entra uma vez e é

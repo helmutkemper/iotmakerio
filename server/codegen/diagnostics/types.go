@@ -45,6 +45,18 @@ const (
 	// Rules in codegen/bbfiles_validate.go.
 	KindBlackBoxFilesInvalid = "blackbox_files_invalid"
 	KindEmitterInternal      = "emitter_internal"
+	// KindPhaseOrder marks a phase-tunnel wired against the sequence's
+	// temporal order (feed outside the birth phase, or a consumer at or
+	// before it) — the C99 §7 rule, server-side truth. Português: Túnel
+	// de fase ligado contra a ordem temporal do sequence (feed fora da
+	// fase natal, ou consumo nela/antes dela) — a regra §7 no servidor.
+	KindPhaseOrder = "phase_order"
+	// KindFunctionSignature marks a tunnel-derived signature problem
+	// (Fatia C): an untyped parameter/return slot, a duplicate name, or
+	// a return tunnel with no feed. Português: Problema na assinatura
+	// derivada de túneis — slot sem tipo, nome duplicado, retorno sem
+	// alimentação.
+	KindFunctionSignature = "function_signature"
 
 	// KindCancelled — codegen was cancelled by the caller (typically
 	// because the user closed the IDE tab or clicked Cancel on the

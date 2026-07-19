@@ -75,6 +75,8 @@ type Manager struct {
 	// demanda.
 	containers           map[string]func() (x, y, w, h float64)
 	manualTunnels        map[string]*ManualTunnel
+	markerOccluder       func(containerID string, x, y float64) bool
+	wireOccluder         func(deviceID string, x, y float64) bool
 	onManualTunnelDelete func(id string)
 
 	// All active wires.
@@ -1175,6 +1177,23 @@ type ManualTunnel struct {
 	Role        string
 	PhaseHidden bool
 
+	// Label is the maker's name for this tunnel ("sensor temp"),
+	// painted by the renderer on the square's OUTSIDE face — but only
+	// when it differs from the device id: the default "tunnel_N" would
+	// be stage noise, so renaming is what makes the name appear
+	// (declared 2026-07-19; doubles as Fatia B groundwork — a function
+	// tunnel's label becomes its parameter name). Português: O nome
+	// dado pelo maker, pintado na face EXTERNA do quadrado — só quando
+	// difere do id: o "tunnel_N" padrão seria ruído; renomear faz o
+	// nome aparecer. Também é a base da Fatia B (rótulo → nome de
+	// parâmetro na função).
+	Label string
+
+	// Comment is the maker's free-text note, shown with the name in the
+	// hover tip. Português: Nota livre do maker, exibida com o nome no
+	// tooltip de hover.
+	Comment string
+
 	// RemovedCases holds the phases (case ids) the maker HID this
 	// tunnel's exit from (Kemper 2026-07-18: "assim um túnel pode ser
 	// ocultado"). Persisted by the shell as "tunnelRemoved". The natal
@@ -1373,6 +1392,89 @@ func (m *Manager) ManualTunnelContainer(id string) string {
 	return ""
 }
 
+// SetMarkerOccluder injects the z-order occlusion predicate the
+// workspace builds over the ZIndexRegistry: a HIGHER-Z visible device
+// covering a tunnel's point hides its border furniture — and by the
+// phantom-pin law the same verdict gates every hit path (what does not
+// paint must not click). nil = no occlusion (tests, headless).
+// Português: Injeta o predicado de oclusão por z-order: device VISÍVEL
+// de z maior cobrindo o ponto esconde a mobília do túnel — e pela lei
+// do pino fantasma o mesmo veredito trava todo hit. nil = sem oclusão.
+func (m *Manager) SetMarkerOccluder(fn func(containerID string, x, y float64) bool) {
+	m.markerOccluder = fn
+}
+
+// SetWireOccluder injects the endpoint-level occlusion predicate: given
+// a DEVICE id and a world point, is the device's owning container
+// buried under a higher-z visible sibling there? A wire hides when
+// EITHER endpoint answers yes — a buried Sequence takes its outgoing
+// wires down with it (field 2026-07-19: "o const, o wire ... ficam
+// visíveis dentro do loop"). The workspace resolves the container
+// (manual-tunnel record first, scenegraph parent second). Português:
+// Injeta o predicado por ponta: dado um DEVICE e um ponto, o container
+// dono dele está enterrado ali? O fio some quando QUALQUER ponta diz
+// sim — Sequence enterrado leva seus fios junto. O workspace resolve o
+// container (registro do túnel primeiro, pai do scenegraph depois).
+func (m *Manager) SetWireOccluder(fn func(deviceID string, x, y float64) bool) {
+	m.wireOccluder = fn
+}
+
+// wireEndpointOccluded applies the wire predicate to one endpoint.
+// Português: Aplica o predicado do fio a uma ponta.
+func (m *Manager) wireEndpointOccluded(deviceID string, p Point) bool {
+	return m.wireOccluder != nil && m.wireOccluder(deviceID, p.X, p.Y)
+}
+
+// tunnelOccluded applies the predicate to a tunnel's point.
+// Português: Aplica o predicado ao ponto do túnel.
+func (m *Manager) tunnelOccluded(t *ManualTunnel) bool {
+	return m.markerOccluder != nil && m.markerOccluder(t.ContainerID, t.Point.X, t.Point.Y)
+}
+
+// SetManualTunnelComment — the live setter twin of SetManualTunnelLabel.
+// Português: O gêmeo vivo do SetManualTunnelLabel para o comentário.
+func (m *Manager) SetManualTunnelComment(id, comment string) {
+	if t, ok := m.manualTunnels[id]; ok && t.Comment != comment {
+		t.Comment = comment
+	}
+}
+
+// ManualTunnelHoverInfo returns the name and comment of the visible,
+// unoccluded manual tunnel under the pointer — the hover machine's
+// tunnel stage. Português: Nome e comentário do túnel visível e não
+// ocluso sob o ponteiro — o estágio de túnel da máquina de hover.
+func (m *Manager) ManualTunnelHoverInfo(worldX, worldY float64) (label, comment string, ok bool) {
+	d := rulesDensity.GetDensity()
+	tolerance := m.hitTolerance * d * 1.5
+	for _, t := range m.manualTunnels {
+		if t.PhaseHidden || m.tunnelOccluded(t) {
+			continue
+		}
+		dx := worldX - t.Point.X
+		dy := worldY - t.Point.Y
+		if dx*dx+dy*dy <= tolerance*tolerance {
+			label = t.Label
+			if label == "" {
+				label = t.ID
+			}
+			return label, t.Comment, true
+		}
+	}
+	return "", "", false
+}
+
+// SetManualTunnelLabel updates the maker's name for the tunnel — a
+// LIVE setter (labels change at runtime via the inspect form), unlike
+// the one-shot restore pendings. Português: Atualiza o nome do túnel —
+// setter VIVO (muda em runtime pelo formulário), diferente dos
+// pendentes de um tiro do restore.
+func (m *Manager) SetManualTunnelLabel(id, label string) {
+	if t, ok := m.manualTunnels[id]; ok && t.Label != label {
+		t.Label = label
+		m.markDirty()
+	}
+}
+
 // ManualTunnelConsumers lists the element ids wired to the tunnel's
 // "out" port — the Sequence maps them to phases to enforce the
 // unhideable-when-wired rule (Kemper 2026-07-18: "eu não deveria poder
@@ -1566,7 +1668,7 @@ func (m *Manager) ManualTunnelAt(worldX, worldY float64) (id string, ok bool) {
 	for _, t := range m.manualTunnels {
 		// A tunnel does not exist before its natal phase — no hit, no
 		// menu. Português: Antes da fase natal o túnel não existe.
-		if t.PhaseHidden {
+		if t.PhaseHidden || m.tunnelOccluded(t) {
 			continue
 		}
 		dx := worldX - t.Point.X
@@ -2126,6 +2228,18 @@ func (m *Manager) Draw() {
 		fromHidden := m.hiddenElements[w.From.ElementID]
 		toHidden := m.hiddenElements[w.To.ElementID]
 
+		// Z-burial: either endpoint's owning container covered by a
+		// higher-z sibling hides the whole wire — the ensemble sinks
+		// with its container. Português: Enterro por z — qualquer ponta
+		// com o container coberto esconde o fio inteiro; o conjunto
+		// afunda com o container.
+		if len(w.Waypoints) > 0 {
+			if m.wireEndpointOccluded(w.From.ElementID, w.Waypoints[0]) ||
+				m.wireEndpointOccluded(w.To.ElementID, w.Waypoints[len(w.Waypoints)-1]) {
+				continue
+			}
+		}
+
 		// Tunnelled wire with only the consumer hidden (its case is inactive):
 		// draw just the feed (source→tunnel) so the const→tunnel connection
 		// stays visible across case switches — the tap (tunnel→consumer) hides
@@ -2171,6 +2285,13 @@ func (m *Manager) Draw() {
 		if m.hiddenElements[w.From.ElementID] {
 			continue
 		}
+		// Automatic markers sink with their container too (same z-burial
+		// rule as the manual squares). Português: Marcadores automáticos
+		// afundam com o container (mesma regra de enterro por z).
+		if m.markerOccluder != nil &&
+			m.markerOccluder(w.Tunnel.ContainerID, w.Tunnel.Point.X, w.Tunnel.Point.Y) {
+			continue
+		}
 		drawTunnelMarker(m.ctx, w.Tunnel.Point.X, w.Tunnel.Point.Y, w.Style.StrokeColor, d)
 	}
 
@@ -2184,7 +2305,7 @@ func (m *Manager) Draw() {
 	// existência e pino: escondido antes da natal; "in" na natal; "out"
 	// depois.
 	for _, t := range m.manualTunnels {
-		if t.PhaseHidden {
+		if t.PhaseHidden || m.tunnelOccluded(t) {
 			continue
 		}
 		// Pin colour = the stamped type's wire colour (chameleon v2) —
@@ -2194,8 +2315,14 @@ func (m *Manager) Draw() {
 		if wt := m.ManualTunnelWireType(t.ID); wt != "" {
 			pinColor = m.getTypeStyle(wt).StrokeColor
 		}
+		// Only a CUSTOM name paints — the default "tunnel_N" id would
+		// be stage noise. Português: Só nome CUSTOMIZADO pinta.
+		lbl := t.Label
+		if lbl == t.ID {
+			lbl = ""
+		}
 		drawManualTunnelMarker(m.ctx, t.Point.X, t.Point.Y,
-			m.hasWireOnElement(t.ID), t.Fresh, t.Role, pinColor, d)
+			m.hasWireOnElement(t.ID), t.Fresh, t.Role, pinColor, lbl, d)
 	}
 
 	// Visual connect mode: highlight candidate connectors + draft wire.
