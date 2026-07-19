@@ -4,6 +4,8 @@
 
 package blackbox
 
+import "encoding/json"
+
 // types.go — Black-box device definitions extracted from user Go source files.
 //
 // English:
@@ -94,6 +96,26 @@ type BlackBoxDef struct {
 
 	// Doc is the package-level documentation comment.
 	Doc string `json:"doc,omitempty"`
+
+	// Origin tells how this black-box was authored: "code" (the classic
+	// Go/C99 source path — the zero value, so every existing def keeps
+	// meaning) or "wires" — a GRAPHICAL FUNCTION the maker drew on the
+	// stage and saved to My Items (Kemper 2026-07-19: the unification —
+	// a wires function IS a black-box whose body is a sub-scene).
+	// Português: Como o black-box foi autorado — "code" (o caminho
+	// clássico; valor zero, defs existentes seguem valendo) ou "wires":
+	// uma FUNÇÃO GRÁFICA desenhada no palco e salva em My Items.
+	Origin string `json:"origin,omitempty"`
+
+	// Scene is the wires-origin payload: the captured sub-scene (the
+	// Function container, its tunnels, members and internal wires) in
+	// the same SceneJSON dialect the stage saves. The signature is NOT
+	// stored — the server re-derives it from the tunnels (the Fatia C
+	// collector is the single source of truth). Empty for code-origin.
+	// Português: O payload da origem-fios — a sub-cena capturada no
+	// mesmo dialeto SceneJSON. A assinatura NÃO é armazenada: o
+	// servidor a re-deriva dos túneis (fonte única de verdade).
+	Scene json.RawMessage `json:"scene,omitempty"`
 
 	// ID is the black-box's database id — the token minted when the black-box
 	// is created (blackboxes.id for GitHub-sourced devices, projects.id for

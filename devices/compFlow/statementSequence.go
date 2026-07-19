@@ -148,9 +148,14 @@ type StatementSequence struct {
 	// o ÚNICO nó novo no grafo de notificação, então cortar a reentrada
 	// AQUI corta qualquer ciclo oculto por construção.
 	refreshingTunnels bool
-	onRemove          func(id string)
-	sceneMgr          *scene.Serializer
-	canvasEl          js.Value
+
+	// Y-delta tracking — twin of the Function's (field 2026-07-19).
+	// Português: Rastreio de delta em Y — gêmeo do Function.
+	lastOrnY   float64
+	hasLastOrn bool
+	onRemove   func(id string)
+	sceneMgr   *scene.Serializer
+	canvasEl   js.Value
 
 	resizeChildBounds *rulesContainer.Rect
 	resizeParentInner *rulesContainer.Rect
@@ -1136,6 +1141,11 @@ func (e *StatementSequence) refreshTunnelViews() {
 		return
 	}
 	ox, oy, ow, oh := e.ornamentRect()
+	dy := 0.0
+	if e.hasLastOrn {
+		dy = oy - e.lastOrnY
+	}
+	e.lastOrnY, e.hasLastOrn = oy, true
 	for _, id := range e.wireMgr.ManualTunnelIDsFor(e.id) {
 		natalIdx := e.caseIndexByID(e.wireMgr.ManualTunnelNatal(id))
 		if natalIdx < 0 {
@@ -1145,7 +1155,7 @@ func (e *StatementSequence) refreshTunnelViews() {
 		if !ok {
 			continue
 		}
-		y := p.Y
+		y := p.Y + dy
 		if y < oy {
 			y = oy
 		}
@@ -1532,6 +1542,28 @@ func (e *StatementSequence) bodyMenuTail() []contextMenu.Item {
 // ── Sprite event wiring ──────────────────────────────────────────────
 
 func (e *StatementSequence) wireEvents() {
+	// Latent twin of the Function's drag-follow fix (field 2026-07-19,
+	// discovered by absence: the Sequence never wired drag/resize
+	// hooks, so its tunnels never followed either — nobody had dragged
+	// a tunneled Sequence yet). Pose-only refresh per frame; membership
+	// and crossings stay the scenegraph's job. Português: Gêmeo latente
+	// da cura do Function (descoberto pela ausência: o Sequence nunca
+	// ligou os ganchos, então seus túneis também não seguiam). Refresh
+	// só de pose por frame; filiação e travessias seguem com o
+	// scenegraph.
+	e.elem.SetOnDragMove(func(event sprite.DragEvent) {
+		e.refreshTunnelViews()
+	})
+	e.elem.SetOnDragEnd(func(event sprite.DragEvent) {
+		e.refreshTunnelViews()
+	})
+	e.elem.SetOnResizeMove(func(event sprite.ResizeEvent) {
+		e.refreshTunnelViews()
+	})
+	e.elem.SetOnResizeEnd(func(event sprite.ResizeEvent) {
+		e.refreshTunnelViews()
+	})
+
 	// Click — three hit regions: case pill, selector connector, body.
 	e.elem.SetOnClick(func(event sprite.PointerEvent) {
 		if event.LocalX >= caseBorder.KPillX && event.LocalX <= caseBorder.KPillX+caseBorder.KPillW &&

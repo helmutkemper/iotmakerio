@@ -57,6 +57,20 @@ const (
 	// derivada de túneis — slot sem tipo, nome duplicado, retorno sem
 	// alimentação.
 	KindFunctionSignature = "function_signature"
+	// KindFunctionCycle: a graphical function calls itself, directly or
+	// through other graphical functions — recursion between drawn
+	// functions is unsupported (v1, B4 guard). Português: Função
+	// gráfica chama a si mesma, direta ou indiretamente — recursão
+	// entre funções desenhadas não é suportada.
+	KindFunctionCycle = "function_cycle"
+
+	// KindLoopConstantStop: a loop's stop is fed by a function
+	// parameter — a call-time constant; the loop runs forever or not
+	// at all for a given call. A WARNING with an honest headline (the
+	// connection exists — nothing is "missing"). Português: Stop
+	// alimentado por parâmetro — constante da chamada; aviso com
+	// manchete honesta (a conexão existe).
+	KindLoopConstantStop = "loop_constant_stop"
 
 	// KindCancelled — codegen was cancelled by the caller (typically
 	// because the user closed the IDE tab or clicked Cancel on the

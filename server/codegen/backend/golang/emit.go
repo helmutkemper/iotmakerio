@@ -102,6 +102,9 @@ type goEmitter struct {
 	hasFuncs    bool
 	funcMark    int
 	funcName    string
+	funcComment string
+	funcPDoc    []string
+	funcRDoc    []string
 	funcParams  []funcSigPort
 	funcReturns []funcSigPort
 	funcs       strings.Builder
@@ -125,7 +128,7 @@ func (e *goEmitter) emit(prog *ir.Program) string {
 		// Português: O comentário do device (carimbado pelo IR na primeira
 		// instrução do node) o prefixa como linhas `// `, uma por linha do
 		// comentário, na indentação corrente.
-		if c := inst.Meta["comment"]; c != "" {
+		if c := inst.Meta["comment"]; c != "" && inst.Op != ir.OpFuncBegin {
 			for _, line := range strings.Split(c, "\n") {
 				e.writef("// %s\n", strings.TrimRight(line, " \t"))
 			}
@@ -142,6 +145,15 @@ func (e *goEmitter) emit(prog *ir.Program) string {
 			// guardada para o cabeçalho no FuncEnd.
 			e.funcParams = parseFuncSig(inst.Meta["params"])
 			e.funcReturns = parseFuncSig(inst.Meta["returns"])
+			// The function's own comment and the per-port docs render
+			// ABOVE the lifted header (field 2026-07-19: the generic
+			// printer dropped the comment inside main's trunk, before
+			// the region mark). Português: O comentário da função e os
+			// docs de porta renderizam ACIMA do cabeçalho içado (o
+			// impressor genérico o derrubava dentro do main).
+			e.funcComment = inst.Meta["comment"]
+			e.funcPDoc = decodePortDocs(inst.Meta["pdoc"])
+			e.funcRDoc = decodePortDocs(inst.Meta["rdoc"])
 		case ir.OpFuncEnd:
 			region := e.body.String()[e.funcMark:]
 			trunk := e.body.String()[:e.funcMark]
@@ -163,10 +175,41 @@ func (e *goEmitter) emit(prog *ir.Program) string {
 			default:
 				header += " (" + strings.Join(rets, ", ") + ")"
 			}
+			for _, line := range docLines(e.funcComment) {
+				e.funcs.WriteString("// " + line + "\n")
+			}
+			// Multiline port notes: EVERY line wears the comment prefix
+			// (field 2026-07-19: bare continuation lines broke the C).
+			// First line carries "name:", continuations indent under it.
+			// Português: Notas multilinha — TODA linha veste o prefixo
+			// (linhas de continuação nuas quebravam o C); a primeira
+			// leva "name:", as demais indentam sob ela.
+			writeDoc := func(name, doc string) {
+				lines := docLines(doc)
+				for li, line := range lines {
+					if li == 0 {
+						e.funcs.WriteString("// " + name + ": " + line + "\n")
+					} else {
+						e.funcs.WriteString("//   " + line + "\n")
+					}
+				}
+			}
+			for i, p := range e.funcParams {
+				if i < len(e.funcPDoc) {
+					writeDoc(p.name, e.funcPDoc[i])
+				}
+			}
+			for i, r := range e.funcReturns {
+				if i < len(e.funcRDoc) {
+					writeDoc(r.name, e.funcRDoc[i])
+				}
+			}
 			e.funcs.WriteString(header + " {\n")
 			e.funcs.WriteString(region)
 			e.funcs.WriteString("}\n\n")
 			e.funcParams, e.funcReturns = nil, nil
+		case ir.OpCall:
+			e.emitCall(inst)
 		case ir.OpVar:
 			e.emitVar(inst)
 		case ir.OpAssign:
@@ -708,6 +751,47 @@ func (e *goEmitter) emitOutput(inst ir.Instruction) {
 // (`_ = src`) retired with the real signature. Português: O `return`
 // da função (1..n valores dos túneis da direita); o estacionamento
 // pré-Fatia-C aposentou.
+// emitCall renders a graphical-function call. Live returns bind with
+// ":="; dead ones render as "_" so Go never sees an unused local; a
+// call whose returns are all dead (or absent) is a bare statement.
+// Português: Chamada de função gráfica — retornos vivos ligam com
+// ":="; mortos viram "_"; todos mortos (ou sem retornos) = chamada
+// seca.
+func (e *goEmitter) emitCall(inst ir.Instruction) {
+	fn := inst.Meta["fn"]
+	dests := splitCSV(inst.Meta["dests"])
+	live := splitCSV(inst.Meta["live"])
+	args := make([]string, 0, len(inst.Args))
+	for _, a := range inst.Args {
+		args = append(args, goOperand(a))
+	}
+	call := fn + "(" + strings.Join(args, ", ") + ")"
+	anyLive := false
+	lhs := make([]string, 0, len(dests))
+	for i, d := range dests {
+		if i < len(live) && live[i] == "1" {
+			lhs = append(lhs, goIdent(d))
+			anyLive = true
+		} else {
+			lhs = append(lhs, "_")
+		}
+	}
+	if !anyLive {
+		e.writef("%s\n", call)
+		return
+	}
+	e.writef("%s := %s\n", strings.Join(lhs, ", "), call)
+}
+
+// splitCSV — empty-safe comma split. Português: Split por vírgula,
+// vazio-seguro.
+func splitCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, ",")
+}
+
 func (e *goEmitter) emitReturn(inst ir.Instruction) {
 	vals := make([]string, 0, len(inst.Args))
 	for _, a := range inst.Args {
@@ -1488,6 +1572,29 @@ func goOperand(arg string) string {
 //
 //	Mapeia tipos IR para Go. Tipos abstratos (int, float, bool, string)
 //	são expandidos; tipos Go concretos vindos de BlackBox passam direto.
+
+// decodePortDocs — the JSON twin of parseFuncSig for free-text docs.
+// Português: O gêmeo JSON do parseFuncSig para docs de texto livre.
+func decodePortDocs(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// docLines splits a maker comment into printable lines, empty-safe.
+// Português: Divide o comentário em linhas imprimíveis; vazio-seguro.
+func docLines(s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
+}
 
 // funcSigPort is one parsed slot of the FuncBegin signature Meta.
 // Português: Um slot decodificado do Meta de assinatura.

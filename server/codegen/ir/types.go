@@ -38,7 +38,19 @@ const (
 	// Dest é o nome exato, isento do prefixo (doutrina 1).
 	OpFuncBegin Op = "FUNC_BEGIN" // FUNC_BEGIN %name
 	OpFuncEnd   Op = "FUNC_END"   // FUNC_END
-	OpAssign    Op = "ASSIGN"     // ASSIGN %dest type %source
+	// OpCall invokes a graphical function (wires-origin black-box).
+	// Args are the resolved parameter values in signature order;
+	// Meta["fn"] the function name; Meta["dests"]/Meta["types"] the
+	// per-return destination registers and types (csv, signature
+	// order); Meta["live"] flags ("1"/"0") telling which returns have
+	// consumers — Go renders dead ones as "_", C99 declares scratch
+	// out-params for them. Português: Chama uma função gráfica — Args
+	// são os parâmetros resolvidos; Meta carrega nome, destinos, tipos
+	// e vivacidade por retorno (Go usa "_" nos mortos; C99 declara
+	// out-params de rascunho).
+	OpCall Op = "CALL" // CALL fn(%a, %b) -> dests
+
+	OpAssign Op = "ASSIGN" // ASSIGN %dest type %source
 
 	// OpConstArray declares a fixed-size CONSTANT COLLECTION literal — the
 	// IR form of the StatementConstArray{Int,Float,String} device (e.g. []int{1, 2, 3}).

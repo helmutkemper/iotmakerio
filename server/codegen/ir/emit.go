@@ -69,6 +69,14 @@ func Emit(g *graph.Graph, bbDefs map[string]*blackbox.BlackBoxDef, variables []V
 		bbDeclared:         make(map[string]bool),
 		instanceScopeOwner: make(map[string]string),
 	}
+	e.calledFunctions = map[string]bool{}
+	for _, n := range g.Nodes {
+		if n != nil && n.Type == graph.FunctionCallType {
+			if fn, _ := n.Properties["function"].(string); fn != "" {
+				e.calledFunctions[fn] = true
+			}
+		}
+	}
 	diags := e.run()
 	return e.program, diags
 }
@@ -146,6 +154,13 @@ type emitter struct {
 	funcParamName map[string]string
 	funcParamType map[string]string
 
+	// calledFunctions marks graphical functions that have at least one
+	// instance on the stage — their "uncalled" warning is noise (the
+	// call exists). Populated once at Emit entry. Português: Funções
+	// gráficas com pelo menos uma instância — o aviso de "uncalled"
+	// delas é ruído; populado uma vez na entrada.
+	calledFunctions map[string]bool
+
 	// convertCounter produces unique register names for CONVERT
 	// instructions inserted by the type-compatibility pass. Never
 	// touched by other passes — the counter is a monotonic serial
@@ -181,8 +196,26 @@ func (e *emitter) run() []diagnostics.Diagnostic {
 	// Português: Valida as fontes de portas de controle. O produtor
 	// precisa estar dentro do loop, nunca fora — senão o valor é
 	// avaliado uma vez só e o loop é eterno ou nunca executa.
+	// Abort only on ERROR severity — the signature-tunnel case (field
+	// 2026-07-19) downgraded one branch to a WARNING, and the old
+	// len>0 gate silently emitted an EMPTY program for it ("Proceeding
+	// with warnings … code=0 bytes"). Warnings ride along; errors
+	// still stop the press. Português: Aborta só em ERRO — o
+	// rebaixamento para warning quebrou a equivalência len>0≡erro e o
+	// programa saía VAZIO; warnings viajam junto, erros seguem parando
+	// a prensa.
 	if controlDiags := e.validateControlPortSources(); len(controlDiags) > 0 {
-		return controlDiags
+		diags = append(diags, controlDiags...)
+		hasErr := false
+		for _, d := range controlDiags {
+			if d.Severity == diagnostics.SeverityError {
+				hasErr = true
+				break
+			}
+		}
+		if hasErr {
+			return diags
+		}
 	}
 
 	// Step 1d: Validate constant-collection element demands. When a
@@ -449,6 +482,26 @@ func (e *emitter) analyzeScopeCrossings() {
 			continue
 		}
 
+		// A wire INTO a function-SIGNATURE tunnel is not an escape: the
+		// return path is intra-function by construction (*out = v runs
+		// inside the region), and a call-site wire into a parameter's
+		// outer face passes by value at the call. The tunnel living
+		// parentless at root made the ancestor test cry "escape!" and
+		// promoted a file-scope twin the local then shadowed — the
+		// cc -Wunused-variable voice of the shadowed-twin debt (field
+		// 2026-07-19). Português: Fio PARA túnel de ASSINATURA não é
+		// escape — o retorno é intra-função por construção; o túnel
+		// morando na raiz fazia o teste de ancestral gritar "escape" e
+		// promover o gêmeo que o local sombreava.
+		if toNode, ok := e.graph.Nodes[edge.To.DeviceID]; ok && toNode != nil &&
+			toNode.Type == "StatementTunnel" {
+			if tp, _ := toNode.Properties["tunnelParent"].(string); tp != "" {
+				if sc := e.graph.Scopes[tp]; sc != nil && sc.Function {
+					continue
+				}
+			}
+		}
+
 		fromScope := e.graph.ScopeOf(edge.From.DeviceID)
 		toScope := e.graph.ScopeOf(edge.To.DeviceID)
 
@@ -654,6 +707,35 @@ func (e *emitter) validateControlPortSources() []diagnostics.Diagnostic {
 			if e.isAncestor(scopeID, producerScope) {
 				// producerScope is a descendant of scopeID → fine.
 				continue
+			}
+
+			// EXCEPTION (field 2026-07-19): a FUNCTION-SIGNATURE tunnel
+			// is a legitimate outside source — it is border furniture
+			// of the FUNCTION and cannot be "moved inside the loop";
+			// stop fed by a parameter is the embedded classic
+			// while(!flag). Downgrade to a WARNING that tells the real
+			// semantics: the value is a call-time constant. Português:
+			// EXCEÇÃO — túnel de ASSINATURA é fonte externa legítima
+			// (mobília da borda da FUNÇÃO, não movível para o loop);
+			// stop por parâmetro é o clássico while(!flag). Rebaixa
+			// para AVISO contando a semântica real: valor constante
+			// durante a chamada.
+			if pn, ok := e.graph.Nodes[producerID]; ok && pn != nil &&
+				pn.Type == "StatementTunnel" {
+				if tp, _ := pn.Properties["tunnelParent"].(string); tp != "" {
+					if sc := e.graph.Scopes[tp]; sc != nil && sc.Function {
+						diags = append(diags, diagnostics.Diagnostic{
+							Kind:     diagnostics.KindLoopConstantStop,
+							Severity: diagnostics.SeverityWarning,
+							Devices:  []string{scopeID, producerID},
+							Scope:    scopeID,
+							Message: fmt.Sprintf(
+								"%s: %s is fed by function parameter %q — a call-time constant, so the loop either runs forever or not at all for a given call",
+								scopeID, c.name, producerID),
+						})
+						continue
+					}
+				}
 			}
 
 			// Reject: producer lives in the loop's ancestor chain or
@@ -963,6 +1045,17 @@ func (e *emitter) tunnelRealSource(node *graph.Node) (graph.PortRef, bool) {
 	seen := map[string]bool{}
 	cur := node
 	for {
+		// A function-PARAMETER tunnel is a REAL source — the caller
+		// supplies its value; piercing past it walks into the void
+		// (the identity-function lesson, 2026-07-19: param wired
+		// straight to return resolved "no feed"). Stop here and let
+		// the fourth-alias resolution answer with the parameter name.
+		// Português: Túnel-PARÂMETRO é fonte REAL — o caller fornece;
+		// atravessá-lo caminha para o vazio (lição da função
+		// identidade). Para aqui; o quarto irmão responde com o nome.
+		if _, isParam := e.funcParamName[cur.ID]; isParam {
+			return graph.PortRef{DeviceID: cur.ID, PortName: "out"}, true
+		}
 		if seen[cur.ID] {
 			e.program.Warn("%s: tunnel cycle — treated as unconnected", cur.ID)
 			return graph.PortRef{}, false
@@ -1005,7 +1098,99 @@ func (e *emitter) tunnelRealSource(node *graph.Node) (graph.PortRef, bool) {
 // não tem fase, então aquelas linhas caíam DEPOIS dos consumidores —
 // uso-antes-da-declaração, campo 2026-07-18. Os avisos de obra
 // continuam; só o código silenciou.
+// emitFunctionCall lowers a graphical-function instance into a real
+// call: inputs resolve per the signature's parameter order (an
+// unconnected input warns and passes the typed zero — the binop
+// policy); each return gets a destination register named
+// <instance>_<return>, with liveness flags so the Go backend can use
+// "_" for unconsumed returns while C99 declares scratch out-params.
+// Português: Rebaixa uma instância em chamada real — entradas resolvem
+// na ordem dos parâmetros (desconectada avisa e passa o zero tipado);
+// cada retorno ganha registrador <instância>_<retorno> com bandeira de
+// vivacidade (Go usa "_" nos não-consumidos; C99 declara rascunhos).
+func (e *emitter) emitFunctionCall(node *graph.Node) {
+	fnName, _ := node.Properties["function"].(string)
+	var scope *graph.Scope
+	for _, sc := range e.graph.Scopes {
+		if sc != nil && sc.Function && sc.FunctionName == fnName {
+			scope = sc
+			break
+		}
+	}
+	if scope == nil {
+		e.program.Warn("%s: graphical function %q not found — call skipped", node.ID, fnName)
+		return
+	}
+	args := make([]string, 0, len(scope.FuncParams))
+	for _, p := range scope.FuncParams {
+		// resolveInput2 takes the SOURCE (the misread that cost the
+		// identity test): look the source up first. Português:
+		// resolveInput2 recebe a FONTE — buscá-la primeiro.
+		v := ""
+		if srcs := e.graph.GetInputSources(node.ID, p.Name); len(srcs) > 0 {
+			v = e.resolveInput2(srcs[0].DeviceID, srcs[0].PortName)
+		}
+		if v == "" {
+			e.program.Warn("%s.%s: parameter not connected — passing the typed zero", node.ID, p.Name)
+			v = zeroLiteralFor(p.Type)
+		}
+		args = append(args, v)
+	}
+	dests := make([]string, 0, len(scope.FuncReturns))
+	types := make([]string, 0, len(scope.FuncReturns))
+	live := make([]string, 0, len(scope.FuncReturns))
+	for _, r := range scope.FuncReturns {
+		dests = append(dests, node.ID+"_"+r.Name)
+		types = append(types, r.Type)
+		alive := "0"
+		for _, edge := range e.graph.Edges {
+			if edge != nil && edge.From.DeviceID == node.ID && edge.From.PortName == r.Name {
+				alive = "1"
+				break
+			}
+		}
+		live = append(live, alive)
+	}
+	e.program.Append(Instruction{Op: OpCall, Args: args, Meta: map[string]string{
+		"fn":    fnName,
+		"dests": strings.Join(dests, ","),
+		"types": strings.Join(types, ","),
+		"live":  strings.Join(live, ","),
+	}})
+}
+
+// zeroLiteralFor — the typed zero for an unconnected call input.
+// Português: O zero tipado para entrada de chamada desconectada.
+func zeroLiteralFor(typ string) string {
+	switch typ {
+	case "float":
+		return "0.0"
+	case "bool":
+		return "false"
+	case "string":
+		return "\"\""
+	default:
+		return "0"
+	}
+}
+
 func (e *emitter) skipTunnel(node *graph.Node) {
+	// SIGNATURE tunnels (parent scope is a Function) are exempt from
+	// the plumbing warnings: their OUTER faces — the parameter's .in
+	// mouth, the return's .out — belong to the CALLER, unwired by
+	// design while call sites don't exist (field 2026-07-19: a fully
+	// healthy my_function warned "not connected" on both, read as
+	// ghosts). The INNER problems that matter are already ERRORS in
+	// the Fatia C validation: untyped slot, feedless return.
+	// Português: Túneis de ASSINATURA são isentos dos avisos de
+	// encanamento — as faces EXTERNAS pertencem ao CALLER, sem fio por
+	// desenho enquanto call sites não existem. Os problemas INTERNOS
+	// que importam já são ERROS na validação da Fatia C.
+	if parent, _ := node.Properties["tunnelParent"].(string); parent != "" {
+		if sc := e.graph.Scopes[parent]; sc != nil && sc.Function {
+			return
+		}
+	}
 	if len(e.graph.GetInputSources(node.ID, "in")) == 0 {
 		e.program.Warn("%s.in: not connected — consumers of this tunnel read nothing", node.ID)
 	}
@@ -1026,6 +1211,32 @@ func encodePorts(ports []graph.FuncPort) string {
 	}
 	return strings.Join(parts, ",")
 }
+
+// encodePortDocs JSON-encodes the ports' comments, aligned by index;
+// "" when none has a comment. Português: Comentários das portas em
+// JSON, alinhados por índice; "" quando nenhum tem.
+func encodePortDocs(ports []graph.FuncPort) string {
+	any := false
+	docs := make([]string, len(ports))
+	for i, p := range ports {
+		docs[i] = p.Comment
+		if p.Comment != "" {
+			any = true
+		}
+	}
+	if !any {
+		return ""
+	}
+	b, _ := json.Marshal(docs)
+	return string(b)
+}
+
+// ValidFunctionName reports whether name is a legal C identifier — the
+// single truth the emitter enforces, exported so the My Items save
+// path judges by the same law. Português: Se o nome é identificador C
+// legal — a verdade única do emitter, exportada para o save de My
+// Items julgar pela mesma lei.
+func ValidFunctionName(name string) bool { return funcNameRe.MatchString(name) }
 
 var funcNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
@@ -1119,6 +1330,16 @@ func (e *emitter) emitFunction(scopeID string) {
 	if s := encodePorts(scope.FuncReturns); s != "" {
 		sigMeta["returns"] = s
 	}
+	// Port docs travel as JSON arrays (free text — the n:t,n:t encoding
+	// cannot carry commas/colons safely). Aligned with params/returns
+	// order. Português: Docs de porta viajam como arrays JSON (texto
+	// livre); alinhados com a ordem de params/returns.
+	if s := encodePortDocs(scope.FuncParams); s != "" {
+		sigMeta["pdoc"] = s
+	}
+	if s := encodePortDocs(scope.FuncReturns); s != "" {
+		sigMeta["rdoc"] = s
+	}
 
 	e.program.Append(Instruction{Op: OpFuncBegin, Dest: name, Meta: sigMeta})
 	e.inFunctionScope = true
@@ -1187,6 +1408,9 @@ func (e *emitter) emitFunction(scopeID string) {
 
 	// Slice 2 is posix-only: nothing calls the function on this target.
 	// Loud by decision — see KindFunctionUncalled's doctrine.
+	if e.calledFunctions[name] {
+		return
+	}
 	e.typeDiags = append(e.typeDiags, diagnostics.Diagnostic{
 		Kind:     diagnostics.KindFunctionUncalled,
 		Severity: diagnostics.SeverityWarning,
@@ -1780,6 +2004,8 @@ func (e *emitter) emitNode(nodeID string) {
 		e.emitSequence(node.ID)
 	case node.Type == "StatementFunction":
 		e.emitFunction(node.ID)
+	case node.Type == graph.FunctionCallType:
+		e.emitFunctionCall(node)
 	case node.Type == "StatementTunnel":
 		e.skipTunnel(node)
 	case node.Type == "StatementIfElse":
@@ -3364,6 +3590,14 @@ func (e *emitter) resolveInput2(deviceID, portName string) string {
 	// Quem lê tunnel.out lê o que alimenta tunnel.in (cadeias colapsam
 	// via tunnelRealSource). Cadeia solta resolve "" — a política do
 	// próprio consumidor fala, e o skipTunnel nomeia o túnel no aviso.
+	// A graphical-function instance's output IS the call's destination
+	// register (<instance>_<return>) — declared by the backend at the
+	// OpCall site. Português: A saída de uma instância É o registrador
+	// de destino da chamada.
+	if srcNode.Type == graph.FunctionCallType {
+		return "%" + srcNode.ID + "_" + portName
+	}
+
 	if srcNode.Type == "StatementTunnel" {
 		// FOURTH alias sibling (Fatia C): a function PARAMETER tunnel
 		// resolves to the parameter identifier itself — raw, the
@@ -3504,6 +3738,21 @@ func (e *emitter) resolveInputType(nodeID, portName string) string {
 	// read the shell instead of the source. Português: O TIPO também
 	// atravessa o túnel até a porta declarada do produtor real — sem
 	// este pulo, a checagem leria a casca em vez da fonte.
+	if srcNode.Type == graph.FunctionCallType {
+		if fn, _ := srcNode.Properties["function"].(string); fn != "" {
+			for _, sc := range e.graph.Scopes {
+				if sc != nil && sc.Function && sc.FunctionName == fn {
+					for _, r := range sc.FuncReturns {
+						if r.Name == portName {
+							return r.Type
+						}
+					}
+				}
+			}
+		}
+		return ""
+	}
+
 	if srcNode.Type == "StatementTunnel" {
 		// FOURTH alias sibling, type side (Fatia C): a parameter
 		// tunnel's type is the signature slot's type — no piercing.

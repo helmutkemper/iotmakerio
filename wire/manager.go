@@ -7,6 +7,7 @@ package wire
 
 import (
 	"fmt"
+	"log"
 	"sort"
 	"syscall/js"
 
@@ -507,6 +508,29 @@ func (m *Manager) RegisterContainer(id string, rectFunc func() (x, y, w, h float
 // Português: Remove o provedor de retângulo de um container (na remoção do
 // device). Seguro chamar para IDs nunca registrados.
 func (m *Manager) UnregisterContainer(id string) {
+	// CASCADE (field 2026-07-19, "túnel apagado continua logicamente
+	// existindo"): a container's death takes its manual tunnels along —
+	// each rides the SAME delete cord the menu uses (record + shell +
+	// SceneMgr unregister), so no orphan shell survives to export and
+	// warn "not connected" over a corpse. Snapshot the ids first: the
+	// cord mutates the map mid-walk. Português: CASCATA — a morte do
+	// container leva seus túneis manuais junto, cada um pela MESMA
+	// cordinha do menu (registro + casca + unregister), para nenhuma
+	// casca órfã sobreviver ao export. Ids fotografados antes: a
+	// cordinha muta o mapa no meio da caminhada.
+	if len(m.manualTunnels) > 0 {
+		var doomed []string
+		for tid, t := range m.manualTunnels {
+			if t.ContainerID == id {
+				doomed = append(doomed, tid)
+			}
+		}
+		for _, tid := range doomed {
+			log.Printf("[TUNNEL-DEL] cascade: container %s takes tunnel %s", id, tid)
+			m.RequestManualTunnelDelete(tid)
+		}
+	}
+
 	if m.containers == nil {
 		return
 	}
@@ -802,6 +826,25 @@ func (m *Manager) CancelConnect() {
 //
 // Português: Cria um fio entre dois conectores programaticamente,
 // sem passar pelo fluxo interativo. Usado pelo import de stage.
+// ConnectionsAmong lists every wire whose BOTH endpoints belong to the
+// given id set — the deep-copy path replays these onto the clone's
+// remapped connectors (a container's internal logic IS its wires,
+// Kemper 2026-07-19). Português: Todo fio com AS DUAS pontas no
+// conjunto — a cópia profunda os replica nos conectores remapeados (a
+// lógica interna de um container SÃO seus fios).
+func (m *Manager) ConnectionsAmong(ids map[string]bool) [][2]ConnectorID {
+	var out [][2]ConnectorID
+	for _, w := range m.wires {
+		if w == nil {
+			continue
+		}
+		if ids[w.From.ElementID] && ids[w.To.ElementID] {
+			out = append(out, [2]ConnectorID{w.From, w.To})
+		}
+	}
+	return out
+}
+
 func (m *Manager) ConnectDirect(fromID, toID ConnectorID) (*Wire, error) {
 	fromConn := m.GetConnector(fromID)
 	toConn := m.GetConnector(toID)
@@ -1260,6 +1303,49 @@ func (m *Manager) SetManualTunnelNatal(id, natalCase string) {
 
 // ManualTunnelNatal reads the birth phase ("" when unknown — old scenes).
 // Português: Lê a fase natal ("" quando desconhecida — cenas antigas).
+// ManualTunnelSide returns the tunnel's current rail side ("left" or
+// "right"). For Function tunnels the side is IDENTITY (F2: left =
+// parameter, right = return); for Sequence tunnels it is the ephemeral
+// view pose. Português: O lado atual do trilho — identidade nos túneis
+// de Function (F2), pose efêmera nos de Sequence.
+// ManualTunnelLabel returns the maker's name for the tunnel — the
+// deep-copy path replays it onto the clone. Português: O nome dado
+// pelo maker — a cópia profunda o replica no clone.
+func (m *Manager) ManualTunnelLabel(id string) string {
+	if t, ok := m.manualTunnels[id]; ok {
+		return t.Label
+	}
+	return ""
+}
+
+// ManualTunnelComment returns the maker's note for the tunnel — the
+// hover tip includes it on Function pins so BOTH faces (and both hover
+// stages) show it. Português: A nota do maker — o tip a inclui nos
+// pinos de Function, para as duas faces mostrarem.
+func (m *Manager) ManualTunnelComment(id string) string {
+	if t, ok := m.manualTunnels[id]; ok {
+		return t.Comment
+	}
+	return ""
+}
+
+func (m *Manager) ManualTunnelSide(id string) string {
+	t, ok := m.manualTunnels[id]
+	if !ok {
+		return ""
+	}
+	switch t.Edge {
+	case edgeRight:
+		return "right"
+	case edgeTop:
+		return "top"
+	case edgeBottom:
+		return "bottom"
+	default:
+		return "left"
+	}
+}
+
 func (m *Manager) ManualTunnelNatal(id string) string {
 	if t, ok := m.manualTunnels[id]; ok {
 		return t.NatalCase
@@ -1638,8 +1724,17 @@ func (m *Manager) SetOnManualTunnelDelete(fn func(id string)) {
 // RequestManualTunnelDelete pulls the cord (nil-safe).
 func (m *Manager) RequestManualTunnelDelete(id string) {
 	if m.onManualTunnelDelete != nil {
+		log.Printf("[TUNNEL-DEL] request: %s -> cord", id)
 		m.onManualTunnelDelete(id)
+		return
 	}
+	// No cord installed — the record dies here but the SHELL survives
+	// registered: the exact ghost of the field report. Loud, so the
+	// console names this path if it ever runs. Português: Sem cordinha
+	// — o registro morre mas a CASCA sobrevive registrada: o fantasma
+	// exato do relato. Barulhento para o console nomear.
+	log.Printf("[TUNNEL-DEL] request: %s but NO CORD installed — removing record only (ghost shell risk!)", id)
+	m.RemoveManualTunnel(id)
 }
 
 // ManualTunnelPoint returns the live junction point — the anchor the
@@ -2142,7 +2237,18 @@ func (m *Manager) recalculateWire(w *Wire) {
 // ignorados para aquele container.
 func (m *Manager) wireTunnelPoint(w *Wire, fromX, fromY, toX, toY float64) (Point, string, bool) {
 	for id, rectFunc := range m.containers {
-		if w.From.ElementID == id || w.To.ElementID == id {
+		// Skip only when the wire LEAVES its own frame (From == id): the
+		// output pin sits ON the border and a crossing minted there is a
+		// phantom square on the pin. A wire ENTERING its own destination
+		// frame (To == id, e.g. paramTunnel → loop.stop) is the LabVIEW
+		// picture the maker expects — the !fromIn branch anchors at the
+		// SOURCE's clamp, far from the pin, so the entry marker is real
+		// and safe (field 2026-07-19: "não há túnel entre o túnel de
+		// entrada e o laço"). Português: Pula só quando o fio SAI da
+		// própria moldura; fio ENTRANDO na moldura de destino cunha o
+		// marcador de entrada — a âncora vem do clamp da FONTE, longe
+		// do pino.
+		if w.From.ElementID == id {
 			continue
 		}
 		rx, ry, rw, rh := rectFunc()

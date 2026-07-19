@@ -435,6 +435,16 @@ func (b *MenuBuilder) buildFromTree() []hexMenu.MenuItem {
 	var exitSlot *RailSlot
 	var myItemsSlot *RailSlot
 
+	// PRE-PASS: locate SysMyItems regardless of its tree order, so the
+	// placement law below works whether the server lists it before or
+	// after Data. Português: PRÉ-PASSE — localiza SysMyItems
+	// independente da ordem do servidor.
+	for i := range b.railTree {
+		if b.railTree[i].SlotID == "SysMyItems" {
+			myItemsSlot = &b.railTree[i]
+		}
+	}
+
 	// Walk root-level tree nodes.
 	for i := range b.railTree {
 		slot := &b.railTree[i]
@@ -445,18 +455,27 @@ func (b *MenuBuilder) buildFromTree() []hexMenu.MenuItem {
 			continue
 		}
 
-		// Defer SysMyItems — always placed just before Exit.
+		// SysMyItems is placed by the law below, not by tree order.
 		if slot.SlotID == "SysMyItems" {
-			myItemsSlot = slot
 			continue
 		}
 
 		if item := b.buildNodeFromTree(slot, styles); item != nil {
 			items = append(items, *item)
 		}
+
+		// PLACEMENT LAW (Kemper 2026-07-19, explicit frozen-dir
+		// permission): My Items sits DIRECTLY BELOW Data. Português:
+		// LEI DE COLOCAÇÃO — My Items fica LOGO ABAIXO de Data.
+		if slot.SlotID == "SysData" && myItemsSlot != nil {
+			if myItem := b.buildMyItems(myItemsSlot, styles); myItem != nil {
+				items = append(items, *myItem)
+			}
+			myItemsSlot = nil
+		}
 	}
 
-	// ── My Items — just before Exit ─────────────────────────────────────
+	// ── My Items — fallback: just before Exit when no Data slot exists ──
 	if myItemsSlot != nil {
 		if myItem := b.buildMyItems(myItemsSlot, styles); myItem != nil {
 			items = append(items, *myItem)

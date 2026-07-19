@@ -41,14 +41,14 @@ func functionSignatureScene(wireParam bool) string {
   "devices": [
     {
       "id": "fn_1", "type": "StatementFunction", "kind": "complex", "stage": "backend",
-      "properties": { "functionName": "myFunc" },
+      "properties": { "functionName": "myFunc", "comment": "select the color" },
       "position": { "x": 0, "y": 0 }, "size": { "width": 420, "height": 300 },
       "connectors": [],
       "containment": { "isContainer": true, "children": ["printInt_1", "constInt_1"] }
     },
     {
       "id": "tunnel_p", "type": "StatementTunnel", "kind": "simple", "stage": "backend",
-      "properties": { "label": "sensor value", "tunnelParent": "fn_1", "tunnelSide": "left" },
+      "properties": { "label": "sensor value", "tunnelParent": "fn_1", "tunnelSide": "left", "comment": "the color index\n0: red\n1: green" },
       "position": { "x": 0, "y": 80 }, "size": { "width": 18, "height": 18 },
       "connectors": [
         { "port": "in", "dataType": "int", "isOutput": false, "connections": [] },
@@ -58,7 +58,7 @@ func functionSignatureScene(wireParam bool) string {
     },
     {
       "id": "tunnel_r", "type": "StatementTunnel", "kind": "simple", "stage": "backend",
-      "properties": { "label": "doubled", "tunnelParent": "fn_1", "tunnelSide": "right" },
+      "properties": { "label": "doubled", "tunnelParent": "fn_1", "tunnelSide": "right", "comment": "true when found" },
       "position": { "x": 420, "y": 120 }, "size": { "width": 18, "height": 18 },
       "connectors": [
         { "port": "in", "dataType": "int", "isOutput": false,
@@ -94,17 +94,22 @@ func functionSignatureScene(wireParam bool) string {
 }`, paramConns, printConns, paramWire)
 }
 
-// generatedCode returns the single generated source, wherever the
-// backend put it (multi-file Files or the legacy Code mirror).
-// Português: O fonte gerado, onde quer que o backend o tenha posto.
+// generatedCode returns ALL generated sources concatenated — map
+// iteration order is nondeterministic (a lesson paid in the ritual:
+// the first version returned ONE random file and once picked the
+// Makefile), and the asserts are substring searches, so the
+// concatenation is order-proof. Português: TODOS os fontes gerados
+// concatenados — ordem de mapa é não-determinística (a primeira versão
+// devolvia UM arquivo aleatório e um dia pegou o Makefile); os asserts
+// são busca de substring, então a concatenação é à prova de ordem.
 func generatedCode(resp Response) string {
-	if resp.Code != "" {
-		return resp.Code
-	}
+	var sb strings.Builder
+	sb.WriteString(resp.Code)
 	for _, v := range resp.Files {
-		return v
+		sb.WriteString(v)
+		sb.WriteString("\n")
 	}
-	return ""
+	return sb.String()
 }
 
 func TestFunctionTunnelSignature(t *testing.T) {
@@ -125,6 +130,35 @@ func TestFunctionTunnelSignature(t *testing.T) {
 		if !strings.Contains(code, "return constInt1") {
 			t.Fatalf("return statement missing the promoted feed; got:\n%s", code)
 		}
+		// Signature docs (field 2026-07-19): the function's comment and
+		// the port notes render ABOVE the lifted header, exactly once —
+		// never inside main. Português: Docs da assinatura acima do
+		// cabeçalho, exatamente uma vez — nunca dentro do main.
+		if strings.Count(code, "// select the color") != 1 {
+			t.Fatalf("function comment must appear exactly once; got:\n%s", code)
+		}
+		if strings.Index(code, "// select the color") > strings.Index(code, "func myFunc(") {
+			t.Fatalf("function comment must sit above the header")
+		}
+		if !strings.Contains(code, "// sensor_value: the color index") ||
+			!strings.Contains(code, "//   0: red") ||
+			!strings.Contains(code, "//   1: green") ||
+			!strings.Contains(code, "// doubled: true when found") {
+			t.Fatalf("port docs missing or continuation unprefixed; got:\n%s", code)
+		}
+		if strings.Contains(code, "\n0: red") {
+			t.Fatalf("bare continuation line escaped the comment; got:\n%s", code)
+		}
+		// The outer faces belong to the caller — a healthy signature
+		// must produce ZERO tunnel plumbing warnings (field 2026-07-19).
+		// Português: Faces externas são do caller — assinatura saudável
+		// produz ZERO avisos de encanamento de túnel.
+		for _, d := range resp.Diagnostics {
+			if strings.Contains(d.Message, "not connected") &&
+				strings.Contains(d.Message, "tunnel") {
+				t.Fatalf("signature tunnel got a plumbing warning: %s", d.Message)
+			}
+		}
 	})
 
 	t.Run("c99: out-param header and assignment", func(t *testing.T) {
@@ -141,6 +175,11 @@ func TestFunctionTunnelSignature(t *testing.T) {
 		if !strings.Contains(code, "int32_t sensor_value") ||
 			!strings.Contains(code, "int32_t *doubled") {
 			t.Fatalf("c header missing signature parts; got:\n%s", code)
+		}
+		if strings.Count(code, "// select the color") != 1 ||
+			!strings.Contains(code, "// sensor_value: the color index") ||
+			!strings.Contains(code, "// doubled: true when found") {
+			t.Fatalf("c signature docs wrong; got:\n%s", code)
 		}
 		if !strings.Contains(code, "*doubled = constInt1;") {
 			t.Fatalf("c out-param assignment missing; got:\n%s", code)

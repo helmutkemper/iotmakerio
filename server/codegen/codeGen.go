@@ -180,6 +180,19 @@ func Generate(ctx context.Context, req Request) Response {
 		return resp
 	}
 
+	// Wires-origin defs expand into the scene BEFORE the graph is built
+	// — the Fatia C pipeline then derives/validates/emits the functions
+	// as if the maker had drawn them here (see wiresdef.go).
+	// Português: Defs de origem-fios expandem para a cena ANTES do
+	// grafo — o pipeline da Fatia C então deriva/valida/emite as
+	// funções como se o maker as tivesse desenhado aqui.
+	if wd := mergeWiresDefs(&scene, req.BlackBoxDefs); len(wd) > 0 {
+		resp.addDiagnostics(wd)
+		if hasErrorSeverity(wd) {
+			return resp
+		}
+	}
+
 	// Step 1b: Project variables (Path A — embedded in the scene).
 	//
 	// Codegen is a stateless scene→code step: the live /codegen route carries
@@ -360,6 +373,48 @@ func Generate(ctx context.Context, req Request) Response {
 		// avançado do board picker o grava desde 2026-07-08) ou o default
 		// "iotm_". Um botão nomeia tudo.
 		naming := blackbox.NewNaming(scene.Metadata.ExportPrefix)
+		// Reserved-name entry points (Arduino model, data-driven by the
+		// profile's ProvidesEntryPoints): a tunnel signature on
+		// setup/loop/serialEvent is an ERROR (the core calls them as
+		// void(void)), and their "uncalled" warnings are noise — the
+		// runtime IS the caller. Português: Pontos de entrada de nome
+		// reservado — assinatura de túnel neles é ERRO (o core os chama
+		// como void(void)) e o aviso de "uncalled" é ruído: o runtime É
+		// o chamador.
+		if profile.ProvidesEntryPoints {
+			blocked := false
+			entryScopes := map[string]bool{}
+			for scopeID, sc := range g.Scopes {
+				if sc == nil || !sc.Function || !ansic.IsArduinoEntry(sc.FunctionName) {
+					continue
+				}
+				entryScopes[scopeID] = true
+				if len(sc.FuncParams)+len(sc.FuncReturns) > 0 {
+					resp.addDiagnostic(Diagnostic{
+						Kind:     diagnostics.KindFunctionSignature,
+						Severity: diagnostics.SeverityError,
+						Devices:  []string{scopeID},
+						Message: fmt.Sprintf(
+							"%s: %s takes no parameters and returns nothing on this target — the runtime calls it as void(void); remove its tunnels",
+							scopeID, sc.FunctionName),
+					})
+					blocked = true
+				}
+			}
+			if blocked {
+				return resp
+			}
+			kept := resp.Diagnostics[:0]
+			for _, d := range resp.Diagnostics {
+				if d.Kind == diagnostics.KindFunctionUncalled &&
+					len(d.Devices) > 0 && entryScopes[d.Devices[0]] {
+					continue
+				}
+				kept = append(kept, d)
+			}
+			resp.Diagnostics = kept
+		}
+
 		resp.Files = ansic.Emit(program, profile, naming)
 	default:
 		resp.addDiagnostic(Diagnostic{

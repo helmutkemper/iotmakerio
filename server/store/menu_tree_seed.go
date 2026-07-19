@@ -1729,3 +1729,64 @@ func MigrateMenuTreeData() error {
 	log.Printf("[menu_tree_seed] migrated Data category (SysData + SysDataFile + SysDataText)")
 	return nil
 }
+
+// MigrateMenuLayoutGraphicalAboveDebug enforces the rail-ordering law
+// (Kemper 2026-07-19): every GRAPHICAL category sits ABOVE Debug —
+// Arduino/Embedded included — with the administrative tail (Export,
+// Settings, My Items, Exit) after. Deterministic positions via
+// idempotent UPDATEs; a profile missing a slot is a no-op for it.
+// Note: My Items' visual placement (directly below Data) is enforced
+// client-side by the MenuBuilder's placement law; its DB position here
+// only matters as a fallback. Português: Aplica a lei de ordenação do
+// trilho — todo ícone GRÁFICO acima de Debug (Arduino incluso), cauda
+// administrativa depois. UPDATEs determinísticos e idempotentes.
+func MigrateMenuLayoutGraphicalAboveDebug() error {
+	order := []struct {
+		slot string
+		pos  int
+	}{
+		{"SysMath", 1},
+		{"SysLogic", 2},
+		{"SysLoop", 3},
+		{"SysConst", 4},
+		{"SysVar", 5},
+		{"SysDisplay", 6},
+		{"SysData", 7},
+		{"SysEmbedded", 8},
+		{"SysDebug", 9},
+		{"SysExport", 10},
+		{"SysSettings", 11},
+		{"SysMyItems", 12},
+		{"SysExit", 13},
+	}
+
+	rows, err := DB.Query(`SELECT profile_id FROM menu_profiles`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var profiles []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		profiles = append(profiles, id)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, pid := range profiles {
+		for _, o := range order {
+			if _, err := DB.Exec(`
+				UPDATE menu_layout SET position = ?
+				WHERE profile_id = ? AND parent_id = '' AND slot_id = ?`,
+				o.pos, pid, o.slot,
+			); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}

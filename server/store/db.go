@@ -506,6 +506,9 @@ func migrate() error {
 	if err := MigrateMenuTreeCase(); err != nil {
 		return err
 	}
+	if err := MigrateMenuLayoutGraphicalAboveDebug(); err != nil {
+		return err
+	}
 	if err := MigrateMenuTreeVariables(); err != nil {
 		return err
 	}

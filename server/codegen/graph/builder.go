@@ -548,10 +548,12 @@ func collectFunctionSignatures(g *Graph) {
 			if label == "" {
 				label = node.Label
 			}
+			comment, _ := node.Properties["comment"].(string)
 			port := FuncPort{
 				TunnelID: id,
 				Name:     sanitizePortName(label, id),
 				Type:     tunnelWireType(g, id),
+				Comment:  strings.TrimSpace(comment),
 				Y:        node.Y,
 			}
 			if side == "right" {

@@ -90,6 +90,7 @@ services:
       REDIS_ADDR:     "redis:6379"
       DB_PATH:        "/app/data/iotmaker.db"
       USER_FILES_DIR: "/app/data/files"
+      IOTMAKER_CODEGEN_DELAY_MS: 50
 
 volumes:
   redis-data:

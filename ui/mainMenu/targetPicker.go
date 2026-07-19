@@ -74,6 +74,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall/js"
+	"time"
 )
 
 // Catppuccin Mocha palette, matching the app's overlay and menu chrome. Defined
@@ -134,9 +135,26 @@ func ShowTargetPicker(current string, currentPrefix string, onChosen func(id str
 	var funcs []js.Func
 	closePicker := func() {
 		backdrop.Call("remove")
-		for _, f := range funcs {
-			f.Release()
-		}
+		// Release AFTER the current event dispatch unwinds: closePicker
+		// runs INSIDE clickFn (and friends), so a synchronous Release
+		// frees the very FuncOf whose invocation is still on the stack
+		// — the "call to released function" that fired on every export
+		// (field 2026-07-19, convicted by reading). A short-lived
+		// goroutine with a breath lets the dispatch finish first; the
+		// settle-before-release law, self-invocation edition.
+		// Português: Libera DEPOIS do despacho desenrolar — o
+		// closePicker roda DENTRO do clickFn, e liberar síncrono
+		// libera o próprio FuncOf com a invocação na pilha (o crash de
+		// todo export). Goroutine com respiro; a lei do assentamento,
+		// edição auto-invocação.
+		released := funcs
+		funcs = nil
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			for _, f := range released {
+				f.Release()
+			}
+		}()
 	}
 
 	// restyle repaints every card to reflect id as the selected one.

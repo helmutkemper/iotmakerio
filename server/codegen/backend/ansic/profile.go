@@ -162,6 +162,18 @@ type TargetProfile struct {
 	// double, which is a major performance trap on AVR); empty means
 	// "use the platform's default — double in standard C".
 	FloatSuffix string
+
+	// ProvidesEntryPoints marks profiles whose RUNTIME owns main() and
+	// calls reserved-name functions (setup/loop/serialEvent) by
+	// external linkage — the Arduino model. On such profiles those
+	// functions drop `static`, the uncalled warning is silenced, a
+	// tunnel signature on them is an error, and main() is omitted when
+	// the trunk is empty. Português: Marca profiles cujo RUNTIME é dono
+	// do main() e chama funções de nome reservado por linkage externo —
+	// o modelo Arduino. Nesses profiles elas perdem o `static`, o aviso
+	// de uncalled silencia, assinatura nelas é erro, e o main() some
+	// quando o tronco está vazio.
+	ProvidesEntryPoints bool
 }
 
 // =====================================================================
@@ -181,6 +193,11 @@ var ProfileArduinoUno = TargetProfile{
 	BoolType:    "bool",
 	IntSuffix:   "L",
 	FloatSuffix: "f",
+	// The Arduino core owns main() and calls setup()/loop()/serialEvent()
+	// by external linkage — reserved-name Functions become the sketch's
+	// entry points on this profile. Português: O core Arduino é dono do
+	// main() e chama setup()/loop()/serialEvent() por linkage externo.
+	ProvidesEntryPoints: true,
 }
 
 // ProfileCortexM matches arduino_uno's type choices today, but exists

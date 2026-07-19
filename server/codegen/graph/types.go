@@ -61,12 +61,21 @@ type Edge struct {
 }
 
 // Scope represents a containment scope (a loop or the global scope).
+// FunctionCallType is the scene device type of a graphical-function
+// INSTANCE (properties["function"] = the def name). Lives here so the
+// merge engine (codegen) and the emitter (ir) share one truth without
+// an import cycle. Português: O tipo de device de uma INSTÂNCIA de
+// função gráfica; mora aqui para merge e emitter partilharem uma
+// verdade sem ciclo de import.
+const FunctionCallType = "StatementFunctionCall"
+
 // FuncPort is one slot of a function's tunnel-derived signature.
 // Português: Um slot da assinatura derivada de túneis.
 type FuncPort struct {
 	TunnelID string
 	Name     string
 	Type     string // "" = untyped (diagnosed at emit)
+	Comment  string // maker's note — emitted as signature doc (Fatia A polish)
 	Y        float64
 }
 

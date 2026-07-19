@@ -116,6 +116,12 @@ type DeviceFactory struct {
 	// CreateCase. Vem do Workspace. nil é tolerado pelo device.
 	PreviewCaseFn compFlow.CodegenPreviewFunc
 
+	// SaveFunctionFn — the workspace's "Save to My Items" action for a
+	// graphical function (P3): captures the scene, POSTs, shows the
+	// verdict. Injected into every StatementFunction. Português: A ação
+	// "Salvar em My Items" do workspace, injetada em todo Function.
+	SaveFunctionFn func(functionID string)
+
 	// For dual devices (gauge, etc): reference to the OTHER workspace's stage.
 	OtherStage sprite.Stage
 
@@ -396,6 +402,29 @@ func (f *DeviceFactory) screenCenter() (x, y rulesDensity.Density) {
 // quando ele é excluído. Chamado por cada método CreateXxx.
 func (f *DeviceFactory) makeOnRemove() func(id string) {
 	return func(id string) {
+		// CASCADE DELETE (Kemper 2026-07-19): deleting a container
+		// deletes its content — every member falls with the frame.
+		// Photograph the child list FIRST (removal mutates the graph),
+		// then fell each member; a member that is itself a container
+		// re-enters this handler through its own Remove, so nesting
+		// cascades naturally. Tunnels already fall via the Delete cord
+		// in UnregisterContainer below. Português: DELETE EM CASCATA —
+		// apagar container apaga o conteúdo. Fotografa a lista de
+		// filhos ANTES (a remoção muta o grafo) e derruba cada membro;
+		// membro-container re-entra aqui pelo próprio Remove, então o
+		// aninhamento cascateia sozinho. Túneis já caem pela cordinha.
+		kids := append([]string(nil), f.SceneMgr.ChildrenOf(id)...)
+		for _, kid := range kids {
+			d := f.SceneMgr.FindDevice(kid)
+			if d == nil {
+				continue
+			}
+			if r, ok := d.(interface{ Remove() }); ok {
+				log.Printf("[Factory] cascade delete: %s takes member %s", id, kid)
+				r.Remove()
+			}
+		}
+
 		f.SceneMgr.Unregister(id)
 		f.WireMgr.UnregisterContainer(id)
 
@@ -705,7 +734,6 @@ func (f *DeviceFactory) CreateTunnelFor(parentID, side string, x, y float64, nat
 	// carimbo primeiro, todo observador vê a verdade desde o primeiro
 	// compasso.
 	stm.SetNatalCase(natalCase)
-	stm.RegisterConnectors()
 	f.SceneMgr.Register(stm)
 	// Border furniture is SPATIALLY EXEMPT (scenegraph.SetHidden — the
 	// IfElse-branch mechanism): straddling the border is the tunnel's
@@ -721,6 +749,17 @@ func (f *DeviceFactory) CreateTunnelFor(parentID, side string, x, y float64, nat
 
 	s := stm.SideLen()
 	stm.SetPosition(rulesDensity.Density(x-s/2), rulesDensity.Density(y-s/2))
+	// Connectors register AFTER the shell reaches its true spot — the
+	// import path's order. Registering before SetPosition seated the
+	// pins (and every wire anchored to them) at the Init position,
+	// while shell and record sat on the rail: the copy's "tunnel by
+	// the edge" (field 2026-07-19, console autopsy: records exactly on
+	// the rail, visuals astray). Português: Conectores registram
+	// DEPOIS da casca chegar ao lugar — a ordem do import. Registrar
+	// antes assentava os pinos (e os fios ancorados neles) na posição
+	// do Init, com casca e registro no trilho: o "túnel na borda" da
+	// cópia.
+	stm.RegisterConnectors()
 	// Seed the wire-layer record FRESH (birth-red until first
 	// interaction) and register the shell for the Delete cord.
 	// Português: Semeia o registro FRESCO e registra a casca para a
@@ -787,6 +826,8 @@ func (f *DeviceFactory) CreateFunction() {
 	stm.RegisterConnectors()
 	f.SceneMgr.Register(stm)
 	stm.SetSceneNotify(f.SceneNotifyFn)
+	stm.SetCreateTunnel(f.CreateTunnelFor)
+	stm.SetSaveToMyItems(f.SaveFunctionFn)
 	stm.SetOnRemove(f.makeOnRemove())
 
 	cx, cy := f.devicePosition()
@@ -2540,7 +2581,7 @@ func (f *DeviceFactory) CreateByType(deviceType string, x, y float64) bool {
 // clique, cria um device novo do tipo dado (id novo, tamanho padrão, sem fios)
 // e replica os dados da origem via scene.ReplayProperties — mesmo caminho do
 // import, então a cópia fica idêntica a um device recarregado.
-func (f *DeviceFactory) CreateCopy(deviceType string, props map[string]interface{}) {
+func (f *DeviceFactory) CreateCopy(deviceType string, props map[string]interface{}, sourceID string) {
 	f.SafeRun("CopyDevice:"+deviceType, func() {
 		// ConfirmPlacement already set the next position to the click point;
 		// pass it through CreateByType (which re-applies it via SetNextPosition)
@@ -2563,7 +2604,186 @@ func (f *DeviceFactory) CreateCopy(deviceType string, props map[string]interface
 		if insp, ok := newDev.(scene.Inspectable); ok {
 			scene.ReplayProperties(insp, props)
 		}
+
+		// DEEP COPY (2026-07-19): a container's content IS its meaning —
+		// members (recursively), signature tunnels, and internal wires
+		// replay onto the clone. Simple devices fall through untouched
+		// (empty subtree). Português: CÓPIA PROFUNDA — o conteúdo de um
+		// container É seu significado: membros (recursivo), túneis de
+		// assinatura e fios internos replicam no clone; devices simples
+		// passam ilesos (subtree vazio).
+		if sourceID != "" {
+			f.deepCopySubtree(sourceID, newDev)
+		}
 	})
+}
+
+// deepCopySubtree replays sourceID's members, tunnels and internal
+// wires onto the freshly-placed clone. Positions translate by the
+// CENTER delta between the two containers (convention-proof: whatever
+// CreateByType treats coordinates as, both sides use the same
+// convention). Phase-hosted tunnels (a natal case) are SKIPPED with a
+// log — remapping natal ids across the copy is a declared v1 limit;
+// Function tunnels (natal == "") copy fully, label and comment
+// included. Português: Replica membros, túneis e fios internos no
+// clone recém-colocado. Posições transladam pelo delta de CENTROS.
+// Túneis com fase natal são PULADOS com log (limite declarado do v1);
+// túneis de Function copiam por inteiro, com rótulo e comentário.
+func (f *DeviceFactory) deepCopySubtree(sourceID string, newDev scene.SceneDevice) {
+	src := f.SceneMgr.FindDevice(sourceID)
+	if src == nil || newDev == nil {
+		return
+	}
+	kids := f.SceneMgr.ChildrenOf(sourceID)
+	tunnels := f.WireMgr.ManualTunnelIDsFor(sourceID)
+	if len(kids) == 0 && len(tunnels) == 0 {
+		return
+	}
+
+	sb := src.GetOuterBBox()
+
+	// The clone must INHERIT the source's size BEFORE any geometry math:
+	// a fresh container is default-sized, and translated members would
+	// land outside it (field 2026-07-19: "os wires ficaram fora do
+	// lugar"). Same assertion the restore path uses. Português: O clone
+	// HERDA o tamanho da fonte ANTES de qualquer geometria — container
+	// novo nasce no tamanho default e os membros transladados cairiam
+	// fora dele. Mesma asserção do restore.
+	if sizable, ok := newDev.(interface {
+		SetSize(w, h rulesDensity.Density)
+	}); ok {
+		sizable.SetSize(rulesDensity.Density(sb.Width), rulesDensity.Density(sb.Height))
+	}
+
+	// TOP-LEFT delta — SetPosition/CreateByType speak top-left (the
+	// scene.json law: position == outerBBox origin), so the delta and
+	// every child placement use the same tongue. Português: Delta por
+	// TOPO-ESQUERDA — a língua do SetPosition/CreateByType.
+	nb := newDev.GetOuterBBox()
+	dx := nb.X - sb.X
+	dy := nb.Y - sb.Y
+
+	// idMap: old member/tunnel id → clone id, for the wire replay.
+	// Português: Mapa de ids para a replicação de fios.
+	idMap := map[string]string{}
+
+	var copyMembers func(oldParentID, newParentID string)
+	copyMembers = func(oldParentID, newParentID string) {
+		for _, kidID := range f.SceneMgr.ChildrenOf(oldParentID) {
+			kid := f.SceneMgr.FindDevice(kidID)
+			if kid == nil {
+				continue
+			}
+			kb := kid.GetOuterBBox()
+			if !f.CreateByType(kid.GetDeviceType(), kb.X+dx, kb.Y+dy) {
+				log.Printf("[Factory] deep copy: type %q not placeable — skipped", kid.GetDeviceType())
+				continue
+			}
+			clone := f.SceneMgr.LastDevice()
+			if clone == nil {
+				continue
+			}
+			if p, ok := kid.(interface {
+				GetProperties() map[string]interface{}
+			}); ok {
+				if insp, ok2 := clone.(scene.Inspectable); ok2 {
+					scene.ReplayProperties(insp, p.GetProperties())
+				}
+			}
+			// Size inheritance for EVERY cloned container, not just the
+			// root (field 2026-07-19: a nested my_function cloned at
+			// the default size and swallowed its sibling bool). Simple
+			// devices don't implement the setter — the assertion
+			// targets exactly the resizables. Português: Herança de
+			// tamanho para TODO container clonado, não só a raiz — a
+			// função aninhada clonava no default e engolia o vizinho.
+			if sizable, ok := clone.(interface {
+				SetSize(w, h rulesDensity.Density)
+			}); ok {
+				sizable.SetSize(rulesDensity.Density(kb.Width), rulesDensity.Density(kb.Height))
+			}
+			idMap[kidID] = clone.GetID()
+			copyMembers(kidID, clone.GetID())
+			f.copyTunnels(kidID, clone.GetID(), dx, dy, idMap)
+			if r, ok := clone.(interface{ RefreshMembership() }); ok {
+				r.RefreshMembership()
+			}
+		}
+	}
+	copyMembers(sourceID, newDev.GetID())
+	f.copyTunnels(sourceID, newDev.GetID(), dx, dy, idMap)
+
+	// Summon the clone's refresher: it IS the rail law (forces px onto
+	// the ORNAMENTAL border, clamps y into it), so any residual
+	// convention drift in the translated points self-heals (field
+	// 2026-07-19: tunnels sat toward the mathematical box edge).
+	// Português: Convoca o refresher do clone — ele É a lei do trilho
+	// (força px à borda ORNAMENTAL, clampa y), então qualquer deriva
+	// residual de convenção se cura sozinha.
+	if r, ok := newDev.(interface{ RefreshMembership() }); ok {
+		log.Printf("[Factory] deep copy: summoning refresher on %s (%d tunnels registered)",
+			newDev.GetID(), len(f.WireMgr.ManualTunnelIDsFor(newDev.GetID())))
+		r.RefreshMembership()
+	}
+
+	// Internal wires: both ends inside the copied set (members and
+	// tunnels of ANY depth). Português: Fios internos — as duas pontas
+	// dentro do conjunto copiado.
+	// The CONTAINER ITSELF joins the map: wires anchored on the frame's
+	// own connectors (e.g. bool → loop.stop) are internal logic too
+	// (field 2026-07-19: "0 wires" on a loop whose only wire ended on
+	// the frame). Português: O PRÓPRIO container entra no mapa — fio
+	// ancorado no conector da moldura também é lógica interna.
+	idMap[sourceID] = newDev.GetID()
+	oldSet := map[string]bool{}
+	for oldID := range idMap {
+		oldSet[oldID] = true
+	}
+	wired := 0
+	for _, pair := range f.WireMgr.ConnectionsAmong(oldSet) {
+		from := wire.ConnectorID{ElementID: idMap[pair[0].ElementID], PortName: pair[0].PortName}
+		to := wire.ConnectorID{ElementID: idMap[pair[1].ElementID], PortName: pair[1].PortName}
+		if _, err := f.WireMgr.ConnectDirect(from, to); err != nil {
+			log.Printf("[Factory] deep copy: wire %s.%s → %s.%s failed: %v",
+				from.ElementID, from.PortName, to.ElementID, to.PortName, err)
+			continue
+		}
+		wired++
+	}
+
+	f.SceneMgr.NotifyChange()
+	log.Printf("[Factory] deep copy: %s → %s (%d members/tunnels, %d wires)",
+		sourceID, newDev.GetID(), len(idMap), wired)
+}
+
+// copyTunnels replays a container's manual tunnels onto its clone.
+// Português: Replica os túneis manuais de um container no clone.
+func (f *DeviceFactory) copyTunnels(oldID, newID string, dx, dy float64, idMap map[string]string) {
+	for _, tid := range f.WireMgr.ManualTunnelIDsFor(oldID) {
+		if natal := f.WireMgr.ManualTunnelNatal(tid); natal != "" {
+			log.Printf("[Factory] deep copy: phase tunnel %s skipped (natal remap is a v1 limit)", tid)
+			continue
+		}
+		p, ok := f.WireMgr.ManualTunnelPoint(tid)
+		if !ok {
+			continue
+		}
+		side := f.WireMgr.ManualTunnelSide(tid)
+		newTID := f.CreateTunnelFor(newID, side, p.X+dx, p.Y+dy, "", nil)
+		if newTID == "" {
+			log.Printf("[Factory] deep copy: tunnel clone FAILED (src %s side %s)", tid, side)
+			continue
+		}
+		log.Printf("[Factory] deep copy: tunnel %s → %s side=%s src=(%.1f,%.1f) dst=(%.1f,%.1f)",
+			tid, newTID, side, p.X, p.Y, p.X+dx, p.Y+dy)
+		if lbl := f.WireMgr.ManualTunnelLabel(tid); lbl != "" {
+			f.WireMgr.SetManualTunnelLabel(newTID, lbl)
+		}
+		if c := f.WireMgr.ManualTunnelComment(tid); c != "" {
+			f.WireMgr.SetManualTunnelComment(newTID, c)
+		}
+		idMap[tid] = newTID
+	}
 }
 
 // SetBlackBoxDefs stores the loaded BlackBox definitions indexed by component
@@ -2683,7 +2903,22 @@ func (f *DeviceFactory) createBlackBoxByType(deviceType string) bool {
 		return true
 	}
 
-	// Named method device (Run, Log, Step, etc.).
+	// Named method device (Run, Log, Step, etc.) — with the WIRES twist
+	// (field 2026-07-19: "backup não salvou o my_function"): a wires-
+	// origin def carries its single function under Functions with a
+	// NON-empty def name, so its instance type reads
+	// "BlackBox<fn>:<def>" and lands in this named-component fork —
+	// where the Go GetMethod lookup finds nothing and the import
+	// silently skipped the block. Same disease the C99 comment above
+	// records, same cure: no method but a function of that name →
+	// route through CreateBlackBoxFunction. Português: A variante FIOS
+	// da lição C99 — def de fios cai neste garfo com nome não-vazio;
+	// sem método mas COM função homônima, roteia pelo criador de
+	// função.
+	if def.GetMethod(prefix) == nil && def.GetFunction(prefix) != nil {
+		f.CreateBlackBoxFunction(def, prefix)
+		return true
+	}
 	f.CreateBlackBoxMethod(def, prefix)
 	return true
 }

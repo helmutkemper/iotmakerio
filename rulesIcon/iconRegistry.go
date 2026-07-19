@@ -227,6 +227,7 @@ type FAIconDef struct {
 var iconDefs = map[string]FAIconDef{
 	// ── Navigation / UI ────────────────────────────────────────────────────
 	"arrows-up-down-left-right": {KFAArrowsUpDownLeftRight, "0 0 512 512"},
+	"floppy-disk":               {KFAFloppyDisk, "0 0 448 512"},
 	"bars":                      {KFABars, "0 0 448 512"},
 	"eye":                       {KFAEye, "0 0 512 512"},
 	"link":                      {KFALink, "0 0 640 512"},

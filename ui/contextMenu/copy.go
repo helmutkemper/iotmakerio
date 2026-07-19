@@ -45,7 +45,7 @@ type CopyableDevice interface {
 //
 // Português: Instala o callback que executa a cópia. O workspace fixa isto uma
 // vez, por stage, apontando para DeviceFactory.CreateCopy. nil desabilita o item.
-func (c *Controller) SetCopyHandler(fn func(deviceType string, props map[string]interface{})) {
+func (c *Controller) SetCopyHandler(fn func(deviceType string, props map[string]interface{}, sourceID string)) {
 	c.copyHandler = fn
 }
 
@@ -78,6 +78,16 @@ func (c *Controller) OpenForDevice(dev CopyableDevice, extra []Item, worldX, wor
 		// menu, para que uma edição posterior na origem não altere o que a
 		// cópia pendente vai colocar.
 		deviceType := dev.GetDeviceType()
+		// The source id rides along so container copies can be DEEP —
+		// members, tunnels and internal wires replayed at placement
+		// (2026-07-19: "o conteúdo não foi copiado"). Português: O id
+		// da origem viaja junto para cópias de container serem
+		// PROFUNDAS — membros, túneis e fios internos replicados no
+		// placement.
+		sourceID := ""
+		if g, ok := dev.(interface{ GetID() string }); ok {
+			sourceID = g.GetID()
+		}
 
 		// GetProperties is OPTIONAL. Most devices expose their data (value,
 		// varName, label, …) through it, but a few — e.g. the loop containers,
@@ -103,7 +113,7 @@ func (c *Controller) OpenForDevice(dev CopyableDevice, extra []Item, worldX, wor
 			HelpFallback: "Place a duplicate of this device — same data, no wires — " +
 				"at your next click on the stage.",
 			OnClick: func() {
-				c.copyHandler(deviceType, props)
+				c.copyHandler(deviceType, props, sourceID)
 			},
 		}
 

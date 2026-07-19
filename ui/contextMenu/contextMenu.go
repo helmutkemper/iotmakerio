@@ -90,7 +90,7 @@ type Controller struct {
 	// já configurado com as props dadas, no próximo clique no stage. Fixado uma
 	// vez pelo workspace (SetCopyHandler → DeviceFactory.CreateCopy). Quando nil
 	// (o padrão), OpenForDevice omite o item "copy".
-	copyHandler func(deviceType string, props map[string]interface{})
+	copyHandler func(deviceType string, props map[string]interface{}, sourceID string)
 }
 
 // New constructs a Controller. The stage is stored for world→viewport

@@ -463,6 +463,22 @@ func (w *Workspace) Init(cfg Config) error {
 	w.WireMgr.SetWireOccluder(func(devID string, x, y float64) bool {
 		cid := w.WireMgr.ManualTunnelContainer(devID)
 		if cid == "" {
+			// A CONTAINER endpoint (a wire ending on the container's
+			// own connector, e.g. loop.stop) asks about ITSELF. Asking
+			// about its parent made the container bury its own wire:
+			// by the stacking law a member sits ABOVE its parent, so
+			// "is the parent covered at the stop point?" was always
+			// yes — covered by the endpoint's own body (field
+			// 2026-07-19: param → loop.stop invisible once the loop
+			// lived inside a function; visible while it was
+			// top-level, whose parent is ""). Português: Ponta que É
+			// container pergunta por SI MESMA — perguntar pelo pai
+			// fazia o container enterrar o próprio fio: pela lei do
+			// empilhamento o membro fica ACIMA do pai, então o pai
+			// estava sempre "coberto"... pelo corpo da própria ponta.
+			if _, registered := devices.BackendZRegistry.PositionOf(devID); registered {
+				return devices.BackendZRegistry.OccludesPoint(devID, x, y)
+			}
 			cid = w.SceneMgr.ParentOf(devID)
 		}
 		if cid == "" {
@@ -1034,18 +1050,19 @@ func (w *Workspace) Init(cfg Config) error {
 
 	// --- Device Factory ---
 	w.Factory = &factoryDevice.DeviceFactory{
-		Stage:         w.Stage,
-		WireMgr:       w.WireMgr,
-		SceneMgr:      w.SceneMgr,
-		ResizeButton:  w.ResizeButton,
-		DraggerButton: w.DraggerButton,
-		GridAdjust:    w.GridAdjust,
-		SceneNotifyFn: sceneNotifyFn,
-		Name:          w.Name,
-		HexMenu:       sharedMenu,
-		ContextMenu:   w.CtxMenu,
-		CanvasEl:      w.CanvasEl,
-		PreviewCaseFn: w.previewCaseCode,
+		Stage:          w.Stage,
+		WireMgr:        w.WireMgr,
+		SceneMgr:       w.SceneMgr,
+		ResizeButton:   w.ResizeButton,
+		DraggerButton:  w.DraggerButton,
+		GridAdjust:     w.GridAdjust,
+		SceneNotifyFn:  sceneNotifyFn,
+		Name:           w.Name,
+		HexMenu:        sharedMenu,
+		ContextMenu:    w.CtxMenu,
+		CanvasEl:       w.CanvasEl,
+		PreviewCaseFn:  w.previewCaseCode,
+		SaveFunctionFn: w.saveFunctionToMyItems,
 	}
 
 	// Wire the context-menu "copy" action to this stage's factory. Init runs
@@ -1956,6 +1973,38 @@ func (w *Workspace) updateConnectorTip(event sprite.PointerEvent) {
 	if hit.IsOutput {
 		dir = "out"
 	}
+	// FUNCTION-tunnel pins speak SEMANTICS, not plumbing (Kemper
+	// 2026-07-19): the parameter tunnel's inner pin is port "out"
+	// (tunnel plumbing) but showing "out" reads as a function OUTPUT —
+	// the exact opposite of what the maker is wiring. On a Function
+	// host, the tip says ONLY "parameter" (left rail) or "return"
+	// (right rail), through i18n; Sequence tunnels keep their
+	// plumbing names, where in/out is the honest truth. Português:
+	// Pinos de túnel de FUNCTION falam SEMÂNTICA, não encanamento — o
+	// pino interno do parâmetro é a porta "out" do túnel, mas exibir
+	// "out" lê como SAÍDA da função. Em host Function, o tip diz SÓ
+	// "parameter" (trilho esquerdo) ou "return" (direito), via i18n;
+	// túneis de Sequence mantêm os nomes de encanamento.
+	multiline := ""
+	if cid := w.WireMgr.ManualTunnelContainer(hit.ID.ElementID); cid != "" {
+		if _, isFn := w.SceneMgr.FindDevice(cid).(*compFlow.StatementFunction); isFn {
+			if w.WireMgr.ManualTunnelSide(hit.ID.ElementID) == "left" {
+				label = translate.T("connParameter", "parameter")
+			} else {
+				label = translate.T("connReturn", "return")
+			}
+			typ, dir = "", ""
+			// The maker's note rides the PIN tip too (field 2026-07-19:
+			// the return's comment only showed on the square, whichever
+			// stage the pointer happened to hit) — both faces, both
+			// stages, same story. Português: A nota do maker viaja no
+			// tip do PINO também — as duas faces, os dois estágios,
+			// mesma história.
+			if c := w.WireMgr.ManualTunnelComment(hit.ID.ElementID); c != "" {
+				multiline = label + "\n" + c
+			}
+		}
+	}
 	canvasX, canvasY := event.CanvasX, event.CanvasY
 
 	go func() {
@@ -1964,6 +2013,12 @@ func (w *Workspace) updateConnectorTip(event sprite.PointerEvent) {
 			return
 		}
 		rect := w.CanvasEl.Call("getBoundingClientRect")
+		if multiline != "" {
+			connectorTip.ShowComment(multiline,
+				rect.Get("left").Float()+canvasX+14,
+				rect.Get("top").Float()+canvasY+14)
+			return
+		}
 		connectorTip.Show(label, typ, dir,
 			rect.Get("left").Float()+canvasX+14,
 			rect.Get("top").Float()+canvasY+14)
@@ -2593,6 +2648,112 @@ func (w *Workspace) runCodegenJob(submitURL, reqBody, progressTitle, progressDet
 	return res, jobID, true
 }
 
+// saveFunctionToMyItems captures the scene and publishes ONE graphical
+// function to My Items (P3): POST /api/v1/blackboxes/wires with the
+// full scene + the container id; the SERVER extracts the subtree and
+// validates by the emitter's laws. Verdicts: 200 → success box; 409 →
+// the immutability law's message (published is frozen — save as a new
+// name); 422 → the signature diagnostics. Runs in its own goroutine
+// (the menu-click overlay law) and releases the promise callbacks only
+// after the settle (the settle-before-release law). Português: Captura
+// a cena e publica UMA função em My Items; o SERVIDOR extrai e valida.
+// 200 → caixa de sucesso; 409 → a lei da imutabilidade; 422 → os
+// diagnósticos. Roda em goroutine própria e libera callbacks só após o
+// assentamento.
+func (w *Workspace) saveFunctionToMyItems(functionID string) {
+	go func() {
+		sceneJSON := w.captureCombinedScene()
+		language := w.Language
+		if language == "" {
+			language = "go"
+		}
+		body := fmt.Sprintf(`{"functionId":%q,"language":%q,"scene":%s}`,
+			functionID, language, sceneJSON)
+
+		token := rulesServer.GetAuthToken()
+		opts := js.Global().Get("Object").New()
+		opts.Set("method", "POST")
+		headers := js.Global().Get("Object").New()
+		headers.Set("Content-Type", "application/json")
+		headers.Set("Authorization", token)
+		opts.Set("headers", headers)
+		opts.Set("body", body)
+
+		type outcome struct {
+			status int
+			text   string
+			err    string
+		}
+		ch := make(chan outcome, 1)
+		var status int
+		thenResp := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+			status = args[0].Get("status").Int()
+			return args[0].Call("text")
+		})
+		thenText := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+			ch <- outcome{status: status, text: args[0].String()}
+			return nil
+		})
+		catchFn := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+			msg := "network error"
+			if args[0].Get("message").Truthy() {
+				msg = args[0].Get("message").String()
+			}
+			ch <- outcome{err: msg}
+			return nil
+		})
+		js.Global().Call("fetch", "/api/v1/blackbox/wires", opts).
+			Call("then", thenResp).
+			Call("then", thenText).
+			Call("catch", catchFn)
+
+		out := <-ch
+		// Settle-before-release: the receive IS the settle on every
+		// path of this three-stage chain. Português: O receive É o
+		// assentamento em todos os caminhos da cadeia.
+		thenResp.Release()
+		thenText.Release()
+		catchFn.Release()
+
+		title := translate.T("myItemsSaveTitle", "My Items")
+		if out.err != "" {
+			overlay.ShowError(title, out.err)
+			return
+		}
+		var resp struct {
+			ID          string               `json:"id"`
+			Name        string               `json:"name"`
+			Error       string               `json:"error"`
+			Diagnostics []overlay.Diagnostic `json:"diagnostics"`
+		}
+		_ = json.Unmarshal([]byte(out.text), &resp)
+
+		switch {
+		case out.status == 200:
+			md := fmt.Sprintf(
+				translate.T("myItemsSaveOkMd",
+					"## Saved\n\n**%s** is now in My Items.\n\nPublished items are frozen — evolve by saving under a new name (for example `%s_v2`)."),
+				resp.Name, resp.Name)
+			overlay.Show(overlay.Config{
+				Title: title,
+				Width: "500px",
+				Tabs: []overlay.Tab{{
+					Label: translate.T("myItemsSaveOkTab", "Saved"),
+					Type:  overlay.TabMarkdown, Content: md,
+				}},
+			})
+		case out.status == 409 && resp.Error != "":
+			overlay.ShowError(title, resp.Error)
+		case len(resp.Diagnostics) > 0:
+			overlay.ShowDiagnostics(title, resp.Diagnostics, nil, "", nil)
+		case resp.Error != "":
+			overlay.ShowError(title, resp.Error)
+		default:
+			overlay.ShowError(title, fmt.Sprintf("unexpected response (HTTP %d)", out.status))
+		}
+	}()
+}
+
 // previewCaseCode runs a StatementCase preview through the shared codegen core
 // and returns the generated snippet plus its cross-case diagnostics. It is the
 // inspect-panel counterpart to generateCode: the SAME async transport (queue,
@@ -2882,10 +3043,24 @@ func streamCodegenResult(
 		}
 		resp = fo.response
 	case <-cancelSignal:
-		// Overlay cancelled before the connection even opened.
-		// We have no reader yet, so just close the channel.
-		thenFetch.Release()
-		catchFetch.Release()
+		// Overlay cancelled before the connection even opened. The
+		// fetch promise is STILL IN FLIGHT and will settle later,
+		// invoking one of the callbacks — releasing them here is the
+		// call-to-released-function crash (field 2026-07-19, console:
+		// "call to released function" + the failed stream GET). The
+		// SETTLE-BEFORE-RELEASE law: a watcher waits for the settle
+		// (whichever callback fires posts to fetchCh) and only then
+		// releases BOTH — the un-fired sibling is safe once the
+		// promise settled. Português: A promise do fetch ainda está EM
+		// VOO e vai assentar depois, invocando um dos callbacks —
+		// liberar aqui é o crash de função liberada. Lei do
+		// assenta-antes-de-liberar: um vigia espera o assentamento e
+		// só então libera OS DOIS.
+		go func() {
+			<-fetchCh
+			thenFetch.Release()
+			catchFetch.Release()
+		}()
 		done <- sseResult{cancelled: true}
 		return
 	}
@@ -2908,9 +3083,17 @@ func streamCodegenResult(
 
 	// readChunk reads one chunk by attaching one-shot .then/.catch
 	// handlers to reader.read(). Returns via the chunkCh channel.
-	// The js.Funcs are Released by the caller (this function lives
-	// in a hot loop — releasing on each iteration is the simplest
-	// way to avoid leaking JS function references over a long stream).
+	// The js.Funcs are Released by the caller per iteration — but
+	// ONLY after the read's promise settled (the settle-before-release
+	// law, 2026-07-19): on the happy path the settle is the very
+	// receive on chunkCh; on the cancel path a watcher goroutine
+	// waits for the pending read to settle before releasing. Releasing
+	// a func whose promise is still in flight is the
+	// call-to-released-function crash. Português: Os js.Funcs são
+	// liberados por iteração — mas SÓ depois da promise assentar (lei
+	// do assenta-antes-de-liberar): no caminho feliz o assentamento é
+	// o próprio receive; no cancel, um vigia espera. Liberar com
+	// promise em voo é o crash de função liberada.
 	type chunkOutcome struct {
 		done  bool
 		text  string
@@ -2948,13 +3131,23 @@ func streamCodegenResult(
 		select {
 		case co = <-chunkCh:
 		case <-cancelSignal:
-			// User clicked Cancel. Tell the reader to close (its
-			// pending read will resolve with done=true or reject
-			// with AbortError — either way we don't care; we're
-			// already on our way out).
+			// User clicked Cancel. reader.cancel() makes the PENDING
+			// read settle (done=true or AbortError) — which INVOKES
+			// one of the callbacks. Releasing them inline was the
+			// call-to-released-function crash (field 2026-07-19); the
+			// settle-before-release watcher waits for that settle
+			// (the firing callback posts to chunkCh, cap 1, never
+			// blocks) and only then releases both. Português: O
+			// cancel faz a leitura PENDENTE assentar — o que INVOCA
+			// um dos callbacks. Liberar inline era o crash; o vigia
+			// espera o assentamento (o callback posta no chunkCh) e
+			// só então libera os dois.
 			reader.Call("cancel")
-			thenRead.Release()
-			catchRead.Release()
+			go func() {
+				<-chunkCh
+				thenRead.Release()
+				catchRead.Release()
+			}()
 			done <- sseResult{cancelled: true}
 			return
 		}
@@ -4205,6 +4398,22 @@ func (w *Workspace) drawExportLanguageBadge(canvasW int) {
 }
 
 func (w *Workspace) exportStageImage() {
+	// ERROR GATE (Kemper 2026-07-19): the exported PNG must never carry
+	// the red/pink error indications, and a scene whose code export
+	// would fail should not ship as an image either. One mechanism
+	// covers both asks: block while conflicts are live — a clean scene
+	// has no indications to strip. Português: PORTÃO DE ERRO — o PNG
+	// exportado nunca carrega as indicações vermelhas, e cena cujo
+	// export de código falharia não embarca como imagem. Um mecanismo
+	// cobre os dois pedidos: bloqueia com conflitos vivos — cena limpa
+	// não tem indicação a remover.
+	if hl := w.SceneMgr.ConflictHighlights(); len(hl) > 0 {
+		overlay.ShowError(
+			translate.T("imageExportTitle", "Image export"),
+			translate.T("imageExportConflicts",
+				"The stage has unresolved conflicts (red highlights). Fix them before exporting the image — the picture should carry your design, not its errors."))
+		return
+	}
 	// Step 1: export compact JSON.
 	// Combined document (both stages) so the PNG round-trips backend logic
 	// AND frontend dashboard — importScene re-routes each device by its Stage.

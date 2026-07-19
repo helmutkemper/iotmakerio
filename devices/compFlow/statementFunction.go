@@ -37,8 +37,10 @@ package compFlow
 //	na border 3 viram statements do corpo do loop.
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"syscall/js"
 	"time"
 
@@ -107,6 +109,47 @@ type StatementFunction struct {
 	// Wire manager for stop port ------------------------------------
 	wireMgr *wire.Manager
 
+	// createTunnelFn is the factory's tunnel constructor (the same
+	// CreateTunnelFor the Sequence uses — host-agnostic, verified
+	// 2026-07-19). natalCase rides empty: a Function has no phases.
+	// Português: O construtor de túnel do factory (o mesmo do
+	// Sequence — host-agnóstico); natal viaja vazio: Function não tem
+	// fases.
+	createTunnelFn func(parentID, side string, x, y float64, natalCase string,
+		judge func(cx, cy float64, side, selfID string) (float64, float64)) string
+
+	// refreshingTunnels — re-entrancy guard, sibling of the Sequence's.
+	refreshingTunnels bool
+
+	// saveToMyItems — the workspace's capture+POST action (P3).
+	// Português: A ação de captura+POST do workspace.
+	saveToMyItems func(functionID string)
+
+	// LAYERS (L1, Kemper 2026-07-19): the function's body organises
+	// into ORDERED layers — Sequence-phase semantics inside the
+	// function. The dropdown/menu lists them; members belong to the
+	// layer that was selected when they were dropped; only the
+	// selected layer's members are visible/collidable. Serialised as
+	// "layers"/"selectedLayer" (mirroring the Case's "cases" keys).
+	// Português: CAMADAS — o corpo se organiza em camadas ORDENADAS
+	// (semântica de fases do Sequence dentro da função); membresia por
+	// camada selecionada no drop; só a camada ativa fica visível.
+	layers        []functionLayer
+	selectedLayer string
+
+	// lastOrnY/hasLastOrn track the ornament's top between refresher
+	// passes: Y follows by DELTA (field 2026-07-19, "esqueceu o eixo
+	// y") — px recomputes absolutely from the rail, but a tunnel's Y
+	// is its position ALONG the rail, meaningful only relative to the
+	// container; the delta carries it on vertical drags, and a
+	// bottom-edge resize (oy unchanged) leaves it put, clamp guarding.
+	// Português: Y segue por DELTA — px é absoluto do trilho, mas o Y
+	// é posição AO LONGO do trilho, relativa ao container; o delta o
+	// carrega no drag vertical, e resize pela borda de baixo (oy
+	// intacto) o deixa quieto, com o clamp segurando.
+	lastOrnY   float64
+	hasLastOrn bool
+
 	debugSelected bool
 
 	// Size defaults and constraints ---------------------------------
@@ -161,7 +204,365 @@ func (e *StatementFunction) SetSceneMgr(mgr *scene.Serializer) { e.sceneMgr = mg
 func (e *StatementFunction) SetContextMenu(c *contextMenu.Controller) {
 	e.ctxMenu = c
 }
-func (e *StatementFunction) SetWireManager(mgr *wire.Manager)       { e.wireMgr = mgr }
+func (e *StatementFunction) SetWireManager(mgr *wire.Manager) { e.wireMgr = mgr }
+
+// functionLayer is one ordered layer of the function's body.
+// Português: Uma camada ordenada do corpo da função.
+type functionLayer struct {
+	id    string
+	label string
+	ids   []string
+}
+
+// SetSaveToMyItems injects the workspace's "Save to My Items" action.
+// Português: Injeta a ação "Salvar em My Items" do workspace.
+func (e *StatementFunction) SetSaveToMyItems(fn func(functionID string)) {
+	e.saveToMyItems = fn
+}
+
+// SetCreateTunnel injects the factory's tunnel constructor — mirror of
+// the Sequence's cord. Português: Injeta o construtor — espelho da
+// cordinha do Sequence.
+func (e *StatementFunction) SetCreateTunnel(fn func(parentID, side string, x, y float64, natalCase string,
+	judge func(cx, cy float64, side, selfID string) (float64, float64)) string) {
+	e.createTunnelFn = fn
+}
+
+// ornamentRect mirrors the Sequence's: the Density(10) ornamental
+// inset — border furniture pins to THIS rect, never the mathematical
+// bbox (the border-furniture law). Português: Espelho do Sequence — a
+// mobília de borda pina NESTE retângulo, nunca no bbox matemático.
+func (e *StatementFunction) ornamentRect() (x, y, w, h float64) {
+	if e.elem == nil {
+		return 0, 0, 0, 0
+	}
+	ex, ey := e.elem.GetPosition()
+	ew, eh := e.elem.GetSize()
+	m := rulesDensity.Density(10).GetFloat()
+	return ex + m, ey + m, ew - 2*m, eh - 2*m
+}
+
+// funcTunnelJudge — the Function's drop judge. Unlike the Sequence's
+// side-agnostic judge (side is ephemeral there), this one FORCES the x
+// onto the requested rail: F2 makes the side IDENTITY (left =
+// parameter, right = return), so the judge IS the side lock — it
+// travels in the creation signature and every re-seat passes through
+// it. Collision stays Y-only, minGap 24, shift-down. Português: O juiz
+// do Function FORÇA o x no trilho pedido — F2 torna o lado IDENTIDADE
+// (esquerda = parâmetro, direita = retorno), então o juiz É a trava.
+// Colisão só em Y, minGap 24, empurra para baixo.
+func (e *StatementFunction) funcTunnelJudge(cx, cy float64, side, selfID string) (float64, float64) {
+	const minGap = 24.0
+	ox, oy, ow, oh := e.ornamentRect()
+	if ow <= 0 || oh <= 0 {
+		return cx, cy
+	}
+	if side == "left" {
+		cx = ox
+	} else {
+		cx = ox + ow
+	}
+	var occupied []float64
+	if e.wireMgr != nil {
+		for _, p := range e.wireMgr.TunnelPointsFor(e.id) {
+			occupied = append(occupied, p.Y)
+		}
+		for _, id := range e.wireMgr.ManualTunnelIDsFor(e.id) {
+			if id == selfID {
+				continue
+			}
+			if p, ok := e.wireMgr.ManualTunnelPoint(id); ok {
+				occupied = append(occupied, p.Y)
+			}
+		}
+	}
+	for moved := true; moved; {
+		moved = false
+		for _, y := range occupied {
+			if d := cy - y; d > -minGap && d < minGap {
+				cy = y + minGap
+				moved = true
+			}
+		}
+	}
+	if cy < oy {
+		cy = oy
+	}
+	if cy > oy+oh {
+		cy = oy + oh
+	}
+	return cx, cy
+}
+
+// createFunctionTunnel births a signature tunnel on the given rail:
+// "left" = parameter, "right" = return (F2). The label the maker gives
+// it (tunnel menu → Rename) becomes the parameter/return NAME in the
+// generated code (Fatia C). Panic-shielded like every tunnel path.
+// Português: Pare um túnel de assinatura no trilho dado — esquerda =
+// parâmetro, direita = retorno (F2). O rótulo vira o NOME no código
+// gerado (Fatia C). Escudo de panic como todo caminho de túnel.
+func (e *StatementFunction) createFunctionTunnel(side string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[FN-TUNNEL-PANIC] createFunctionTunnel: %v", r)
+		}
+	}()
+	if e.createTunnelFn == nil || e.elem == nil {
+		return
+	}
+	ox, oy, ow, oh := e.ornamentRect()
+	cx := ox
+	if side == "right" {
+		cx = ox + ow
+	}
+	cy := oy + oh*0.25
+	cx, cy = e.funcTunnelJudge(cx, cy, side, "")
+	id := e.createTunnelFn(e.id, side, cx, cy, "", e.funcTunnelJudge)
+	if id == "" {
+		return
+	}
+	e.refreshFunctionTunnelViews()
+	if e.sceneNotify != nil {
+		e.sceneNotify()
+	}
+}
+
+// refreshFunctionTunnelViews is the Function's pose keeper AND mover:
+// px comes from the FRESH ornamentRect on every pass, so tunnels
+// follow the container (the same mechanism that moves the Sequence's).
+// The poses are FIXED by the rail (F2): left → role "out" (body
+// consumers read the parameter), right → role "in" (a body producer
+// feeds the return) — exactly the two poses the renderer already
+// draws. No phases, so hidden is always false. Português: Guardião de
+// pose E movedor — px vem do ornamento FRESCO a cada passe (o mesmo
+// mecanismo que move os do Sequence). Poses FIXAS pelo trilho:
+// esquerda → "out", direita → "in" — as duas poses que o renderer já
+// desenha. Sem fases, hidden sempre falso.
+func (e *StatementFunction) refreshFunctionTunnelViews() {
+	if e.refreshingTunnels {
+		return
+	}
+	e.refreshingTunnels = true
+	defer func() {
+		e.refreshingTunnels = false
+		if r := recover(); r != nil {
+			log.Printf("[FN-TUNNEL-PANIC] refreshFunctionTunnelViews: %v", r)
+		}
+	}()
+	if e.wireMgr == nil || e.elem == nil {
+		return
+	}
+	ox, oy, ow, oh := e.ornamentRect()
+	if ow <= 0 || oh <= 0 {
+		return
+	}
+	dy := 0.0
+	if e.hasLastOrn {
+		dy = oy - e.lastOrnY
+	}
+	e.lastOrnY, e.hasLastOrn = oy, true
+	for _, id := range e.wireMgr.ManualTunnelIDsFor(e.id) {
+		p, ok := e.wireMgr.ManualTunnelPoint(id)
+		if !ok {
+			continue
+		}
+		y := p.Y + dy
+		if y < oy {
+			y = oy
+		}
+		if y > oy+oh {
+			y = oy + oh
+		}
+		side := e.wireMgr.ManualTunnelSide(id)
+		px, role := ox, "out"
+		if side != "left" {
+			side, px, role = "right", ox+ow, "in"
+		}
+		e.wireMgr.SetManualTunnelView(id, side, px, y, role, false)
+	}
+}
+
+// RefreshMembership rides the workspace's container-refresh assertion
+// (the same hook the Sequence rides): every notify pass re-pins the
+// tunnels to the fresh ornament. The name is the interface's, the job
+// here is pose-keeping. Português: Pega carona na asserção do
+// workspace — todo passe de notify re-pina os túneis no ornamento
+// fresco. O nome é da interface; o trabalho aqui é guardar pose.
+// ensureDefaultLayer guarantees at least one layer so legacy scenes
+// (pre-L1) keep behaving: every existing member adopts into it.
+// Português: Garante ao menos uma camada — cenas antigas seguem
+// funcionando, com todos os membros adotados nela.
+func (e *StatementFunction) ensureDefaultLayer() {
+	if len(e.layers) > 0 {
+		if e.selectedLayer == "" {
+			e.selectedLayer = e.layers[0].id
+		}
+		return
+	}
+	e.layers = []functionLayer{{id: "layer_1"}}
+	e.selectedLayer = "layer_1"
+}
+
+// freshLayerID mints an unused "layer_N". Português: Cunha id livre.
+func (e *StatementFunction) freshLayerID() string {
+	for n := len(e.layers) + 1; ; n++ {
+		id := fmt.Sprintf("layer_%d", n)
+		taken := false
+		for i := range e.layers {
+			if e.layers[i].id == id {
+				taken = true
+				break
+			}
+		}
+		if !taken {
+			return id
+		}
+	}
+}
+
+// layerMenuLabel — display name, "layer N" fallback by position.
+// Português: Nome de exibição; "layer N" pela posição.
+func (e *StatementFunction) layerMenuLabel(i int) string {
+	if e.layers[i].label != "" {
+		return e.layers[i].label
+	}
+	return fmt.Sprintf("layer %d", i+1)
+}
+
+// layerSelectMenuItems builds the layer section for the function's
+// menu: one entry per layer in order (the selected one wears the eye),
+// plus "New layer". Reordering is L3. Português: A seção de camadas do
+// menu — uma entrada por camada (a ativa leva o olho) + "New layer".
+func (e *StatementFunction) layerSelectMenuItems() []contextMenu.Item {
+	e.ensureDefaultLayer()
+	items := make([]contextMenu.Item, 0, len(e.layers)+1)
+	for i := range e.layers {
+		id := e.layers[i].id
+		item := contextMenu.Item{
+			ID:           "fn_layer_" + id,
+			Label:        e.layerMenuLabel(i),
+			HelpFallback: "Show this layer on the stage; new devices join the visible layer.",
+			OnClick:      func() { e.selectLayer(id) },
+		}
+		if id == e.selectedLayer {
+			item.FontAwesomePath = rulesIcon.KFAEye
+			item.ViewBox = "0 0 512 512"
+		}
+		items = append(items, item)
+	}
+	items = append(items, contextMenu.Item{
+		ID:              "fn_layer_add",
+		Label:           translate.T("funcLayerAdd", "New layer"),
+		FontAwesomePath: seqIconPlus.Path,
+		ViewBox:         seqIconPlus.ViewBox,
+		HelpFallback:    "Add an ordered layer; layers run one after the other in the generated code.",
+		OnClick:         func() { e.addLayer() },
+	})
+	return items
+}
+
+// addLayer appends a fresh layer and selects it. Português: Anexa uma
+// camada nova e a seleciona.
+func (e *StatementFunction) addLayer() {
+	e.ensureDefaultLayer()
+	fresh := functionLayer{id: e.freshLayerID()}
+	e.layers = append(e.layers, fresh)
+	e.selectLayer(fresh.id)
+}
+
+// selectLayer makes a layer the visible/edited one. Português: Torna a
+// camada a visível/editada.
+func (e *StatementFunction) selectLayer(id string) {
+	e.selectedLayer = id
+	e.maintainLayerMembership()
+	e.applyLayerVisibility()
+	if e.sceneNotify != nil {
+		e.sceneNotify()
+	}
+}
+
+// maintainLayerMembership adopts unassigned children into the selected
+// layer and prunes ids that left the function. Border furniture
+// (tunnels) never joins — the seat-belt. Português: Adota filhos sem
+// camada na selecionada e poda ids que saíram; túneis nunca entram.
+func (e *StatementFunction) maintainLayerMembership() {
+	if e.sceneMgr == nil {
+		return
+	}
+	e.ensureDefaultLayer()
+	children := map[string]bool{}
+	for _, id := range e.sceneMgr.ChildrenOf(e.id) {
+		if strings.HasPrefix(id, "tunnel") {
+			continue
+		}
+		children[id] = true
+	}
+	known := map[string]bool{}
+	for i := range e.layers {
+		kept := e.layers[i].ids[:0]
+		for _, id := range e.layers[i].ids {
+			if children[id] {
+				kept = append(kept, id)
+				known[id] = true
+			}
+		}
+		e.layers[i].ids = kept
+	}
+	sel := 0
+	for i := range e.layers {
+		if e.layers[i].id == e.selectedLayer {
+			sel = i
+			break
+		}
+	}
+	for id := range children {
+		if !known[id] {
+			e.layers[sel].ids = append(e.layers[sel].ids, id)
+		}
+	}
+}
+
+// applyLayerVisibility — the Sequence's proven pass, layer edition:
+// only the selected layer's members stay visible, in the wire layer
+// and in collision; tunnels are TOTALLY exempt (the seat-belt); every
+// path that changes the visible layer funnels here, so the tunnel
+// re-seat rides along. Português: O passe provado do Sequence, edição
+// camadas — só a camada ativa fica visível, na wire layer e na
+// colisão; túneis totalmente isentos; o re-assento dos túneis pega
+// carona no funil.
+func (e *StatementFunction) applyLayerVisibility() {
+	if e.stage == nil {
+		return
+	}
+	for i := range e.layers {
+		show := e.layers[i].id == e.selectedLayer
+		for _, id := range e.layers[i].ids {
+			if strings.HasPrefix(id, "tunnel") {
+				continue
+			}
+			if elem, found := e.stage.GetElement(id); found {
+				elem.SetVisible(show)
+			}
+			if warnElem, found := e.stage.GetElement(id + "_warning"); found {
+				if !show {
+					warnElem.SetVisible(false)
+				}
+			}
+			if e.wireMgr != nil {
+				e.wireMgr.SetElementHidden(id, !show)
+			}
+			if e.sceneMgr != nil {
+				e.sceneMgr.SetHidden(id, !show)
+			}
+		}
+	}
+	e.refreshFunctionTunnelViews()
+}
+
+func (e *StatementFunction) RefreshMembership() {
+	e.maintainLayerMembership()
+	e.applyLayerVisibility()
+}
 func (e *StatementFunction) SetCanvasEl(el js.Value)                { e.canvasEl = el }
 func (e *StatementFunction) SetResizerButton(rb block.ResizeButton) { e.resizerButton = rb }
 func (e *StatementFunction) SetDraggerButton(_ block.ResizeButton)  {}
@@ -610,7 +1011,12 @@ func (e *StatementFunction) getBodyMenuItems() []contextMenu.Item {
 		resizeAction = func() { e.SetResizeEnable(false) }
 	}
 
-	return []contextMenu.Item{
+	// The LAYER section leads the function's menu (L1): the dropdown
+	// opens this same menu, so the layers live exactly where the maker
+	// clicks the pill. Português: A seção de CAMADAS abre o menu — o
+	// dropdown cai aqui, então as camadas moram onde o maker clica.
+	items := e.layerSelectMenuItems()
+	items = append(items, []contextMenu.Item{
 		mainMenu.DeleteItem(func() {
 			log.Printf("[Loop] delete: %v", e.id)
 			e.Remove()
@@ -618,6 +1024,37 @@ func (e *StatementFunction) getBodyMenuItems() []contextMenu.Item {
 		mainMenu.InspectItem(func() {
 			go e.showInspectOverlay()
 		}),
+		{
+			ID:              "fn_add_param",
+			Label:           translate.T("funcAddParam", "\uFF0B Parameter tunnel"),
+			FontAwesomePath: seqIconPlus.Path,
+			ViewBox:         seqIconPlus.ViewBox,
+			HelpKey:         "helpFuncAddParam",
+			HelpFallback:    "Adds an input tunnel on the LEFT border. Its name (Rename on the tunnel menu) becomes the parameter name in the generated code.",
+			OnClick:         func() { e.createFunctionTunnel("left") },
+		},
+		{
+			ID:              "fn_save_myitems",
+			Label:           translate.T("funcSaveMyItems", "Save to My Items"),
+			FontAwesomePath: rulesIcon.KFAFloppyDisk,
+			ViewBox:         "0 0 448 512",
+			HelpKey:         "helpFuncSaveMyItems",
+			HelpFallback:    "Publishes this function to My Items so it can be dropped on any scene as a block. Published items are frozen — evolve by saving under a new name.",
+			OnClick: func() {
+				if e.saveToMyItems != nil {
+					e.saveToMyItems(e.id)
+				}
+			},
+		},
+		{
+			ID:              "fn_add_return",
+			Label:           translate.T("funcAddReturn", "\uFF0B Return tunnel"),
+			FontAwesomePath: seqIconPlus.Path,
+			ViewBox:         seqIconPlus.ViewBox,
+			HelpKey:         "helpFuncAddReturn",
+			HelpFallback:    "Adds an output tunnel on the RIGHT border. Its name becomes the return name; wire a value into it from inside.",
+			OnClick:         func() { e.createFunctionTunnel("right") },
+		},
 		{
 			ID:              "resize",
 			Label:           resizeLabel,
@@ -664,7 +1101,8 @@ func (e *StatementFunction) getBodyMenuItems() []contextMenu.Item {
 				}
 			},
 		},
-	}
+	}...)
+	return items
 }
 
 // =====================================================================
@@ -792,6 +1230,14 @@ func (e *StatementFunction) wireEvents() {
 		if e.sceneMgr != nil {
 			e.sceneMgr.UpdateDrag(e.id)
 		}
+		// Signature tunnels are wire-layer citizens with no elem — the
+		// drag machinery cannot carry them; the refresher re-pins them
+		// to the FRESH ornament every frame (field 2026-07-19: "os
+		// túneis não são arrastados juntos"). Português: Túneis de
+		// assinatura são cidadãos da wire layer, sem elem — o drag não
+		// os carrega; o refresher re-pina no ornamento FRESCO a cada
+		// frame.
+		e.refreshFunctionTunnelViews()
 	})
 
 	e.elem.SetOnDragEnd(func(event sprite.DragEvent) {
@@ -800,6 +1246,7 @@ func (e *StatementFunction) wireEvents() {
 		newX, newY := e.gridAdjust.AdjustCenterD(x, y)
 		e.elem.SetPositionD(newX, newY)
 
+		e.refreshFunctionTunnelViews()
 		// Compute the total delta of the gesture and hand it to the
 		// scenegraph, which translates every descendant by (dx, dy)
 		// and reassigns parentage if conflicts are clean.
@@ -865,10 +1312,14 @@ func (e *StatementFunction) wireEvents() {
 				e.elem.SetSize(clamped.W, clamped.H)
 			}
 		}
+		// Rails move with the border — re-pin per resize frame too.
+		// Português: Trilhos acompanham a borda — re-pina por frame.
+		e.refreshFunctionTunnelViews()
 	})
 
 	e.elem.SetOnResizeEnd(func(event sprite.ResizeEvent) {
 		e.hideChildBoundsOverlay()
+		e.refreshFunctionTunnelViews()
 
 		// Grid snap the new size.
 		wD, hD := e.elem.GetSizeD()
@@ -1093,6 +1544,27 @@ func (e *StatementFunction) ApplyProperties(values map[string]string) {
 	if v, ok := values["comment"]; ok {
 		e.comment = v
 	}
+	if s := values["layers"]; s != "" {
+		type layerWire struct {
+			ID    string   `json:"id"`
+			Label string   `json:"label"`
+			IDs   []string `json:"ids"`
+		}
+		var ls []layerWire
+		if err := json.Unmarshal([]byte(s), &ls); err == nil {
+			e.layers = e.layers[:0]
+			for _, l := range ls {
+				if l.ID != "" {
+					e.layers = append(e.layers, functionLayer{
+						id: l.ID, label: l.Label, ids: l.IDs,
+					})
+				}
+			}
+		}
+	}
+	if v := values["selectedLayer"]; v != "" {
+		e.selectedLayer = v
+	}
 	if v, ok := values["functionName"]; ok && v != "" {
 		e.functionName = v
 		if e.ornamentDraw != nil {
@@ -1119,6 +1591,31 @@ func (e *StatementFunction) GetProperties() map[string]interface{} {
 	}
 	if e.comment != "" {
 		props["comment"] = e.comment
+	}
+	if len(e.layers) > 0 {
+		// Layers travel as a JSON STRING: ReplayProperties flattens
+		// every value through fmt.Sprintf, which would mangle a slice
+		// — a pre-marshaled string passes intact (the house pattern
+		// for structured props). Português: Camadas viajam como STRING
+		// JSON — o achatador do ReplayProperties destruiria um slice;
+		// a string pré-serializada passa intacta (padrão da casa).
+		type layerWire struct {
+			ID    string   `json:"id"`
+			Label string   `json:"label,omitempty"`
+			IDs   []string `json:"ids,omitempty"`
+		}
+		ls := make([]layerWire, 0, len(e.layers))
+		for k := range e.layers {
+			ls = append(ls, layerWire{
+				ID:    e.layers[k].id,
+				Label: e.layers[k].label,
+				IDs:   append([]string(nil), e.layers[k].ids...),
+			})
+		}
+		if b, err := json.Marshal(ls); err == nil {
+			props["layers"] = string(b)
+			props["selectedLayer"] = e.selectedLayer
+		}
 	}
 	return props
 }

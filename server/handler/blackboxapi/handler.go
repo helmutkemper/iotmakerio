@@ -94,6 +94,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"server/codegen"
 	bbparser "server/codegen/blackbox"
 	"server/middleware"
 	"server/store"
@@ -403,6 +404,12 @@ type clientBlackBoxDef struct {
 	// default for any future caller that forgets to populate it.
 	Origin string `json:"origin,omitempty"`
 
+	// DefOrigin is the DEFINITION's provenance ("wires" for a maker-drawn
+	// graphical function), orthogonal to the ownership Origin above.
+	// Português: Proveniência da DEFINIÇÃO ("wires" para função gráfica),
+	// ortogonal ao Origin de posse acima.
+	DefOrigin string `json:"defOrigin,omitempty"`
+
 	// IsOwn is the boolean shortcut for Origin == "own". Having both a
 	// discriminator (Origin) and a flag (IsOwn) costs two bytes per item
 	// and removes an entire class of "did you remember to compare to the
@@ -593,6 +600,26 @@ func toClientDef(def *bbparser.BlackBoxDef) clientBlackBoxDef {
 		StructIcon:  def.StructIcon,
 		StructLabel: def.StructLabel,
 		Interactive: def.Interactive,
+	}
+
+	// WIRES def (P4): synthesise ONE menu-facing function from the
+	// derived signature, so the existing submenu → CreateBlackBoxFunction
+	// path renders the instance block with the right pins. DefOrigin lets
+	// the client discriminate. Português: Def de FIOS — sintetiza UMA
+	// função de menu da assinatura derivada; o caminho existente
+	// renderiza o bloco com os pinos certos.
+	if def.Origin == "wires" {
+		cd.DefOrigin = "wires"
+		if params, returns, err := codegen.WiresSignature(def); err == nil {
+			fn := clientFunctionDef{Name: def.Name, Label: def.Name}
+			for _, p := range params {
+				fn.Inputs = append(fn.Inputs, clientPortDef{Name: p.Name, GoType: p.Type})
+			}
+			for _, r := range returns {
+				fn.Outputs = append(fn.Outputs, clientPortDef{Name: r.Name, GoType: r.Type})
+			}
+			cd.Functions = []clientFunctionDef{fn}
+		}
 	}
 
 	if def.Init != nil {

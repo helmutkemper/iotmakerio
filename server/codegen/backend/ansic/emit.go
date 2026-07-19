@@ -57,6 +57,7 @@ package ansic
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -309,15 +310,19 @@ type cEmitter struct {
 	// bodies, fileVars the `static` shared declarations. Português:
 	// Espelho do truque de recorte do Go — funcs coleta os corpos
 	// `static void`, fileVars as declarações compartilhadas.
-	hasFuncs    bool
-	funcMark    int
-	funcName    string
-	funcParams  []funcSigPort
-	funcReturns []funcSigPort
-	funcs       strings.Builder
-	fileVars    strings.Builder
-	declared    map[string]bool
-	ifStack     []ifFrame
+	hasFuncs     bool
+	funcMark     int
+	funcName     string
+	funcComment  string
+	funcPDoc     []string
+	funcRDoc     []string
+	entryEmitted bool
+	funcParams   []funcSigPort
+	funcReturns  []funcSigPort
+	funcs        strings.Builder
+	fileVars     strings.Builder
+	declared     map[string]bool
+	ifStack      []ifFrame
 
 	// bbSurfaces caches the computed public surface of each multi-file
 	// black-box, keyed by BlackBoxDef.ID. Lazily filled by surfaceFor the
@@ -481,7 +486,7 @@ func (e *cEmitter) emit() {
 		// Português: O comentário do device (carimbado pelo IR na primeira
 		// instrução do node) o prefixa como linhas `// `, uma por linha do
 		// comentário, na indentação corrente.
-		if c := inst.Meta["comment"]; c != "" {
+		if c := inst.Meta["comment"]; c != "" && inst.Op != ir.OpFuncBegin {
 			for _, line := range strings.Split(c, "\n") {
 				e.writef("// %s\n", strings.TrimRight(line, " \t"))
 			}
@@ -499,6 +504,15 @@ func (e *cEmitter) emit() {
 			// (o padrão das black-boxes); a função segue void.
 			e.funcParams = parseFuncSig(inst.Meta["params"])
 			e.funcReturns = parseFuncSig(inst.Meta["returns"])
+			// The function's own comment and the per-port docs render
+			// ABOVE the lifted header (field 2026-07-19: the generic
+			// printer dropped the comment inside main's trunk, before
+			// the region mark). Português: O comentário da função e os
+			// docs de porta renderizam ACIMA do cabeçalho içado (o
+			// impressor genérico o derrubava dentro do main).
+			e.funcComment = inst.Meta["comment"]
+			e.funcPDoc = decodePortDocs(inst.Meta["pdoc"])
+			e.funcRDoc = decodePortDocs(inst.Meta["rdoc"])
 		case ir.OpFuncEnd:
 			region := e.body.String()[e.funcMark:]
 			trunk := e.body.String()[:e.funcMark]
@@ -515,7 +529,48 @@ func (e *cEmitter) emit() {
 			if len(sig) > 0 {
 				args = strings.Join(sig, ", ")
 			}
-			e.funcs.WriteString("static void " + e.funcName + "(" + args + ") {\n")
+			linkage := "static void "
+			if e.profile.ProvidesEntryPoints && isArduinoEntry(e.funcName) {
+				// Reserved-name entry point (setup/loop/serialEvent):
+				// the runtime calls it by EXTERNAL linkage — no static.
+				// The signature guard upstream already forbade tunnels
+				// on it, so args is "void" here. Português: Ponto de
+				// entrada de nome reservado — o runtime chama por
+				// linkage EXTERNO, sem static; a guarda de assinatura
+				// já proibiu túneis nele.
+				linkage = "void "
+				e.entryEmitted = true
+			}
+			for _, line := range docLines(e.funcComment) {
+				e.funcs.WriteString("// " + line + "\n")
+			}
+			// Multiline port notes: EVERY line wears the comment prefix
+			// (field 2026-07-19: bare continuation lines broke the C).
+			// First line carries "name:", continuations indent under it.
+			// Português: Notas multilinha — TODA linha veste o prefixo
+			// (linhas de continuação nuas quebravam o C); a primeira
+			// leva "name:", as demais indentam sob ela.
+			writeDoc := func(name, doc string) {
+				lines := docLines(doc)
+				for li, line := range lines {
+					if li == 0 {
+						e.funcs.WriteString("// " + name + ": " + line + "\n")
+					} else {
+						e.funcs.WriteString("//   " + line + "\n")
+					}
+				}
+			}
+			for i, p := range e.funcParams {
+				if i < len(e.funcPDoc) {
+					writeDoc(p.name, e.funcPDoc[i])
+				}
+			}
+			for i, r := range e.funcReturns {
+				if i < len(e.funcRDoc) {
+					writeDoc(r.name, e.funcRDoc[i])
+				}
+			}
+			e.funcs.WriteString(linkage + e.funcName + "(" + args + ") {\n")
 			e.funcs.WriteString(region)
 			e.funcs.WriteString("}\n\n")
 			e.funcParams, e.funcReturns = nil, nil
@@ -529,6 +584,8 @@ func (e *cEmitter) emit() {
 				}
 			}
 			e.writef("return;\n")
+		case ir.OpCall:
+			e.emitCall(inst)
 		case ir.OpVar:
 			e.emitVar(inst)
 		case ir.OpAssign:
@@ -1705,6 +1762,79 @@ func (e *cEmitter) emitSleep(inst ir.Instruction) {
 // float sem -Wl,-u,vfprintf -lprintf_flt — %g sai "?"; é propriedade do
 // LINKER, então o emitter fica uniforme e o help do device avisa.
 
+// arduinoEntryNames are the reserved function names the Arduino core
+// calls by external linkage. Português: Nomes reservados que o core
+// Arduino chama por linkage externo.
+var arduinoEntryNames = map[string]bool{
+	"setup":       true,
+	"loop":        true,
+	"serialEvent": true,
+}
+
+// IsArduinoEntry — membership in the reserved set (exported: the
+// orchestrator's signature guard asks too). Português: Pertinência ao
+// conjunto reservado (exportado: a guarda do orquestrador também usa).
+func IsArduinoEntry(name string) bool { return arduinoEntryNames[name] }
+
+func isArduinoEntry(name string) bool { return IsArduinoEntry(name) }
+
+// decodePortDocs — the JSON twin of parseFuncSig for free-text docs.
+// Português: O gêmeo JSON do parseFuncSig para docs de texto livre.
+func decodePortDocs(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// docLines splits a maker comment into printable lines, empty-safe.
+// Português: Divide o comentário em linhas imprimíveis; vazio-seguro.
+func docLines(s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
+}
+
+// emitCall renders a graphical-function call: every return gets a
+// declared out-param local (dead ones are scratch — C needs an lvalue
+// for the & either way), then the void call. Português: Chamada de
+// função gráfica — todo retorno ganha local declarado (mortos são
+// rascunho; C precisa de lvalue no & de qualquer forma), depois a
+// chamada void.
+func (e *cEmitter) emitCall(inst ir.Instruction) {
+	fn := inst.Meta["fn"]
+	dests := splitCSV(inst.Meta["dests"])
+	types := splitCSV(inst.Meta["types"])
+	parts := make([]string, 0, len(inst.Args)+len(dests))
+	for _, a := range inst.Args {
+		parts = append(parts, cOperand(a))
+	}
+	for i, d := range dests {
+		t := "int"
+		if i < len(types) {
+			t = types[i]
+		}
+		e.writef("%s %s;\n", cTypeName(t, e.profile), cIdent(d))
+		parts = append(parts, "&"+cIdent(d))
+	}
+	e.writef("%s(%s);\n", fn, strings.Join(parts, ", "))
+}
+
+// splitCSV — empty-safe comma split. Português: Split por vírgula,
+// vazio-seguro.
+func splitCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, ",")
+}
+
 // funcSigPort is one parsed slot of the FuncBegin signature Meta.
 // Português: Um slot decodificado do Meta de assinatura.
 type funcSigPort struct{ name, typ string }
@@ -2341,6 +2471,19 @@ func (e *cEmitter) wrapMain() string {
 	}
 	if e.funcs.Len() > 0 {
 		sb.WriteString(e.funcs.String())
+	}
+
+	// Entry-point profiles (Arduino model): the core owns main() —
+	// omit ours when reserved-name entries were emitted AND the trunk
+	// is empty. A non-empty trunk keeps main() so top-level statements
+	// are never silently lost; on the real board that double-main is
+	// the maker's honest link error. Português: Profiles com pontos de
+	// entrada — o core é dono do main(); omitimos o nosso quando
+	// entradas reservadas foram emitidas E o tronco está vazio. Tronco
+	// com conteúdo mantém o main() (nada se perde em silêncio).
+	if e.profile.ProvidesEntryPoints && e.entryEmitted &&
+		strings.TrimSpace(e.body.String()) == "" {
+		return sb.String()
 	}
 
 	sb.WriteString("int main(void) {\n")

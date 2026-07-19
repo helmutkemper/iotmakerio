@@ -39,6 +39,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -316,6 +317,25 @@ func makeCodegenHandler(rdb *redis.Client) asynq.HandlerFunc {
 		// (parse → build → validate → emit IR → backend), so a Cancel
 		// that arrives mid-flight bounds the CPU cost to at most one
 		// step of remaining work instead of the full 120s budget.
+		// [TEST HOOK] IOTMAKER_CODEGEN_DELAY_MS: an artificial pause
+		// before the pipeline runs, so a human can exercise the Cancel
+		// path — local jobs finish in milliseconds and the button is
+		// otherwise unclickable (field 2026-07-19: "não dá tempo de
+		// apertar cancele"). Env-gated, zero cost when unset; honors
+		// ctx so a cancel during the pause aborts immediately.
+		// Português: Pausa artificial antes do pipeline, para um
+		// humano conseguir exercitar o caminho do Cancel — jobs locais
+		// terminam em milissegundos. Ligado por env, custo zero
+		// desligado; respeita o ctx (cancel durante a pausa aborta).
+		if ms, _ := strconv.Atoi(os.Getenv("IOTMAKER_CODEGEN_DELAY_MS")); ms > 0 {
+			log.Printf("[codegen worker] test delay: %d ms (IOTMAKER_CODEGEN_DELAY_MS)", ms)
+			select {
+			case <-time.After(time.Duration(ms) * time.Millisecond):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+
 		resp := codegen.Generate(ctx, codegen.Request{
 			Scene:        p.Scene,
 			Language:     p.Language,

@@ -502,7 +502,16 @@ func LoadBlackBoxDefsForScene(sceneJSON []byte) (map[string]*bbparser.BlackBoxDe
 	// function-device defs by function name (see Source 1 below).
 	needed := make(map[string]bool)      // Go struct names
 	neededFuncs := make(map[string]bool) // C99 function names
+	neededWires := make(map[string]bool) // graphical-function names (My Items)
 	for _, d := range scene.Devices {
+		if d.Type == "StatementFunctionCall" {
+			// A graphical-function instance references its def by NAME
+			// (properties.function) — but this lean probe only decoded
+			// Type; the name is collected in the second pass below.
+			// Português: Instância referencia a def por NOME; o nome é
+			// coletado no segundo passe abaixo.
+			continue
+		}
 		if !strings.HasPrefix(d.Type, "BlackBox") {
 			continue
 		}
@@ -520,7 +529,27 @@ func LoadBlackBoxDefsForScene(sceneJSON []byte) (map[string]*bbparser.BlackBoxDe
 			neededFuncs[fnName] = true
 		}
 	}
-	if len(needed) == 0 && len(neededFuncs) == 0 {
+	// Second pass for graphical functions: their reference lives in
+	// properties.function, which the lean probe above skipped.
+	// Português: Segundo passe — a referência mora em
+	// properties.function, que a sonda enxuta pulou.
+	var withProps struct {
+		Devices []struct {
+			Type       string `json:"type"`
+			Properties struct {
+				Function string `json:"function"`
+			} `json:"properties"`
+		} `json:"devices"`
+	}
+	if json.Unmarshal(sceneJSON, &withProps) == nil {
+		for _, d := range withProps.Devices {
+			if d.Type == "StatementFunctionCall" && d.Properties.Function != "" {
+				neededWires[d.Properties.Function] = true
+			}
+		}
+	}
+
+	if len(needed) == 0 && len(neededFuncs) == 0 && len(neededWires) == 0 {
 		return nil, nil
 	}
 
@@ -678,6 +707,30 @@ func LoadBlackBoxDefsForScene(sceneJSON []byte) (map[string]*bbparser.BlackBoxDe
 			def.Author = &bbparser.AuthorInfo{Username: githubOwner, URL: githubURL}
 		}
 		defs[structName] = &def
+	}
+
+	// ── Source 3: My Items graphical functions (wires-origin) ─────────
+	// A raw scene from the stage carries method-block nodes
+	// ("BlackBox<fn>:<def>") — their def names landed in needed and
+	// neededFuncs above. Wires defs answer to those names too; the
+	// origin filter inside the query keeps code defs out. Português: A
+	// cena crua traz nodes de method-block; defs de fios respondem
+	// pelos mesmos nomes — o filtro de origem segura as de código.
+	for n := range needed {
+		neededWires[n] = true
+	}
+	for n := range neededFuncs {
+		neededWires[n] = true
+	}
+	if len(neededWires) > 0 {
+		wires, err := LoadWiresDefsByNames(neededWires)
+		if err == nil {
+			for name, def := range wires {
+				if defs[name] == nil {
+					defs[name] = def
+				}
+			}
+		}
 	}
 
 	return defs, nil

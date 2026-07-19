@@ -72,6 +72,8 @@ func Register(v1 *echo.Group, asynqClient *asynq.Client, rdb *redis.Client) {
 
 	// Submit + management endpoints.
 	auth.POST("/submit", h.handleSubmit)
+	// Graphical functions — "Save to My Items" (P3, 2026-07-19).
+	auth.POST("/wires", h.handleWiresSave)
 	auth.GET("/jobs/:jobId", h.handleJobStatus)
 	auth.GET("/mine", h.handleListMine)
 	// GET /:id must be registered AFTER the more-specific /jobs/:jobId and /mine
