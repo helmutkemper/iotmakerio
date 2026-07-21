@@ -636,6 +636,15 @@ func (s *Serializer) RemoveAll() {
 		s.graph.SetStackingResolver(s.stackingFn)
 	}
 	log.Printf("[SCENE] RemoveAll: stage cleared")
+	// GHOST CENSUS (2026-07-21): whatever survives the wipe names
+	// itself — stale wires/connectors/tunnel-records anchored the
+	// field's left-pointing zombie wires after restore. Português:
+	// CENSO DE FANTASMAS — o que sobreviver à limpeza se nomeia.
+	if s.wireMgr != nil {
+		log.Printf("[SCENE] RemoveAll ghosts: wires=%d connectors=%d tunnelRecords=%d",
+			s.wireMgr.WireCount(), s.wireMgr.ConnectorCount(), s.wireMgr.ManualTunnelCount())
+	}
+
 }
 
 // LastDeviceID returns the ID of the most recently registered device,

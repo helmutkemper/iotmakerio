@@ -1762,6 +1762,12 @@ func (m *Manager) RequestManualTunnelDelete(id string) {
 // ManualTunnelPoint returns the live junction point — the anchor the
 // device's connectors report. Português: O ponto vivo da junção — a
 // âncora que os conectores do device reportam.
+// Ghost-census counters (2026-07-21): cheap truth for the RemoveAll
+// audit. Português: Contadores do censo de fantasmas.
+func (m *Manager) WireCount() int         { return len(m.wires) }
+func (m *Manager) ConnectorCount() int    { return len(m.connectors) }
+func (m *Manager) ManualTunnelCount() int { return len(m.manualTunnels) }
+
 func (m *Manager) ManualTunnelPoint(id string) (Point, bool) {
 	t, ok := m.manualTunnels[id]
 	if !ok {

@@ -510,9 +510,17 @@ func (e *StatementFunction) refreshFunctionTunnelViews() {
 			// Pose forensics (2026-07-21): every phase tunnel confesses
 			// its decision — the field's side/wire anomalies get named
 			// facts. Português: Forense de pose — cada túnel confessa.
-			log.Printf("[TUNNEL-POSE] %s natal=%s sel=%s selIdx=%d natIdx=%d side=%s hidden=%v",
-				id, natal, e.phases.selected, selIdx, natIdx, side, hidden)
 			e.wireMgr.SetManualTunnelView(id, side, px, y, role, hidden)
+			// APPLIED truth, not just the decision: a missing record
+			// makes SetManualTunnelView a silent no-op (2026-07-21).
+			// Português: A verdade APLICADA — registro ausente torna o
+			// set um no-op silencioso.
+			ax, ay, aok := 0.0, 0.0, false
+			if pt, ok := e.wireMgr.ManualTunnelPoint(id); ok {
+				ax, ay, aok = pt.X, pt.Y, true
+			}
+			log.Printf("[TUNNEL-POSE] %s natal=%s sel=%s selIdx=%d natIdx=%d side=%s hidden=%v applied=(%.0f,%.0f) rec=%v",
+				id, natal, e.phases.selected, selIdx, natIdx, side, hidden, ax, ay, aok)
 			continue
 		}
 		// SIGNATURE tunnels live in the FIRST layer only (Kemper
@@ -595,6 +603,18 @@ func (e *StatementFunction) initPhaseEngine() {
 }
 
 func (e *StatementFunction) RefreshMembership() {
+	// Geometry confession (2026-07-21): post-restore the pose rails
+	// sat at x=287..667 while the drawn frame lived at ~470..967 —
+	// the ornament and the element disagree somewhere. Both speak
+	// now. Português: Confissão de geometria — pós-restore os trilhos
+	// divergiram do quadro; elemento e ornamento falam juntos.
+	if e.elem != nil {
+		ex, ey := e.elem.GetPosition()
+		ew, eh := e.elem.GetSize()
+		ox, oy, ow, oh := e.ornamentRect()
+		log.Printf("[FN-GEOM] %s elem=(%.0f,%.0f %vx%v) orn=(%.0f,%.0f %.0fx%.0f)",
+			e.id, ex, ey, ew, eh, ox, oy, ow, oh)
+	}
 	e.initPhaseEngine()
 	e.phases.maintain()
 	e.phases.applyVisibility()
