@@ -165,7 +165,14 @@ func drawTunnelMarker(ctx js.Value, x float64, y float64, color string, d float6
 // família interna (violeta), vermelho enquanto fresco.
 const (
 	manualTunnelViolet = "#8b5cf6"
-	manualTunnelRed    = "#ef4444"
+
+	// manualTunnelPhasePeach — the PHASE-tunnel unwired base color
+	// (Catppuccin Mocha peach): species distinction at creation time;
+	// the type color takes over once wired. Português: Base sem-fio do
+	// túnel de FASE (pêssego Catppuccin) — distinção de espécie na
+	// criação; a cor do tipo assume com fio.
+	manualTunnelPhasePeach = "#fab387"
+	manualTunnelRed        = "#ef4444"
 )
 
 // drawManualTunnelMarker — same square grammar as drawTunnelMarker, with
@@ -184,25 +191,44 @@ const (
 // (camaleão v2, todos os tipos, incluindo fatias []T ponteiro+len) —
 // derivada do fio de alimentação para pino e fio lerem como peça
 // contínua; sem fio, violeta interno — "aguardando tipo".
-func drawManualTunnelMarker(ctx js.Value, x, y float64, filled, fresh bool, role, pinColor, label string, d float64) {
+func drawManualTunnelMarker(ctx js.Value, x, y float64, filled, fresh bool, bothFaces bool, role, pinColor, baseColor, label string, d float64) {
 	side := 9.0 * d
 	half := side / 2
-	color := manualTunnelViolet
+	// baseColor paints the WHOLE rectangle (fill when filled, and the
+	// stroke) — the tunnel SPECIES color: violet signature, peach
+	// phase (Kemper 2026-07-20: "não mude só a cor da borda, mude o
+	// retângulo inteiro"). Fresh red still wins. Português: baseColor
+	// pinta o retângulo INTEIRO — cor da ESPÉCIE; o vermelho de
+	// recém-nascido ainda vence.
+	color := baseColor
+	if color == "" {
+		color = manualTunnelViolet
+	}
 	if fresh {
 		color = manualTunnelRed
 	}
 
 	// The pin goes UNDER the square (drawn first) so the junction face
 	// stays crisp. Português: Pino por baixo do quadrado.
-	if role == "in" || role == "out" {
+	// SIGNATURE tunnels (bothFaces) expose two live faces — draw a pin
+	// on EACH side (field 2026-07-20: "o túnel de parâmetro está sem o
+	// pino de conexão externo"). Phase tunnels keep the single
+	// role-side pin. Português: Túneis de ASSINATURA têm duas faces
+	// vivas — pino de CADA lado; os de fase mantêm o pino único.
+	if bothFaces || role == "in" || role == "out" {
 		pinLen := rulesConnection.PinLength()
 		pinThick := rulesConnection.PinThickness()
-		pinX := x + half // "out": protrudes right of the square
-		if role == "in" {
-			pinX = x - half - pinLen // "in": protrudes left of the square
-		}
 		ctx.Set("fillStyle", pinColor)
-		ctx.Call("fillRect", pinX, y-pinThick/2, pinLen, pinThick)
+		if bothFaces {
+			ctx.Call("fillRect", x+half, y-pinThick/2, pinLen, pinThick)
+			ctx.Call("fillRect", x-half-pinLen, y-pinThick/2, pinLen, pinThick)
+		} else {
+			pinX := x + half // "out": protrudes right of the square
+			if role == "in" {
+				pinX = x - half - pinLen // "in": protrudes left of the square
+			}
+			ctx.Call("fillRect", pinX, y-pinThick/2, pinLen, pinThick)
+		}
 	}
 
 	if filled {
@@ -224,7 +250,7 @@ func drawManualTunnelMarker(ctx js.Value, x, y float64, filled, fresh bool, role
 	// face EXTERNA — longe do interior da fase, espelhando o pino que
 	// aponta para dentro. O caller só passa rótulo quando o maker
 	// renomeou.
-	if label != "" && (role == "in" || role == "out") {
+	if label != "" && (bothFaces || role == "in" || role == "out") {
 		gap := 4.0 * d
 		tx := x + half + gap
 		align := "left"
@@ -232,11 +258,17 @@ func drawManualTunnelMarker(ctx js.Value, x, y float64, filled, fresh bool, role
 			tx = x - half - gap
 			align = "right"
 		}
+		// The name floats ABOVE the wire line (field 2026-07-20: "o
+		// label poderia ficar acima do wire") — baseline bottom, one
+		// gap over the square, so the outer wire runs clean under it.
+		// Português: O nome flutua ACIMA da linha do fio — baseline
+		// bottom, um gap sobre o quadrado; o fio externo passa limpo.
+		ty := y - half - gap
 		ctx.Set("font", fmt.Sprintf("%.0fpx sans-serif", 11*d))
 		ctx.Set("textAlign", align)
-		ctx.Set("textBaseline", "middle")
+		ctx.Set("textBaseline", "bottom")
 		ctx.Set("fillStyle", manualTunnelViolet)
-		ctx.Call("fillText", label, tx, y)
+		ctx.Call("fillText", label, tx, ty)
 	}
 }
 

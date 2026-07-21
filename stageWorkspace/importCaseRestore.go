@@ -5,6 +5,7 @@
 package stageWorkspace
 
 import (
+	"encoding/json"
 	"log"
 
 	"github.com/helmutkemper/iotmakerio/devices/compFlow"
@@ -38,6 +39,13 @@ type caseRestorable interface {
 //
 // Português: Reaplica a associação de cases após importar. Rode no fluxo de
 // import (idMap completo) e ANTES do NotifyChange pós-import.
+// phaseRestorable is the Function's phase-restore contract — the
+// import feeds it remapped entries. Português: Contrato de restore de
+// fases da Function; o import entrega entradas remapeadas.
+type phaseRestorable interface {
+	RestorePhaseState(selected string, phases []compFlow.CaseRestoreEntry)
+}
+
 func (w *Workspace) restoreImportedCases(devices []scene.DeviceJSON, idMap map[string]string) {
 	for _, dev := range devices {
 		newID, ok := idMap[dev.ID]
@@ -48,6 +56,30 @@ func (w *Workspace) restoreImportedCases(devices []scene.DeviceJSON, idMap map[s
 		if created == nil {
 			continue
 		}
+		// PHASE-hosting Function (2026-07-21, "o backup restaurou o
+		// componente totalmente errado"): its phases travel as a JSON
+		// STRING with the OLD member ids — parse, remap through idMap
+		// (the twins' own remapper) and hand to RestorePhaseState,
+		// which re-applies membership+visibility synchronously. The
+		// ApplyProperties path no longer parses phases (it would
+		// clobber with stale ids at +200ms). Português: Function com
+		// fases — a string JSON carrega ids ANTIGOS; parse + remap
+		// pelo idMap e entrega ao RestorePhaseState; o ApplyProperties
+		// não lê mais phases (clobberia com ids velhos).
+		if pr, isPhase := created.(phaseRestorable); isPhase {
+			if s, _ := dev.Properties["phases"].(string); s != "" {
+				var raw interface{}
+				if err := json.Unmarshal([]byte(s), &raw); err == nil {
+					entries := remapCases(raw, idMap)
+					selected, _ := dev.Properties["selectedPhase"].(string)
+					pr.RestorePhaseState(selected, entries)
+					log.Printf("[Workspace:%s] Import: restored phases for %s (selected=%q, phases=%d)",
+						w.Name, newID, selected, len(entries))
+				}
+			}
+			continue
+		}
+
 		cr, ok := created.(caseRestorable)
 		if !ok {
 			continue // not a case container — nothing to restore

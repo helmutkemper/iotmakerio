@@ -1166,13 +1166,15 @@ func TestEmit_Composite_ConstVarAssign_ArduinoUno(t *testing.T) {
 	// All three lines must appear, in this order.
 	assertContains(t, main, "int32_t x = 42L;")
 	assertContains(t, main, "int32_t y;")
-	assertContains(t, main, "y = xL;")
-	// Note the suffixed "xL" above: cLiteral appends IntSuffix to
-	// any "int"-typed value, regardless of whether the text is a
-	// number or an identifier. This faithfully mirrors the Go
-	// backend's goLiteral, which is also dumb-pass-through. Real
-	// register-to-register assignments would use OpVar + arithmetic,
-	// not OpAssign. See the function doc above.
+	assertContains(t, main, // The identifier passes RAW — the literal suffix glued onto a
+		// variable was the field bug 2026-07-21 ("tunnel_0LL").
+		// Português: Identificador passa CRU — o sufixo colado era o bug.
+		"y = x;")
+	// Identifiers pass RAW (three-way branch since 2026-07-21):
+	// register (%), literal (number/bool/quoted), identifier. The old
+	// two-way branch suffixed identifiers — the field's "tunnel_0LL".
+	// Português: Identificadores passam CRUS (ramo triplo); o ramo
+	// duplo antigo sufixava — o "tunnel_0LL" do campo.
 }
 
 // TestEmit_Composite_ConstVarAssign_PiLinux verifies the same flow

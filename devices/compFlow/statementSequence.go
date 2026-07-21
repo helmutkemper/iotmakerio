@@ -85,12 +85,6 @@ var (
 	seqIconPen    = rulesIcon.IconByNameOrDefault("pen", "gear")
 )
 
-// caseEntry is one case of a StatementSequence device: the literal selector values
-// it matches, the device IDs assigned to it, and whether it is the default.
-//
-// Português: Um case do StatementSequence — os valores literais que casa, os IDs
-// dos devices atribuídos e se é o default.
-
 type StatementSequence struct {
 	stage sprite.Stage
 	elem  sprite.Element
@@ -167,9 +161,17 @@ type StatementSequence struct {
 	// statement in the generated code and in the container's hover tooltip.
 	// Português: Comentário do usuário — vira linhas `// ` acima do
 	// statement deste container no código gerado e no tooltip de hover.
-	comment      string
-	selectedCase string      // id of the case currently shown/edited
-	cases        []caseEntry // ordered cases
+	comment string
+	// S1 (engine migration, Kemper 2026-07-20): the phase MODEL now
+	// lives in the shared phaseEngine — single source of truth with
+	// the Function (and the Case next). This slice is storage-only:
+	// every Sequence method below still runs its own proven logic,
+	// reading/writing e.phases.entries / e.phases.selected. S2 swaps
+	// the logic for engine calls, one group per field-tested slice.
+	// Português: S1 — o MODELO muda para o phaseEngine compartilhado;
+	// fatia só-de-armazenamento, lógica própria intacta; a S2 troca a
+	// lógica por chamadas ao engine, um grupo por fatia testada.
+	phases phaseEngine
 
 	// codegenPreview renders this Case as source via the real codegen, for the
 	// inspect panel's Preview tab. Injected by the factory from the Workspace;
@@ -397,7 +399,7 @@ func (e *StatementSequence) createTunnel() {
 	ox, oy, ow, oh := e.ornamentRect()
 	cx, cy := ox+ow, oy+oh*0.25
 	cx, cy = e.tunnelJudge(cx, cy, "right", "")
-	id := e.createTunnelFn(e.id, "right", cx, cy, e.selectedCase, e.tunnelJudge)
+	id := e.createTunnelFn(e.id, "right", cx, cy, e.phases.selected, e.tunnelJudge)
 	if id == "" {
 		return
 	}
@@ -485,17 +487,17 @@ func (e *StatementSequence) Init() (err error) {
 
 	// Selector type and default cases for a fresh device. A loaded device gets
 	// its cases re-applied by RestoreCaseState after import.
-	if len(e.cases) == 0 {
+	if len(e.phases.entries) == 0 {
 		// Two starter phases; labels are cosmetic — the pill and menu
 		// render phases BY INDEX ("phase N"). Português: Duas fases
 		// iniciais; rótulos são cosméticos — a UI renderiza por índice.
-		e.cases = []caseEntry{
+		e.phases.entries = []phaseEntry{
 			{id: e.id + "_c0", label: "phase 0", matchKind: "is", values: []string{"0"}},
 			{id: e.id + "_c1", label: "phase 1", matchKind: "is", values: []string{"1"}},
 		}
 	}
-	if e.selectedCase == "" {
-		e.selectedCase = e.cases[0].id
+	if e.phases.selected == "" {
+		e.phases.selected = e.phases.entries[0].id
 	}
 
 	e.ornamentDraw = new(seqBorder.SeqBorder)
@@ -571,8 +573,8 @@ func (e *StatementSequence) Init() (err error) {
 
 // caseIndexByID returns the index of the case with the given id, or -1.
 func (e *StatementSequence) caseIndexByID(id string) int {
-	for i := range e.cases {
-		if e.cases[i].id == id {
+	for i := range e.phases.entries {
+		if e.phases.entries[i].id == id {
 			return i
 		}
 	}
@@ -594,11 +596,11 @@ func (e *StatementSequence) caseIndexByID(id string) int {
 // são "phase N" literais mantidos em sincronia pelo
 // renumberDefaultLabels, então fases não renomeadas leem igual.
 func (e *StatementSequence) activeCaseLabel() string {
-	idx := e.caseIndexByID(e.selectedCase)
+	idx := e.caseIndexByID(e.phases.selected)
 	if idx < 0 {
 		return "phase"
 	}
-	if l := e.cases[idx].label; l != "" {
+	if l := e.phases.entries[idx].label; l != "" {
 		return l
 	}
 	return fmt.Sprintf("phase %d", idx)
@@ -607,7 +609,7 @@ func (e *StatementSequence) activeCaseLabel() string {
 // caseMenuLabel — the menu's painter, same label-first doctrine as
 // activeCaseLabel above. Português: O pintor do menu — mesma doutrina
 // nome-primeiro do activeCaseLabel.
-func (e *StatementSequence) caseMenuLabel(c caseEntry) string {
+func (e *StatementSequence) caseMenuLabel(c phaseEntry) string {
 	if c.label != "" {
 		return c.label
 	}
@@ -627,9 +629,9 @@ func (e *StatementSequence) caseMenuLabel(c caseEntry) string {
 // selecionado leva o ícone de olho pra o maker ver qual está no stage.
 // Substitui o placeholder de ciclar-ao-clicar da Slice-2.
 func (e *StatementSequence) caseSelectMenuItems() []contextMenu.Item {
-	items := make([]contextMenu.Item, 0, len(e.cases))
-	for i := range e.cases {
-		c := e.cases[i]
+	items := make([]contextMenu.Item, 0, len(e.phases.entries))
+	for i := range e.phases.entries {
+		c := e.phases.entries[i]
 		id := c.id // capture per iteration for the closure below
 		item := contextMenu.Item{
 			ID:           c.id,
@@ -637,7 +639,7 @@ func (e *StatementSequence) caseSelectMenuItems() []contextMenu.Item {
 			HelpFallback: "Show this case on the stage.",
 			OnClick:      func() { e.selectCase(id) },
 		}
-		if c.id == e.selectedCase {
+		if c.id == e.phases.selected {
 			item.FontAwesomePath = rulesIcon.KFAEye
 			item.ViewBox = "0 0 512 512"
 		}
@@ -680,7 +682,7 @@ func (e *StatementSequence) caseSelectMenuItems() []contextMenu.Item {
 		ViewBox:         seqIconPlus.ViewBox,
 		HelpKey:         "helpSeqInsertBefore",
 		HelpFallback:    "Adds an empty phase immediately before the phase on screen.",
-		OnClick:         func() { e.insertPhaseAt(e.caseIndexByID(e.selectedCase)) },
+		OnClick:         func() { e.insertPhaseAt(e.caseIndexByID(e.phases.selected)) },
 	})
 	items = append(items, contextMenu.Item{
 		ID:              "seq_ins_after",
@@ -689,7 +691,7 @@ func (e *StatementSequence) caseSelectMenuItems() []contextMenu.Item {
 		ViewBox:         seqIconPlus.ViewBox,
 		HelpKey:         "helpSeqInsertAfter",
 		HelpFallback:    "Adds an empty phase immediately after the phase on screen.",
-		OnClick:         func() { e.insertPhaseAt(e.caseIndexByID(e.selectedCase) + 1) },
+		OnClick:         func() { e.insertPhaseAt(e.caseIndexByID(e.phases.selected) + 1) },
 	})
 	items = append(items, contextMenu.Item{
 		ID:              "seq_rename",
@@ -700,14 +702,14 @@ func (e *StatementSequence) caseSelectMenuItems() []contextMenu.Item {
 		HelpFallback:    "Gives the phase on screen a meaningful name (display only).",
 		OnClick:         func() { go e.renameSelectedPhase() },
 	})
-	if len(e.cases) > 1 {
+	if len(e.phases.entries) > 1 {
 		items = append(items, contextMenu.Item{
 			ID:              "seq_del",
 			Label:           translate.T("seqRemovePhase", "− Remove this phase"),
 			FontAwesomePath: seqIconMinus.Path,
 			ViewBox:         seqIconMinus.ViewBox,
 			HelpFallback:    "Removes the phase on screen; its devices move to the neighbor phase.",
-			OnClick:         func() { e.removePhaseAt(e.caseIndexByID(e.selectedCase)) },
+			OnClick:         func() { e.removePhaseAt(e.caseIndexByID(e.phases.selected)) },
 		})
 	}
 	return items
@@ -718,17 +720,17 @@ func (e *StatementSequence) caseSelectMenuItems() []contextMenu.Item {
 func (e *StatementSequence) addPhase() {
 	e.assignNewChildren()
 	taken := map[string]bool{}
-	for _, c := range e.cases {
+	for _, c := range e.phases.entries {
 		taken[c.id] = true
 	}
-	idx := len(e.cases)
-	e.cases = append(e.cases, caseEntry{
+	idx := len(e.phases.entries)
+	e.phases.entries = append(e.phases.entries, phaseEntry{
 		id:        nextCaseID(e.id, taken),
 		label:     fmt.Sprintf("phase %d", idx),
 		matchKind: "is",
 		values:    []string{fmt.Sprintf("%d", idx)},
 	})
-	e.selectCase(e.cases[idx].id)
+	e.selectCase(e.phases.entries[idx].id)
 	if e.sceneNotify != nil {
 		e.sceneNotify()
 	}
@@ -748,23 +750,23 @@ func (e *StatementSequence) insertPhaseAt(idx int) {
 	if idx < 0 {
 		idx = 0
 	}
-	if idx > len(e.cases) {
-		idx = len(e.cases)
+	if idx > len(e.phases.entries) {
+		idx = len(e.phases.entries)
 	}
 	e.assignNewChildren()
 	taken := map[string]bool{}
-	for _, c := range e.cases {
+	for _, c := range e.phases.entries {
 		taken[c.id] = true
 	}
-	fresh := caseEntry{
+	fresh := phaseEntry{
 		id:        nextCaseID(e.id, taken),
 		label:     fmt.Sprintf("phase %d", idx),
 		matchKind: "is",
 		values:    []string{fmt.Sprintf("%d", idx)},
 	}
-	e.cases = append(e.cases, caseEntry{})
-	copy(e.cases[idx+1:], e.cases[idx:])
-	e.cases[idx] = fresh
+	e.phases.entries = append(e.phases.entries, phaseEntry{})
+	copy(e.phases.entries[idx+1:], e.phases.entries[idx:])
+	e.phases.entries[idx] = fresh
 	e.renumberDefaultLabels()
 	e.selectCase(fresh.id)
 	if e.sceneNotify != nil {
@@ -789,17 +791,17 @@ func (e *StatementSequence) insertPhaseAt(idx int) {
 // pré-túnel orfanava referências de natal em silêncio; isto cura esse
 // caminho também.
 func (e *StatementSequence) removePhaseAt(idx int) {
-	if len(e.cases) < 2 || idx < 0 || idx >= len(e.cases) {
+	if len(e.phases.entries) < 2 || idx < 0 || idx >= len(e.phases.entries) {
 		return
 	}
 	e.assignNewChildren()
-	removedID := e.cases[idx].id
+	removedID := e.phases.entries[idx].id
 	neighbor := idx - 1
 	if neighbor < 0 {
 		neighbor = idx + 1
 	}
-	neighborID := e.cases[neighbor].id
-	e.cases[neighbor].ids = append(e.cases[neighbor].ids, e.cases[idx].ids...)
+	neighborID := e.phases.entries[neighbor].id
+	e.phases.entries[neighbor].ids = append(e.phases.entries[neighbor].ids, e.phases.entries[idx].ids...)
 
 	if e.wireMgr != nil {
 		for _, tid := range e.wireMgr.ManualTunnelIDsFor(e.id) {
@@ -815,9 +817,9 @@ func (e *StatementSequence) removePhaseAt(idx int) {
 		}
 	}
 
-	e.cases = append(e.cases[:idx], e.cases[idx+1:]...)
+	e.phases.entries = append(e.phases.entries[:idx], e.phases.entries[idx+1:]...)
 	e.renumberDefaultLabels()
-	if e.selectedCase == removedID {
+	if e.phases.selected == removedID {
 		e.selectCase(neighborID)
 	} else {
 		e.applyCaseVisibility()
@@ -836,15 +838,15 @@ func (e *StatementSequence) removePhaseAt(idx int) {
 // left untouched. Português: Realinha rótulos automáticos "phase N" com
 // as posições após cirurgia; nomes dados pelo maker ficam intactos.
 func (e *StatementSequence) renumberDefaultLabels() {
-	for i := range e.cases {
-		rest, ok := strings.CutPrefix(e.cases[i].label, "phase ")
+	for i := range e.phases.entries {
+		rest, ok := strings.CutPrefix(e.phases.entries[i].label, "phase ")
 		if !ok {
 			continue
 		}
 		if _, err := strconv.Atoi(rest); err != nil {
 			continue
 		}
-		e.cases[i].label = fmt.Sprintf("phase %d", i)
+		e.phases.entries[i].label = fmt.Sprintf("phase %d", i)
 	}
 }
 
@@ -854,11 +856,11 @@ func (e *StatementSequence) renumberDefaultLabels() {
 // pure legibility. Português: Abre o formulário da casa para a fase em
 // cena. Rótulos são só exibição — legibilidade pura.
 func (e *StatementSequence) renameSelectedPhase() {
-	idx := e.caseIndexByID(e.selectedCase)
+	idx := e.caseIndexByID(e.phases.selected)
 	if idx < 0 {
 		return
 	}
-	caseID := e.cases[idx].id
+	caseID := e.phases.entries[idx].id
 	overlay.Show(overlay.Config{
 		Title: translate.T("seqRenameTitle", "Rename phase"),
 		Width: "420px",
@@ -871,7 +873,7 @@ func (e *StatementSequence) renameSelectedPhase() {
 						Key:         "label",
 						Label:       translate.T("seqPhaseLabel", "Phase name"),
 						Type:        overlay.FieldText,
-						Value:       e.cases[idx].label,
+						Value:       e.phases.entries[idx].label,
 						Placeholder: translate.T("seqPhasePlaceholder", "read sensors"),
 					},
 				},
@@ -886,7 +888,7 @@ func (e *StatementSequence) renameSelectedPhase() {
 			if i < 0 {
 				return
 			}
-			e.cases[i].label = v
+			e.phases.entries[i].label = v
 			if e.ornamentDraw != nil {
 				e.ornamentDraw.SetCaseLabel(e.activeCaseLabel())
 			}
@@ -906,7 +908,7 @@ func (e *StatementSequence) renameSelectedPhase() {
 // Português: Mantida como casca fina; o removePhaseAt carrega o cuidado
 // com túneis que a original não tinha.
 func (e *StatementSequence) removeLastPhase() {
-	e.removePhaseAt(len(e.cases) - 1)
+	e.removePhaseAt(len(e.phases.entries) - 1)
 }
 
 // selectCase makes the case with the given id the visible/edited one. It first
@@ -924,23 +926,29 @@ func (e *StatementSequence) removeLastPhase() {
 //
 // É a primitiva de seleção por trás do dropdown da pílula; substituiu o
 // placeholder cycleCase da Slice-2.
+// assignNewChildren — compatibility shim (S2b): every historical call
+// site now flows through the engine's maintain, which runs the same
+// doctrine helper this method always delegated to. Português: Shim de
+// compatibilidade — todos os chamadores históricos fluem pelo maintain
+// do engine, que roda o mesmo helper doutrinário de sempre.
+func (e *StatementSequence) assignNewChildren() {
+	e.initPhaseEngine()
+	e.phases.maintain()
+}
+
 func (e *StatementSequence) selectCase(id string) {
-	e.assignNewChildren()
+	// S2b: the core runs in the engine (doctrine ordering: adopt →
+	// switch → visibility), the Sequence tail rides onSelect. Guards
+	// stay host-side. Português: O núcleo roda no engine (ordem
+	// doutrinária), a cauda do Sequence vai no onSelect; guardas aqui.
 	if e.caseIndexByID(id) < 0 {
 		return
 	}
-	if id == e.selectedCase {
+	if id == e.phases.selected {
 		return
 	}
-	e.selectedCase = id
-
-	log.Printf("[Case] select %q on %v", id, e.id)
-
-	e.applyCaseVisibility()
-	if e.ornamentDraw != nil {
-		e.ornamentDraw.SetCaseLabel(e.activeCaseLabel())
-	}
-	go e.recacheOrnament()
+	e.initPhaseEngine()
+	e.phases.selectPhase(id)
 }
 
 // caseSelectorTypes are the data types a Case selector input accepts. The
@@ -973,48 +981,71 @@ func (e *StatementSequence) selectCase(id string) {
 // extras vão para o case "false", para nada ficar órfão (mesma regra do
 // ApplyProperties ao apagar um case).
 func (e *StatementSequence) snapCasesToBool() {
-	trueCase := caseEntry{label: "true", matchKind: "is", values: []string{"true"}}
-	falseCase := caseEntry{label: "false", matchKind: "is", values: []string{"false"}}
-	if len(e.cases) > 0 {
-		trueCase.id = e.cases[0].id
-		trueCase.ids = e.cases[0].ids
+	trueCase := phaseEntry{label: "true", matchKind: "is", values: []string{"true"}}
+	falseCase := phaseEntry{label: "false", matchKind: "is", values: []string{"false"}}
+	if len(e.phases.entries) > 0 {
+		trueCase.id = e.phases.entries[0].id
+		trueCase.ids = e.phases.entries[0].ids
 	} else {
 		trueCase.id = e.id + "_ctrue"
 	}
-	if len(e.cases) > 1 {
-		falseCase.id = e.cases[1].id
-		falseCase.ids = e.cases[1].ids
+	if len(e.phases.entries) > 1 {
+		falseCase.id = e.phases.entries[1].id
+		falseCase.ids = e.phases.entries[1].ids
 	} else {
 		falseCase.id = e.id + "_cfalse"
 	}
-	for i := 2; i < len(e.cases); i++ {
-		falseCase.ids = append(falseCase.ids, e.cases[i].ids...)
+	for i := 2; i < len(e.phases.entries); i++ {
+		falseCase.ids = append(falseCase.ids, e.phases.entries[i].ids...)
 	}
-	e.cases = []caseEntry{trueCase, falseCase}
-	if e.caseIndexByID(e.selectedCase) < 0 {
-		e.selectedCase = e.cases[0].id
+	e.phases.entries = []phaseEntry{trueCase, falseCase}
+	if e.caseIndexByID(e.phases.selected) < 0 {
+		e.phases.selected = e.phases.entries[0].id
 	}
 }
 
-// assignNewChildren assigns newly-contained children to the selected case and
-// drops IDs that left the container. Mirrors the if/else branch assignment,
-// generalised to N cases.
-//
-// Português: Atribui novos filhos ao case selecionado e remove os que saíram.
-func (e *StatementSequence) assignNewChildren() {
-	// Delegates to the shared resilient pass — see maintainCaseMembership
-	// in util.go for the 2026-07-18 collapse forensics and the doctrine.
-	// Português: Delega ao passe resiliente compartilhado (util.go).
-	maintainCaseMembership(e.sceneMgr, e.id, e.GetInnerBBox(),
-		e.cases, e.caseIndexByID(e.selectedCase))
+func (e *StatementSequence) initPhaseEngine() {
+	if e.phases.setElemVisible != nil {
+		return
+	}
+	e.phases.exempt = tunnelExempt
+	e.phases.setElemVisible = func(id string, show bool) {
+		if e.stage == nil {
+			return
+		}
+		if elem, found := e.stage.GetElement(id); found {
+			elem.SetVisible(show)
+		}
+		if warnElem, found := e.stage.GetElement(id + "_warning"); found {
+			if !show {
+				warnElem.SetVisible(false)
+			}
+		}
+	}
+	e.phases.setWireHidden = func(id string, hidden bool) {
+		if e.wireMgr != nil {
+			e.wireMgr.SetElementHidden(id, hidden)
+		}
+	}
+	e.phases.setSpatialHidden = func(id string, hidden bool) {
+		if e.sceneMgr != nil {
+			e.sceneMgr.SetHidden(id, hidden)
+		}
+	}
+	e.phases.tail = func() { e.refreshTunnelViews() }
+	e.phases.maintainHook = func(entries []phaseEntry, selectedIdx int) {
+		maintainCaseMembership(e.sceneMgr, e.id, e.GetInnerBBox(),
+			entries, selectedIdx)
+	}
+	e.phases.onSelect = func(id string) {
+		log.Printf("[Case] select %q on %v", id, e.id)
+		if e.ornamentDraw != nil {
+			e.ornamentDraw.SetCaseLabel(e.activeCaseLabel())
+		}
+		go e.recacheOrnament()
+	}
 }
 
-// applyCaseVisibility shows the selected case's children and hides every other
-// case's children, mirroring the if/else branch visibility (show one, hide the
-// rest). Hidden devices also leave the wire layer and collision so the inactive
-// cases show no orphan wires and are not cross-case connect targets.
-//
-// Português: Mostra os filhos do case selecionado e esconde os dos demais.
 func (e *StatementSequence) applyCaseVisibility() {
 	if e.stage == nil {
 		return
@@ -1042,52 +1073,14 @@ func (e *StatementSequence) applyCaseVisibility() {
 	// quadrado persiste, violeta e cheio, em toda troca de fase,
 	// enquanto o fio de alimentação some com a fonte. Os dois relatos
 	// de campo ficam satisfeitos ao mesmo tempo. Corpo espelha o Case.
-	for i := range e.cases {
-		show := e.cases[i].id == e.selectedCase
-		for _, id := range e.cases[i].ids {
-			// Border furniture is TOTALLY exempt — not just spatially.
-			// A tunnel id must never be touched in ANY dimension here:
-			// visual (the shell has no elem), wire-hidden (would cull
-			// its feed and drop it from connect targeting), or spatial
-			// (SetHidden(false) revived the straddle conflict, field
-			// 2026-07-17). Hidden-from-birth shells never gain a parent,
-			// so they never land in ids — this is the seat-belt.
-			// Português: Móvel de borda é TOTALMENTE isento — nunca
-			// tocar túnel em nenhuma dimensão: visual (casca sem elem),
-			// wire-hidden (cortaria o feed e o tiraria do connect) ou
-			// espacial (SetHidden(false) ressuscitou o straddle).
-			// Cascas nunca ganham pai, então nunca caem em ids — isto
-			// é o cinto de segurança.
-			if strings.HasPrefix(id, "tunnel") {
-				continue
-			}
-			if elem, found := e.stage.GetElement(id); found {
-				elem.SetVisible(show)
-			}
-			if warnElem, found := e.stage.GetElement(id + "_warning"); found {
-				if !show {
-					warnElem.SetVisible(false)
-				}
-			}
-			// Inactive phases leave the wire layer and collision (flag
-			// flips, reversed on show) — no orphan wires, no cross-phase
-			// connect targets. Português: Fases inativas saem da wire
-			// layer e da colisão — sem fio órfão, sem alvo entre fases.
-			if e.wireMgr != nil {
-				e.wireMgr.SetElementHidden(id, !show)
-			}
-			if e.sceneMgr != nil {
-				e.sceneMgr.SetHidden(id, !show)
-			}
-		}
-	}
-
-	// Tunnels are phase-view furniture (Kemper spec 2026-07-18): every
-	// path that changes which phase is on screen already funnels through
-	// this function, so the tunnel re-seat lives here too — one choke
-	// point, zero extra call sites. Português: Todo caminho que troca a
-	// fase em cena já afunila aqui; o re-assento dos túneis mora junto.
-	e.refreshTunnelViews()
+	// S2a: the pass above-described now executes in the shared engine
+	// — the body that lived here IS engine.applyVisibility (ported
+	// verbatim, tunnel seat-belt and tail included). Português: O
+	// passe descrito acima roda no engine compartilhado — o corpo que
+	// morava aqui É o applyVisibility (portado verbatim, cinto e cauda
+	// inclusos).
+	e.initPhaseEngine()
+	e.phases.applyVisibility()
 }
 
 // refreshTunnelViews re-seats every manual tunnel of this Sequence for
@@ -1136,7 +1129,7 @@ func (e *StatementSequence) refreshTunnelViews() {
 	if e.wireMgr == nil || e.elem == nil {
 		return
 	}
-	selIdx := e.caseIndexByID(e.selectedCase)
+	selIdx := e.caseIndexByID(e.phases.selected)
 	if selIdx < 0 {
 		return
 	}
@@ -1190,9 +1183,9 @@ func (e *StatementSequence) refreshTunnelViews() {
 			// curam ao serem visitadas; os portões do menu impedem
 			// novas.
 			side, px, role = "left", ox, "out"
-			hidden = e.wireMgr.ManualTunnelRemovedHas(id, e.selectedCase)
+			hidden = e.wireMgr.ManualTunnelRemovedHas(id, e.phases.selected)
 			if hidden && e.tunnelConnectedInPhase(id, selIdx) {
-				e.wireMgr.ClearManualTunnelRemovedCase(id, e.selectedCase)
+				e.wireMgr.ClearManualTunnelRemovedCase(id, e.phases.selected)
 				hidden = false
 			}
 		}
@@ -1256,7 +1249,7 @@ func (e *StatementSequence) TunnelRemoveFromCurrentPhase(tunnelID string) {
 	if e.wireMgr == nil || !e.TunnelCanRemoveFromCurrentPhase(tunnelID) {
 		return
 	}
-	e.wireMgr.AddManualTunnelRemovedCases(tunnelID, e.selectedCase)
+	e.wireMgr.AddManualTunnelRemovedCases(tunnelID, e.phases.selected)
 	e.refreshTunnelViews()
 	if e.sceneNotify != nil {
 		e.sceneNotify()
@@ -1316,7 +1309,7 @@ func (e *StatementSequence) TunnelCanRemoveFromCurrentPhase(tunnelID string) boo
 	if e.wireMgr == nil {
 		return false
 	}
-	selIdx := e.caseIndexByID(e.selectedCase)
+	selIdx := e.caseIndexByID(e.phases.selected)
 	natalIdx := e.caseIndexByID(e.wireMgr.ManualTunnelNatal(tunnelID))
 	if natalIdx < 0 {
 		natalIdx = 0
@@ -1343,19 +1336,19 @@ func (e *StatementSequence) TunnelCanRemoveFromNextPhases(tunnelID string) bool 
 // phase, not already removed. Português: Fases após a em cena que a
 // regra permite ocultar: sem fio nelas, ainda não removidas.
 func (e *StatementSequence) hideableNextPhases(tunnelID string) []string {
-	selIdx := e.caseIndexByID(e.selectedCase)
+	selIdx := e.caseIndexByID(e.phases.selected)
 	if selIdx < 0 {
 		return nil
 	}
 	var out []string
-	for i := selIdx + 1; i < len(e.cases); i++ {
-		if e.wireMgr.ManualTunnelRemovedHas(tunnelID, e.cases[i].id) {
+	for i := selIdx + 1; i < len(e.phases.entries); i++ {
+		if e.wireMgr.ManualTunnelRemovedHas(tunnelID, e.phases.entries[i].id) {
 			continue
 		}
 		if e.tunnelConnectedInPhase(tunnelID, i) {
 			continue
 		}
-		out = append(out, e.cases[i].id)
+		out = append(out, e.phases.entries[i].id)
 	}
 	return out
 }
@@ -1374,16 +1367,16 @@ func (e *StatementSequence) hideableNextPhases(tunnelID string) []string {
 // uma. A membership é atualizada antes do veredito.
 func (e *StatementSequence) tunnelConnectedInPhase(tunnelID string, caseIdx int) bool {
 	consumers := e.wireMgr.ManualTunnelConsumers(tunnelID)
-	if len(consumers) == 0 || caseIdx < 0 || caseIdx >= len(e.cases) {
+	if len(consumers) == 0 || caseIdx < 0 || caseIdx >= len(e.phases.entries) {
 		return false
 	}
 	e.assignNewChildren()
-	inPhase := make(map[string]bool, len(e.cases[caseIdx].ids))
-	for _, id := range e.cases[caseIdx].ids {
+	inPhase := make(map[string]bool, len(e.phases.entries[caseIdx].ids))
+	for _, id := range e.phases.entries[caseIdx].ids {
 		inPhase[id] = true
 	}
 	anyPhase := make(map[string]bool)
-	for _, c := range e.cases {
+	for _, c := range e.phases.entries {
 		for _, id := range c.ids {
 			anyPhase[id] = true
 		}
@@ -1429,14 +1422,14 @@ func (e *StatementSequence) getBodyMenuItems() []contextMenu.Item {
 			OnClick:         func() { e.addPhase() },
 		},
 	}
-	if len(e.cases) > 1 {
+	if len(e.phases.entries) > 1 {
 		phase = append(phase, contextMenu.Item{
 			ID:              "seq_del_body",
 			Label:           translate.T("seqRemovePhase", "− Remove this phase"),
 			FontAwesomePath: seqIconMinus.Path,
 			ViewBox:         seqIconMinus.ViewBox,
 			HelpFallback:    "Removes the phase on screen; its devices move to the neighbor phase.",
-			OnClick:         func() { e.removePhaseAt(e.caseIndexByID(e.selectedCase)) },
+			OnClick:         func() { e.removePhaseAt(e.caseIndexByID(e.phases.selected)) },
 		})
 		phase = append(phase, contextMenu.Item{
 			ID:              "seq_ins_before_body",
@@ -1445,7 +1438,7 @@ func (e *StatementSequence) getBodyMenuItems() []contextMenu.Item {
 			ViewBox:         seqIconPlus.ViewBox,
 			HelpKey:         "helpSeqInsertBefore",
 			HelpFallback:    "Adds an empty phase immediately before the phase on screen.",
-			OnClick:         func() { e.insertPhaseAt(e.caseIndexByID(e.selectedCase)) },
+			OnClick:         func() { e.insertPhaseAt(e.caseIndexByID(e.phases.selected)) },
 		})
 		phase = append(phase, contextMenu.Item{
 			ID:              "seq_ins_after_body",
@@ -1454,7 +1447,7 @@ func (e *StatementSequence) getBodyMenuItems() []contextMenu.Item {
 			ViewBox:         seqIconPlus.ViewBox,
 			HelpKey:         "helpSeqInsertAfter",
 			HelpFallback:    "Adds an empty phase immediately after the phase on screen.",
-			OnClick:         func() { e.insertPhaseAt(e.caseIndexByID(e.selectedCase) + 1) },
+			OnClick:         func() { e.insertPhaseAt(e.caseIndexByID(e.phases.selected) + 1) },
 		})
 		phase = append(phase, contextMenu.Item{
 			ID:              "seq_rename_body",
@@ -1912,8 +1905,8 @@ func (e *StatementSequence) RefreshMembership() {
 func (e *StatementSequence) GetProperties() map[string]interface{} {
 	e.assignNewChildren()
 
-	cases := make([]map[string]interface{}, 0, len(e.cases))
-	for _, c := range e.cases {
+	cases := make([]map[string]interface{}, 0, len(e.phases.entries))
+	for _, c := range e.phases.entries {
 		cases = append(cases, map[string]interface{}{
 			"id":        c.id,
 			"label":     c.label,
@@ -1924,7 +1917,7 @@ func (e *StatementSequence) GetProperties() map[string]interface{} {
 	}
 
 	props := map[string]interface{}{
-		"selectedCase": e.selectedCase,
+		"selectedCase": e.phases.selected,
 		"cases":        cases,
 	}
 	if e.comment != "" {
@@ -1956,7 +1949,7 @@ func (e *StatementSequence) ApplyProperties(values map[string]string) {
 		e.comment = v
 	}
 	if sc, ok := values["selectedCase"]; ok && sc != "" {
-		e.selectedCase = sc
+		e.phases.selected = sc
 		if e.ornamentDraw != nil {
 			e.ornamentDraw.SetCaseLabel(e.activeCaseLabel())
 		}

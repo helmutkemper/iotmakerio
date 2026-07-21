@@ -1,5 +1,13 @@
 # IoTMaker
 
+## ❤️ Support this project
+
+IoTMaker is built by a single developer. If you believe a kid in a classroom
+and an engineer in a lab should be able to use the same tool, you can help:
+
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/helmutkemper)
+[![Support on Ko-fi](https://img.shields.io/badge/Support-Ko--fi-ff5e5b?logo=kofi&logoColor=white)](https://ko-fi.com/helmutkemper)
+
 > **Status:** under active development. Go code generation and C99
 > target support are in progress.
 

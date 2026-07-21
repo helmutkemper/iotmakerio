@@ -69,6 +69,7 @@ func Emit(g *graph.Graph, bbDefs map[string]*blackbox.BlackBoxDef, variables []V
 		bbDeclared:         make(map[string]bool),
 		instanceScopeOwner: make(map[string]string),
 	}
+	e.synthesizeImplicitCalls()
 	e.calledFunctions = map[string]bool{}
 	for _, n := range g.Nodes {
 		if n != nil && n.Type == graph.FunctionCallType {
@@ -204,6 +205,11 @@ func (e *emitter) run() []diagnostics.Diagnostic {
 	// rebaixamento para warning quebrou a equivalência len>0≡erro e o
 	// programa saía VAZIO; warnings viajam junto, erros seguem parando
 	// a prensa.
+	if phaseDiags := e.validatePhaseOrders(); len(phaseDiags) > 0 {
+		diags = append(diags, phaseDiags...)
+		return diags
+	}
+
 	if controlDiags := e.validateControlPortSources(); len(controlDiags) > 0 {
 		diags = append(diags, controlDiags...)
 		hasErr := false
@@ -784,6 +790,226 @@ func sortedKeys(m map[string]bool) []string {
 	return out
 }
 
+// synthesizeImplicitCalls makes an OUTER-WIRED function definition its
+// own call-site (LabVIEW semantics, field 2026-07-20): wires reaching
+// a signature tunnel's OUTER face from outside the function become the
+// arguments/consumers of a synthetic FunctionCallType node in the
+// trunk — the existing call emitter then does everything (args, zero
+// fill, result vars, liveness), and the "uncalled" warning dies
+// naturally because the scan below sees the synthetic call. Mapping is
+// exact via FuncPort.TunnelID; outer return consumers are REWIRED to
+// the synthetic node so they resolve to the call's result registers.
+// Português: Definição fiada por fora vira o próprio call-site — fios
+// na face EXTERNA dos túneis de assinatura viram argumentos/
+// consumidores de um node de chamada sintético no tronco; o emissor de
+// chamadas existente faz o resto, e o aviso "uncalled" morre porque o
+// scan vê a chamada sintética. Mapeamento exato por FuncPort.TunnelID;
+// consumidores externos do retorno são REFIADOS para o node sintético.
+func (e *emitter) synthesizeImplicitCalls() {
+	inside := func(devID, fnScope string) bool {
+		s := e.graph.ScopeOf(devID)
+		return s == fnScope || e.isAncestor(fnScope, s)
+	}
+	for fnID, scope := range e.graph.Scopes {
+		if scope == nil || !scope.Function {
+			continue
+		}
+		callID := fnID + "_selfcall"
+		outer := false
+
+		// The emitter's truth is the PORT INDEX (node.Inputs/Outputs),
+		// not the Edges map (field 2026-07-21: the call's arguments
+		// were invisible — "parameter not connected — passing the
+		// typed zero" with the wires plainly on the stage). The
+		// synthetic node is born WITH its ports, and outer consumers
+		// are rewired IN THEIR OWN index. Edges-map entries ride along
+		// for topo ordering. Português: A verdade do emissor é o
+		// ÍNDICE DE PORTAS — o node sintético nasce COM as portas e os
+		// consumidores externos são refiados no índice DELES; o mapa
+		// Edges acompanha para a ordenação.
+		var callInputs, callOutputs []graph.Port
+
+		// Parameters: outer feeds become the synthetic call's inputs.
+		for _, p := range scope.FuncParams {
+			port := graph.Port{Name: p.Name, DataType: p.Type}
+			for _, edge := range e.graph.Edges {
+				if edge == nil || edge.To.DeviceID != p.TunnelID || edge.To.PortName != "in" {
+					continue
+				}
+				if inside(edge.From.DeviceID, fnID) {
+					continue
+				}
+				outer = true
+				port.Connected = append(port.Connected, edge.From)
+				key := callID + "_arg_" + p.Name + "_" + edge.From.DeviceID
+				e.graph.Edges[key] = &graph.Edge{
+					From: edge.From,
+					To:   graph.PortRef{DeviceID: callID, PortName: p.Name},
+				}
+			}
+			callInputs = append(callInputs, port)
+		}
+
+		// Returns: outer consumers rewire onto the synthetic call — in
+		// the Edges map AND in the consumer's own port index.
+		for _, r := range scope.FuncReturns {
+			port := graph.Port{Name: r.Name, DataType: r.Type, IsOutput: true}
+			for _, edge := range e.graph.Edges {
+				if edge == nil || edge.From.DeviceID != r.TunnelID || edge.From.PortName != "out" {
+					continue
+				}
+				if inside(edge.To.DeviceID, fnID) {
+					continue
+				}
+				outer = true
+				port.Connected = append(port.Connected, edge.To)
+				if consumer, ok := e.graph.Nodes[edge.To.DeviceID]; ok && consumer != nil {
+					for ci := range consumer.Inputs {
+						for pi := range consumer.Inputs[ci].Connected {
+							ref := &consumer.Inputs[ci].Connected[pi]
+							if ref.DeviceID == r.TunnelID && ref.PortName == "out" {
+								ref.DeviceID = callID
+								ref.PortName = r.Name
+							}
+						}
+					}
+				}
+				edge.From = graph.PortRef{DeviceID: callID, PortName: r.Name}
+			}
+			callOutputs = append(callOutputs, port)
+		}
+
+		if !outer {
+			continue
+		}
+		e.graph.Nodes[callID] = &graph.Node{
+			ID:   callID,
+			Type: graph.FunctionCallType,
+			Properties: map[string]interface{}{
+				"function": scope.FunctionName,
+			},
+			Inputs:  callInputs,
+			Outputs: callOutputs,
+		}
+		if root, ok := e.graph.Scopes[""]; ok && root != nil {
+			root.NodeIDs = append(root.NodeIDs, callID)
+		}
+	}
+}
+
+// phaseOrder partitions a function scope's nodes by the "phases"
+// metadata on the function node and returns them phase-by-phase (topo
+// inside each). Unassigned nodes join the FIRST phase. Returns ok=false
+// when the metadata is absent/unusable — caller keeps plain topo.
+// Backward cross-phase wires (producer in a LATER phase than its
+// consumer) are rejected with an error diagnostic: data flows forward.
+// Português: Particiona os nós do escopo-função pelo metadado "phases"
+// e devolve fase-a-fase (topo dentro de cada); não-atribuídos entram na
+// PRIMEIRA. ok=false sem metadado — chamador mantém o topo puro. Fio
+// cruzando fases para trás é erro: dado flui para frente.
+// validatePhaseOrders enforces the forward-flow law for every phased
+// function scope: a wire's producer phase must not exceed its
+// consumer's — data flows to the same or a later phase. Runs as a
+// run() pre-pass beside the stop rule. Português: Lei do fluxo para
+// frente em todo escopo-função com fases; pre-pass do run() ao lado da
+// regra do stop.
+func (e *emitter) validatePhaseOrders() []diagnostics.Diagnostic {
+	var diags []diagnostics.Diagnostic
+	for scopeID, scope := range e.graph.Scopes {
+		if scope == nil || !scope.Function {
+			continue
+		}
+		phaseOf, ok := e.phaseAssignment(scopeID, scope.NodeIDs)
+		if !ok {
+			continue
+		}
+		for _, edge := range e.graph.Edges {
+			fp, fok := phaseOf[edge.From.DeviceID]
+			tp, tok := phaseOf[edge.To.DeviceID]
+			if fok && tok && fp > tp {
+				diags = append(diags, diagnostics.Diagnostic{
+					Kind:     diagnostics.KindPhaseOrder,
+					Severity: diagnostics.SeverityError,
+					Devices:  []string{edge.From.DeviceID, edge.To.DeviceID},
+					Scope:    scopeID,
+					Message: fmt.Sprintf(
+						"%s: %s (phase %d) feeds %s (phase %d) — data must flow to the same or a later phase",
+						scopeID, edge.From.DeviceID, fp, edge.To.DeviceID, tp),
+				})
+			}
+		}
+	}
+	return diags
+}
+
+// phaseAssignment maps each in-scope node to its phase index per the
+// "phases" metadata; unassigned nodes map to 0. ok=false when the
+// metadata is absent/unusable. Português: Mapeia nó→índice de fase;
+// não-atribuídos vão para 0; ok=false sem metadado.
+func (e *emitter) phaseAssignment(scopeID string, nodeIDs []string) (map[string]int, bool) {
+	node, exists := e.graph.Nodes[scopeID]
+	if !exists || node == nil {
+		return nil, false
+	}
+	raw, _ := node.Properties["phases"].(string)
+	if raw == "" {
+		return nil, false
+	}
+	type phaseWire struct {
+		ID  string   `json:"id"`
+		IDs []string `json:"ids"`
+	}
+	var phases []phaseWire
+	if err := json.Unmarshal([]byte(raw), &phases); err != nil || len(phases) == 0 {
+		return nil, false
+	}
+	inScope := map[string]bool{}
+	for _, id := range nodeIDs {
+		inScope[id] = true
+	}
+	phaseOf := map[string]int{}
+	for i, ph := range phases {
+		for _, id := range ph.IDs {
+			if inScope[id] {
+				phaseOf[id] = i
+			}
+		}
+	}
+	for _, id := range nodeIDs {
+		if _, assigned := phaseOf[id]; !assigned {
+			phaseOf[id] = 0
+		}
+	}
+	return phaseOf, true
+}
+
+func (e *emitter) phaseOrder(scopeID string, nodeIDs []string) ([]string, bool) {
+	phaseOf, ok := e.phaseAssignment(scopeID, nodeIDs)
+	if !ok {
+		return nil, false
+	}
+	nPhases := 0
+	for _, p := range phaseOf {
+		if p+1 > nPhases {
+			nPhases = p + 1
+		}
+	}
+	buckets := make([][]string, nPhases)
+	for _, id := range nodeIDs {
+		buckets[phaseOf[id]] = append(buckets[phaseOf[id]], id)
+	}
+
+	var out []string
+	for i := range buckets {
+		part, errs := e.topoSort(buckets[i])
+		if len(errs) > 0 {
+			return nil, false
+		}
+		out = append(out, part...)
+	}
+	return out, true
+}
+
 // =====================================================================
 //  Scope emission (recursive)
 // =====================================================================
@@ -797,6 +1023,19 @@ func (e *emitter) emitScope(scopeID string) []string {
 	sorted, errs := e.topoSort(scope.NodeIDs)
 	if len(errs) > 0 {
 		return errs
+	}
+
+	// L2 (2026-07-20): a FUNCTION whose node carries the "phases"
+	// metadata emits PHASE BY PHASE — topo order inside each phase,
+	// phases in their declared order — so the stage's phase model IS
+	// the generated code's execution order. Scenes without phases keep
+	// the plain topo order untouched. Português: Função com metadado
+	// "phases" emite FASE A FASE — topo dentro de cada, fases na ordem
+	// declarada; cenas sem fases seguem intocadas.
+	if scope.Function {
+		if phased, ok := e.phaseOrder(scopeID, scope.NodeIDs); ok {
+			sorted = phased
+		}
 	}
 
 	if scopeID == "" {
@@ -1356,6 +1595,12 @@ func (e *emitter) emitFunction(scopeID string) {
 	sorted, errs := e.topoSort(scope.NodeIDs)
 	for _, err := range errs {
 		e.program.Warn("function %s sort: %s", name, err)
+	}
+	// L2: the function's OWN body walk honors the phase order — this
+	// is the path the dispatch actually takes. Português: O walk
+	// próprio do corpo honra a ordem de fases — o caminho real.
+	if phased, ok := e.phaseOrder(scopeID, scope.NodeIDs); ok {
+		sorted = phased
 	}
 	for _, nodeID := range sorted {
 		if e.emitted[nodeID] {

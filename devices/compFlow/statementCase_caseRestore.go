@@ -80,16 +80,16 @@ func (e *StatementCase) RestoreCaseState(selectorType, selectedCase, defaultCase
 				isDefault: c.IsDefault,
 			})
 		}
-		e.cases = rebuilt
+		e.phases.entries = rebuilt
 	}
 
 	e.defaultCaseID = defaultCaseID
 
 	if selectedCase != "" {
-		e.selectedCase = selectedCase
+		e.phases.selected = selectedCase
 	}
-	if e.selectedCase == "" && len(e.cases) > 0 {
-		e.selectedCase = e.cases[0].id
+	if e.phases.selected == "" && len(e.phases.entries) > 0 {
+		e.phases.selected = e.phases.entries[0].id
 	}
 
 	if e.ornamentDraw != nil {

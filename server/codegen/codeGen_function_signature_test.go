@@ -86,6 +86,17 @@ func functionSignatureScene(wireParam bool) string {
       ],
       "containment": { "isContainer": false, "parent": "fn_1", "status": "contained" }
     }
+,
+    {
+      "id": "lt1", "type": "StatementTunnel", "kind": "simple", "stage": "backend",
+      "properties": { "label": "layer_pipe", "tunnelParent": "fn_1", "tunnelSide": "right", "natalCase": "layer_1" },
+      "position": { "x": 600, "y": 300 }, "size": { "width": 18, "height": 18 },
+      "connectors": [
+        { "port": "in", "dataType": "*", "isOutput": false, "connections": [] },
+        { "port": "out", "dataType": "*", "isOutput": true, "connections": [] }
+      ],
+      "containment": { "isContainer": false, "status": "free" }
+    }
   ],
   "wires": [
     %s
@@ -139,6 +150,9 @@ func TestFunctionTunnelSignature(t *testing.T) {
 		}
 		if strings.Index(code, "// select the color") > strings.Index(code, "func myFunc(") {
 			t.Fatalf("function comment must sit above the header")
+		}
+		if strings.Contains(code, "layer_pipe") {
+			t.Fatalf("layer tunnel leaked into the signature; got:\n%s", code)
 		}
 		if !strings.Contains(code, "// sensor_value: the color index") ||
 			!strings.Contains(code, "//   0: red") ||

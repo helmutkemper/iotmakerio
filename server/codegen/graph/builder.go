@@ -548,6 +548,24 @@ func collectFunctionSignatures(g *Graph) {
 			if label == "" {
 				label = node.Label
 			}
+			// LAYER tunnels (natal set) are the function's INTERNAL
+			// phase plumbing — never signature slots (field 2026-07-19:
+			// a layer tunnel must not become a phantom parameter or
+			// return). Português: Túnel de CAMADA (natal presente) é
+			// encanamento interno de fase — nunca vira slot da
+			// assinatura.
+			natal, _ := node.Properties["tunnelNatal"].(string)
+			if natal == "" {
+				// Legacy fixtures used "natalCase"; real scenes stamp
+				// "tunnelNatal" (field discovery 2026-07-20 — the skip
+				// silently never fired on real phase tunnels).
+				// Português: Fixtures antigas usavam "natalCase"; a
+				// cena real carimba "tunnelNatal".
+				natal, _ = node.Properties["natalCase"].(string)
+			}
+			if natal != "" {
+				continue
+			}
 			comment, _ := node.Properties["comment"].(string)
 			port := FuncPort{
 				TunnelID: id,

@@ -37,10 +37,8 @@ package compFlow
 //	na border 3 viram statements do corpo do loop.
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
-	"strings"
 	"syscall/js"
 	"time"
 
@@ -134,8 +132,7 @@ type StatementFunction struct {
 	// Português: CAMADAS — o corpo se organiza em camadas ORDENADAS
 	// (semântica de fases do Sequence dentro da função); membresia por
 	// camada selecionada no drop; só a camada ativa fica visível.
-	layers        []functionLayer
-	selectedLayer string
+	phases phaseEngine
 
 	// lastOrnY/hasLastOrn track the ornament's top between refresher
 	// passes: Y follows by DELTA (field 2026-07-19, "esqueceu o eixo
@@ -205,14 +202,6 @@ func (e *StatementFunction) SetContextMenu(c *contextMenu.Controller) {
 	e.ctxMenu = c
 }
 func (e *StatementFunction) SetWireManager(mgr *wire.Manager) { e.wireMgr = mgr }
-
-// functionLayer is one ordered layer of the function's body.
-// Português: Uma camada ordenada do corpo da função.
-type functionLayer struct {
-	id    string
-	label string
-	ids   []string
-}
 
 // SetSaveToMyItems injects the workspace's "Save to My Items" action.
 // Português: Injeta a ação "Salvar em My Items" do workspace.
@@ -327,6 +316,117 @@ func (e *StatementFunction) createFunctionTunnel(side string) {
 	}
 }
 
+// createLayerTunnel births a PHASE tunnel stamped with the selected
+// layer as its natal — input pose on the right rail (the Sequence's
+// 2026-07-18 birth spec), visible from that layer onward. Português:
+// Nasce um túnel de FASE carimbado com a camada selecionada como
+// natal — pose de entrada no trilho direito, visível dali em diante.
+func (e *StatementFunction) createLayerTunnel() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[FN-TUNNEL-PANIC] createLayerTunnel: %v", r)
+		}
+	}()
+	if e.createTunnelFn == nil || e.elem == nil {
+		return
+	}
+	e.initPhaseEngine()
+	e.phases.ensureDefault()
+	ox, oy, ow, oh := e.ornamentRect()
+	cx := ox + ow
+	cy := oy + oh*0.6
+	cx, cy = e.funcTunnelJudge(cx, cy, "right", "")
+	id := e.createTunnelFn(e.id, "right", cx, cy, e.phases.selected, e.funcTunnelJudge)
+	if id == "" {
+		return
+	}
+	e.refreshFunctionTunnelViews()
+	if e.sceneNotify != nil {
+		e.sceneNotify()
+	}
+}
+
+// RestorePhaseState is the import hook's entry: entries arrive with
+// member ids ALREADY remapped to the post-import world; membership and
+// visibility re-apply synchronously. Português: Entrada do gancho de
+// import — entradas chegam com ids JÁ remapeados; membresia e
+// visibilidade re-aplicam na hora.
+func (e *StatementFunction) RestorePhaseState(selected string, phases []CaseRestoreEntry) {
+	e.phases.entries = e.phases.entries[:0]
+	for _, ph := range phases {
+		if ph.ID == "" {
+			continue
+		}
+		e.phases.entries = append(e.phases.entries, phaseEntry{
+			id:    ph.ID,
+			label: ph.Label,
+			ids:   append([]string(nil), ph.IDs...),
+		})
+	}
+	if selected != "" {
+		e.phases.selected = selected
+	}
+	e.initPhaseEngine()
+	e.phases.ensureDefault()
+	e.RefreshMembership()
+}
+
+// ── phaseTunnelHost contract (the workspace's Remove-from menu) ─────
+// Signature tunnels are phase-agnostic citizens: removal is pure user
+// preference persisted per phase in the wire layer's removed set —
+// the same store the Sequence uses. The wired-consumer census guard
+// migrates here when these methods move into the engine (queued).
+// Português: Contrato do menu Remove-from — remoção é preferência do
+// usuário persistida por fase no mesmo store do Sequence; o censo de
+// consumidores migra quando os métodos forem para o engine.
+
+func (e *StatementFunction) TunnelCanRemoveFromCurrentPhase(id string) bool {
+	e.initPhaseEngine()
+	e.phases.ensureDefault()
+	return !e.wireMgr.ManualTunnelRemovedHas(id, e.phases.selected)
+}
+
+func (e *StatementFunction) TunnelRemoveFromCurrentPhase(id string) {
+	e.initPhaseEngine()
+	e.phases.ensureDefault()
+	e.wireMgr.AddManualTunnelRemovedCases(id, e.phases.selected)
+	e.refreshFunctionTunnelViews()
+	if e.sceneNotify != nil {
+		e.sceneNotify()
+	}
+}
+
+func (e *StatementFunction) TunnelCanRemoveFromNextPhases(id string) bool {
+	e.initPhaseEngine()
+	e.phases.ensureDefault()
+	return e.phases.indexOf(e.phases.selected) < len(e.phases.entries)-1
+}
+
+func (e *StatementFunction) TunnelRemoveFromNextPhases(id string) {
+	e.initPhaseEngine()
+	e.phases.ensureDefault()
+	sel := e.phases.indexOf(e.phases.selected)
+	for i := sel + 1; i >= 0 && i < len(e.phases.entries); i++ {
+		e.wireMgr.AddManualTunnelRemovedCases(id, e.phases.entries[i].id)
+	}
+	e.refreshFunctionTunnelViews()
+	if e.sceneNotify != nil {
+		e.sceneNotify()
+	}
+}
+
+func (e *StatementFunction) TunnelHasRemovals(id string) bool {
+	return len(e.wireMgr.ManualTunnelRemovedCases(id)) > 0
+}
+
+func (e *StatementFunction) TunnelRestorePhases(id string) {
+	e.wireMgr.SetManualTunnelRemovedCases(id, nil)
+	e.refreshFunctionTunnelViews()
+	if e.sceneNotify != nil {
+		e.sceneNotify()
+	}
+}
+
 // refreshFunctionTunnelViews is the Function's pose keeper AND mover:
 // px comes from the FRESH ornamentRect on every pass, so tunnels
 // follow the container (the same mechanism that moves the Sequence's).
@@ -374,194 +474,130 @@ func (e *StatementFunction) refreshFunctionTunnelViews() {
 			y = oy + oh
 		}
 		side := e.wireMgr.ManualTunnelSide(id)
+		// LAYER tunnel (natal set): the function's internal phase
+		// plumbing — Sequence law: VISIBLE from its natal layer onward,
+		// hidden in earlier layers. Pose: input on the right rail (the
+		// 2026-07-18 birth spec). Signature tunnels (no natal) keep
+		// the fixed left/right poses below. Português: Túnel de CAMADA
+		// (natal presente) — lei do Sequence: VISÍVEL da camada natal
+		// em diante, oculto nas anteriores; pose de entrada no trilho
+		// direito. Túneis de assinatura seguem nas poses fixas.
+		if natal := e.wireMgr.ManualTunnelNatal(id); natal != "" {
+			// The phase tunnel has TWO FACES (field 2026-07-20, the
+			// LabVIEW truth): in its NATAL phase it is a collector on
+			// the RIGHT (receiving from inside the phase); in every
+			// SUBSEQUENT phase it flips to the LEFT as a source
+			// (feeding the phase) — the same pose language as the
+			// signature (left+out = source, right+in = sink). Earlier
+			// phases hide it. Português: O túnel de fase tem DUAS
+			// FACES — na fase NATAL é coletor à DIREITA (recebe de
+			// dentro); nas SEGUINTES vira fonte à ESQUERDA (alimenta a
+			// fase) — a mesma língua de poses da assinatura. Fases
+			// anteriores o escondem.
+			hidden := false
+			selIdx := e.phases.indexOf(e.phases.selected)
+			natIdx := e.phases.indexOf(natal)
+			if selIdx >= 0 && natIdx >= 0 && selIdx < natIdx {
+				hidden = true
+			}
+			if e.wireMgr.ManualTunnelRemovedHas(id, e.phases.selected) {
+				hidden = true
+			}
+			side, px, role := "right", ox+ow, "in"
+			if selIdx >= 0 && natIdx >= 0 && selIdx > natIdx {
+				side, px, role = "left", ox, "out"
+			}
+			// Pose forensics (2026-07-21): every phase tunnel confesses
+			// its decision — the field's side/wire anomalies get named
+			// facts. Português: Forense de pose — cada túnel confessa.
+			log.Printf("[TUNNEL-POSE] %s natal=%s sel=%s selIdx=%d natIdx=%d side=%s hidden=%v",
+				id, natal, e.phases.selected, selIdx, natIdx, side, hidden)
+			e.wireMgr.SetManualTunnelView(id, side, px, y, role, hidden)
+			continue
+		}
+		// SIGNATURE tunnels live in the FIRST layer only (Kemper
+		// 2026-07-19): parameters enter and returns leave at frame 1,
+		// LabVIEW-style; later layers receive values through layer
+		// tunnels. Português: Túneis de ASSINATURA só na PRIMEIRA
+		// camada — parâmetros entram e retornos saem no quadro 1;
+		// camadas seguintes recebem por túneis de camada.
+		// Signature tunnels EXIST IN EVERY PHASE by default; the USER
+		// decides per-phase visibility through the Remove-from menu
+		// (conceptual correction, Kemper 2026-07-20 — supersedes the
+		// first-phase-only rule). Português: Túneis de assinatura
+		// EXISTEM EM TODAS AS FASES por padrão; o USUÁRIO decide a
+		// visibilidade por fase pelo menu Remove-from (correção
+		// conceitual — substitui a regra só-na-primeira).
+		sigHidden := e.wireMgr.ManualTunnelRemovedHas(id, e.phases.selected)
 		px, role := ox, "out"
 		if side != "left" {
 			side, px, role = "right", ox+ow, "in"
 		}
-		e.wireMgr.SetManualTunnelView(id, side, px, y, role, false)
+		e.wireMgr.SetManualTunnelView(id, side, px, y, role, sigHidden)
 	}
 }
 
-// RefreshMembership rides the workspace's container-refresh assertion
-// (the same hook the Sequence rides): every notify pass re-pins the
-// tunnels to the fresh ornament. The name is the interface's, the job
-// here is pose-keeping. Português: Pega carona na asserção do
-// workspace — todo passe de notify re-pina os túneis no ornamento
-// fresco. O nome é da interface; o trabalho aqui é guardar pose.
-// ensureDefaultLayer guarantees at least one layer so legacy scenes
-// (pre-L1) keep behaving: every existing member adopts into it.
-// Português: Garante ao menos uma camada — cenas antigas seguem
-// funcionando, com todos os membros adotados nela.
-func (e *StatementFunction) ensureDefaultLayer() {
-	if len(e.layers) > 0 {
-		if e.selectedLayer == "" {
-			e.selectedLayer = e.layers[0].id
-		}
+// initPhaseEngine binds the shared phaseEngine to this host's world —
+// idempotent; called at the head of every delegating path. The engine
+// is THE phase machine (phaseEngine.go); the Function keeps only its
+// specifics (signature tunnels, the phase-tunnel birth item).
+// Português: Liga o phaseEngine compartilhado ao mundo deste
+// hospedeiro — idempotente; o engine é A máquina, a Function fica só
+// com as especificidades.
+func (e *StatementFunction) initPhaseEngine() {
+	if e.phases.children != nil {
 		return
 	}
-	e.layers = []functionLayer{{id: "layer_1"}}
-	e.selectedLayer = "layer_1"
-}
-
-// freshLayerID mints an unused "layer_N". Português: Cunha id livre.
-func (e *StatementFunction) freshLayerID() string {
-	for n := len(e.layers) + 1; ; n++ {
-		id := fmt.Sprintf("layer_%d", n)
-		taken := false
-		for i := range e.layers {
-			if e.layers[i].id == id {
-				taken = true
-				break
-			}
+	e.phases.children = func() []string {
+		if e.sceneMgr == nil {
+			return nil
 		}
-		if !taken {
-			return id
+		return e.sceneMgr.ChildrenOf(e.id)
+	}
+	e.phases.exempt = tunnelExempt
+	e.phases.setElemVisible = func(id string, show bool) {
+		if e.stage == nil {
+			return
 		}
-	}
-}
-
-// layerMenuLabel — display name, "layer N" fallback by position.
-// Português: Nome de exibição; "layer N" pela posição.
-func (e *StatementFunction) layerMenuLabel(i int) string {
-	if e.layers[i].label != "" {
-		return e.layers[i].label
-	}
-	return fmt.Sprintf("layer %d", i+1)
-}
-
-// layerSelectMenuItems builds the layer section for the function's
-// menu: one entry per layer in order (the selected one wears the eye),
-// plus "New layer". Reordering is L3. Português: A seção de camadas do
-// menu — uma entrada por camada (a ativa leva o olho) + "New layer".
-func (e *StatementFunction) layerSelectMenuItems() []contextMenu.Item {
-	e.ensureDefaultLayer()
-	items := make([]contextMenu.Item, 0, len(e.layers)+1)
-	for i := range e.layers {
-		id := e.layers[i].id
-		item := contextMenu.Item{
-			ID:           "fn_layer_" + id,
-			Label:        e.layerMenuLabel(i),
-			HelpFallback: "Show this layer on the stage; new devices join the visible layer.",
-			OnClick:      func() { e.selectLayer(id) },
+		if elem, found := e.stage.GetElement(id); found {
+			elem.SetVisible(show)
 		}
-		if id == e.selectedLayer {
-			item.FontAwesomePath = rulesIcon.KFAEye
-			item.ViewBox = "0 0 512 512"
-		}
-		items = append(items, item)
-	}
-	items = append(items, contextMenu.Item{
-		ID:              "fn_layer_add",
-		Label:           translate.T("funcLayerAdd", "New layer"),
-		FontAwesomePath: seqIconPlus.Path,
-		ViewBox:         seqIconPlus.ViewBox,
-		HelpFallback:    "Add an ordered layer; layers run one after the other in the generated code.",
-		OnClick:         func() { e.addLayer() },
-	})
-	return items
-}
-
-// addLayer appends a fresh layer and selects it. Português: Anexa uma
-// camada nova e a seleciona.
-func (e *StatementFunction) addLayer() {
-	e.ensureDefaultLayer()
-	fresh := functionLayer{id: e.freshLayerID()}
-	e.layers = append(e.layers, fresh)
-	e.selectLayer(fresh.id)
-}
-
-// selectLayer makes a layer the visible/edited one. Português: Torna a
-// camada a visível/editada.
-func (e *StatementFunction) selectLayer(id string) {
-	e.selectedLayer = id
-	e.maintainLayerMembership()
-	e.applyLayerVisibility()
-	if e.sceneNotify != nil {
-		e.sceneNotify()
-	}
-}
-
-// maintainLayerMembership adopts unassigned children into the selected
-// layer and prunes ids that left the function. Border furniture
-// (tunnels) never joins — the seat-belt. Português: Adota filhos sem
-// camada na selecionada e poda ids que saíram; túneis nunca entram.
-func (e *StatementFunction) maintainLayerMembership() {
-	if e.sceneMgr == nil {
-		return
-	}
-	e.ensureDefaultLayer()
-	children := map[string]bool{}
-	for _, id := range e.sceneMgr.ChildrenOf(e.id) {
-		if strings.HasPrefix(id, "tunnel") {
-			continue
-		}
-		children[id] = true
-	}
-	known := map[string]bool{}
-	for i := range e.layers {
-		kept := e.layers[i].ids[:0]
-		for _, id := range e.layers[i].ids {
-			if children[id] {
-				kept = append(kept, id)
-				known[id] = true
-			}
-		}
-		e.layers[i].ids = kept
-	}
-	sel := 0
-	for i := range e.layers {
-		if e.layers[i].id == e.selectedLayer {
-			sel = i
-			break
-		}
-	}
-	for id := range children {
-		if !known[id] {
-			e.layers[sel].ids = append(e.layers[sel].ids, id)
-		}
-	}
-}
-
-// applyLayerVisibility — the Sequence's proven pass, layer edition:
-// only the selected layer's members stay visible, in the wire layer
-// and in collision; tunnels are TOTALLY exempt (the seat-belt); every
-// path that changes the visible layer funnels here, so the tunnel
-// re-seat rides along. Português: O passe provado do Sequence, edição
-// camadas — só a camada ativa fica visível, na wire layer e na
-// colisão; túneis totalmente isentos; o re-assento dos túneis pega
-// carona no funil.
-func (e *StatementFunction) applyLayerVisibility() {
-	if e.stage == nil {
-		return
-	}
-	for i := range e.layers {
-		show := e.layers[i].id == e.selectedLayer
-		for _, id := range e.layers[i].ids {
-			if strings.HasPrefix(id, "tunnel") {
-				continue
-			}
-			if elem, found := e.stage.GetElement(id); found {
-				elem.SetVisible(show)
-			}
-			if warnElem, found := e.stage.GetElement(id + "_warning"); found {
-				if !show {
-					warnElem.SetVisible(false)
-				}
-			}
-			if e.wireMgr != nil {
-				e.wireMgr.SetElementHidden(id, !show)
-			}
-			if e.sceneMgr != nil {
-				e.sceneMgr.SetHidden(id, !show)
+		if warnElem, found := e.stage.GetElement(id + "_warning"); found {
+			if !show {
+				warnElem.SetVisible(false)
 			}
 		}
 	}
-	e.refreshFunctionTunnelViews()
+	e.phases.setWireHidden = func(id string, hidden bool) {
+		if e.wireMgr != nil {
+			e.wireMgr.SetElementHidden(id, hidden)
+		}
+	}
+	e.phases.setSpatialHidden = func(id string, hidden bool) {
+		if e.sceneMgr != nil {
+			e.sceneMgr.SetHidden(id, hidden)
+		}
+	}
+	e.phases.tail = func() { e.refreshFunctionTunnelViews() }
+	// The DOCTRINE maintenance (spatial innerBBox adoption) — the same
+	// implementation the Sequence trusts; the engine's fallback
+	// retires for this host too. Português: Manutenção DOUTRINÁRIA
+	// (adoção espacial) — a mesma do Sequence; o fallback se aposenta.
+	e.phases.maintainHook = func(entries []phaseEntry, selectedIdx int) {
+		maintainCaseMembership(e.sceneMgr, e.id, e.GetInnerBBox(),
+			entries, selectedIdx)
+	}
+	e.phases.notify = func() {
+		if e.sceneNotify != nil {
+			e.sceneNotify()
+		}
+	}
 }
 
 func (e *StatementFunction) RefreshMembership() {
-	e.maintainLayerMembership()
-	e.applyLayerVisibility()
+	e.initPhaseEngine()
+	e.phases.maintain()
+	e.phases.applyVisibility()
 }
 func (e *StatementFunction) SetCanvasEl(el js.Value)                { e.canvasEl = el }
 func (e *StatementFunction) SetResizerButton(rb block.ResizeButton) { e.resizerButton = rb }
@@ -1015,7 +1051,19 @@ func (e *StatementFunction) getBodyMenuItems() []contextMenu.Item {
 	// opens this same menu, so the layers live exactly where the maker
 	// clicks the pill. Português: A seção de CAMADAS abre o menu — o
 	// dropdown cai aqui, então as camadas moram onde o maker clica.
-	items := e.layerSelectMenuItems()
+	e.initPhaseEngine()
+	items := e.phases.menuItems("fn")
+	// The Function's specific: the phase-tunnel birth item, after the
+	// engine's phase section. Português: A especificidade da Function
+	// — o item de nascimento do túnel de fase, após a seção do engine.
+	items = append(items, contextMenu.Item{
+		ID:              "fn_phase_tunnel",
+		Label:           translate.T("funcPhaseTunnel", "New tunnel (this phase)"),
+		FontAwesomePath: seqIconTunnel.Path,
+		ViewBox:         seqIconTunnel.ViewBox,
+		HelpFallback:    "Add a phase tunnel born in the visible phase; it carries a value into the following phases.",
+		OnClick:         func() { e.createLayerTunnel() },
+	})
 	items = append(items, []contextMenu.Item{
 		mainMenu.DeleteItem(func() {
 			log.Printf("[Loop] delete: %v", e.id)
@@ -1544,27 +1592,12 @@ func (e *StatementFunction) ApplyProperties(values map[string]string) {
 	if v, ok := values["comment"]; ok {
 		e.comment = v
 	}
-	if s := values["layers"]; s != "" {
-		type layerWire struct {
-			ID    string   `json:"id"`
-			Label string   `json:"label"`
-			IDs   []string `json:"ids"`
-		}
-		var ls []layerWire
-		if err := json.Unmarshal([]byte(s), &ls); err == nil {
-			e.layers = e.layers[:0]
-			for _, l := range ls {
-				if l.ID != "" {
-					e.layers = append(e.layers, functionLayer{
-						id: l.ID, label: l.Label, ids: l.IDs,
-					})
-				}
-			}
-		}
-	}
-	if v := values["selectedLayer"]; v != "" {
-		e.selectedLayer = v
-	}
+	// Phase restore is EXCLUSIVE to the import hook
+	// (RestorePhaseState): the flattened values here carry the OLD
+	// member ids and would clobber the remapped state (+200ms replay).
+	// Português: Restore de fases é EXCLUSIVO do gancho de import — os
+	// valores achatados carregam ids ANTIGOS e clobberiam o estado
+	// remapeado.
 	if v, ok := values["functionName"]; ok && v != "" {
 		e.functionName = v
 		if e.ornamentDraw != nil {
@@ -1592,30 +1625,9 @@ func (e *StatementFunction) GetProperties() map[string]interface{} {
 	if e.comment != "" {
 		props["comment"] = e.comment
 	}
-	if len(e.layers) > 0 {
-		// Layers travel as a JSON STRING: ReplayProperties flattens
-		// every value through fmt.Sprintf, which would mangle a slice
-		// — a pre-marshaled string passes intact (the house pattern
-		// for structured props). Português: Camadas viajam como STRING
-		// JSON — o achatador do ReplayProperties destruiria um slice;
-		// a string pré-serializada passa intacta (padrão da casa).
-		type layerWire struct {
-			ID    string   `json:"id"`
-			Label string   `json:"label,omitempty"`
-			IDs   []string `json:"ids,omitempty"`
-		}
-		ls := make([]layerWire, 0, len(e.layers))
-		for k := range e.layers {
-			ls = append(ls, layerWire{
-				ID:    e.layers[k].id,
-				Label: e.layers[k].label,
-				IDs:   append([]string(nil), e.layers[k].ids...),
-			})
-		}
-		if b, err := json.Marshal(ls); err == nil {
-			props["layers"] = string(b)
-			props["selectedLayer"] = e.selectedLayer
-		}
+	if entriesJSON, selected, ok := e.phases.marshal(); ok {
+		props["phases"] = entriesJSON
+		props["selectedPhase"] = selected
 	}
 	return props
 }

@@ -77,29 +77,14 @@ import (
 //
 // Português: Um case do StatementCase — os valores literais que casa, os IDs
 // dos devices atribuídos e se é o default.
-type caseEntry struct {
-	id    string
-	label string
-	// matchKind selects how values is interpreted when testing the selector
-	// against this case:
-	//
-	//	"is"      → selector equals values[0]
-	//	"isAnyOf" → selector equals any element of values
-	//	"between" → inclusive range, values[0] <= selector <= values[1]
-	//	"gt"/"lt"/"gte"/"lte" → selector compared against values[0]
-	//
-	// "is" and "isAnyOf" lower to a switch `case`; the range/comparison kinds
-	// force the whole Case onto the if/else-if codegen (see the codegen's
-	// ir.BuildCaseCondition). An empty matchKind is treated as "is"/"isAnyOf"
-	// by value count — the same backfill the codegen's extractCases applies to
-	// legacy scenes — so an unset kind never breaks an older scene. Init and
-	// RestoreCaseState keep this explicit so the (future) inspector overlay
-	// never has to guess.
-	matchKind string
-	values    []string
-	ids       []string
-	isDefault bool
-}
+// caseEntry is an ALIAS of the shared engine's phaseEntry (S1 of the
+// twins' migration, 2026-07-20): identical fields, one type — the
+// shared maintainCaseMembership and both twins now speak the engine's
+// language. The matchKind vocabulary documented above lives in the
+// values the engine carries opaquely. Português: ALIAS do phaseEntry
+// do engine — campos idênticos, um tipo só; o vocabulário de matchKind
+// documentado acima vive nos valores que o engine carrega opacamente.
+type caseEntry = phaseEntry
 
 type StatementCase struct {
 	stage sprite.Stage
@@ -152,10 +137,16 @@ type StatementCase struct {
 	// statement in the generated code and in the container's hover tooltip.
 	// Português: Comentário do usuário — vira linhas `// ` acima do
 	// statement deste container no código gerado e no tooltip de hover.
-	comment       string
-	selectedCase  string      // id of the case currently shown/edited
-	cases         []caseEntry // ordered cases
-	defaultCaseID string      // id of the default case ("" = none)
+	comment string
+	// Case S1 (engine migration, 2026-07-21): the phase MODEL lives in
+	// the shared phaseEngine — the triplet's data unification closes
+	// (Function, Sequence, Case). Storage-only slice: every Case
+	// method keeps its proven logic on e.phases.entries /
+	// e.phases.selected; the logic swap follows in its own slices.
+	// Português: O MODELO mora no phaseEngine compartilhado — fecha a
+	// unificação de dados do trigêmeo; fatia só-de-armazenamento.
+	phases        phaseEngine
+	defaultCaseID string // id of the default case ("" = none)
 
 	// codegenPreview renders this Case as source via the real codegen, for the
 	// inspect panel's Preview tab. Injected by the factory from the Workspace;
@@ -276,14 +267,14 @@ func (e *StatementCase) Init() (err error) {
 	if e.selectorType == "" {
 		e.selectorType = "int"
 	}
-	if len(e.cases) == 0 {
-		e.cases = []caseEntry{
+	if len(e.phases.entries) == 0 {
+		e.phases.entries = []caseEntry{
 			{id: e.id + "_c0", label: "case 0", matchKind: "is", values: []string{"0"}},
 			{id: e.id + "_c1", label: "case 1", matchKind: "is", values: []string{"1"}},
 		}
 	}
-	if e.selectedCase == "" {
-		e.selectedCase = e.cases[0].id
+	if e.phases.selected == "" {
+		e.phases.selected = e.phases.entries[0].id
 	}
 
 	e.ornamentDraw = new(caseBorder.CaseBorder)
@@ -375,8 +366,8 @@ func (e *StatementCase) Init() (err error) {
 
 // caseIndexByID returns the index of the case with the given id, or -1.
 func (e *StatementCase) caseIndexByID(id string) int {
-	for i := range e.cases {
-		if e.cases[i].id == id {
+	for i := range e.phases.entries {
+		if e.phases.entries[i].id == id {
 			return i
 		}
 	}
@@ -385,11 +376,11 @@ func (e *StatementCase) caseIndexByID(id string) int {
 
 // activeCaseLabel returns the pill text for the currently-selected case.
 func (e *StatementCase) activeCaseLabel() string {
-	idx := e.caseIndexByID(e.selectedCase)
+	idx := e.caseIndexByID(e.phases.selected)
 	if idx < 0 {
 		return "case"
 	}
-	c := e.cases[idx]
+	c := e.phases.entries[idx]
 	if c.isDefault {
 		return c.label + " (default)"
 	}
@@ -418,9 +409,9 @@ func (e *StatementCase) caseMenuLabel(c caseEntry) string {
 // selecionado leva o ícone de olho pra o maker ver qual está no stage.
 // Substitui o placeholder de ciclar-ao-clicar da Slice-2.
 func (e *StatementCase) caseSelectMenuItems() []contextMenu.Item {
-	items := make([]contextMenu.Item, 0, len(e.cases))
-	for i := range e.cases {
-		c := e.cases[i]
+	items := make([]contextMenu.Item, 0, len(e.phases.entries))
+	for i := range e.phases.entries {
+		c := e.phases.entries[i]
 		id := c.id // capture per iteration for the closure below
 		item := contextMenu.Item{
 			ID:           c.id,
@@ -428,7 +419,7 @@ func (e *StatementCase) caseSelectMenuItems() []contextMenu.Item {
 			HelpFallback: "Show this case on the stage.",
 			OnClick:      func() { e.selectCase(id) },
 		}
-		if c.id == e.selectedCase {
+		if c.id == e.phases.selected {
 			item.FontAwesomePath = rulesIcon.KFAEye
 			item.ViewBox = "0 0 512 512"
 		}
@@ -457,10 +448,10 @@ func (e *StatementCase) selectCase(id string) {
 	if e.caseIndexByID(id) < 0 {
 		return
 	}
-	if id == e.selectedCase {
+	if id == e.phases.selected {
 		return
 	}
-	e.selectedCase = id
+	e.phases.selected = id
 
 	log.Printf("[Case] select %q on %v", id, e.id)
 
@@ -573,13 +564,13 @@ func (e *StatementCase) transformCasesForType(prev, t string) {
 		return
 	}
 	leavingBool := prev == "bool"
-	for i := range e.cases {
-		if e.cases[i].isDefault || e.cases[i].id == e.defaultCaseID {
+	for i := range e.phases.entries {
+		if e.phases.entries[i].isDefault || e.phases.entries[i].id == e.defaultCaseID {
 			continue // a default/catch-all carries no match values
 		}
-		e.cases[i].values = nil
+		e.phases.entries[i].values = nil
 		if leavingBool {
-			e.cases[i].label = fmt.Sprintf("case %d", i)
+			e.phases.entries[i].label = fmt.Sprintf("case %d", i)
 		}
 		// Normalise the match kind to what the new type can express: a string
 		// matches by equality only (is/isAnyOf), so any relational/range kind
@@ -592,14 +583,14 @@ func (e *StatementCase) transformCasesForType(prev, t string) {
 		// is/isAnyOf viram "gt". int mantém o que estava.
 		switch t {
 		case "string":
-			switch e.cases[i].matchKind {
+			switch e.phases.entries[i].matchKind {
 			case "between", "gt", "lt", "gte", "lte":
-				e.cases[i].matchKind = "is"
+				e.phases.entries[i].matchKind = "is"
 			}
 		case "float":
-			switch e.cases[i].matchKind {
+			switch e.phases.entries[i].matchKind {
 			case "is", "isAnyOf", "":
-				e.cases[i].matchKind = "gt"
+				e.phases.entries[i].matchKind = "gt"
 			}
 		}
 	}
@@ -620,25 +611,25 @@ func (e *StatementCase) transformCasesForType(prev, t string) {
 func (e *StatementCase) snapCasesToBool() {
 	trueCase := caseEntry{label: "true", matchKind: "is", values: []string{"true"}}
 	falseCase := caseEntry{label: "false", matchKind: "is", values: []string{"false"}}
-	if len(e.cases) > 0 {
-		trueCase.id = e.cases[0].id
-		trueCase.ids = e.cases[0].ids
+	if len(e.phases.entries) > 0 {
+		trueCase.id = e.phases.entries[0].id
+		trueCase.ids = e.phases.entries[0].ids
 	} else {
 		trueCase.id = e.id + "_ctrue"
 	}
-	if len(e.cases) > 1 {
-		falseCase.id = e.cases[1].id
-		falseCase.ids = e.cases[1].ids
+	if len(e.phases.entries) > 1 {
+		falseCase.id = e.phases.entries[1].id
+		falseCase.ids = e.phases.entries[1].ids
 	} else {
 		falseCase.id = e.id + "_cfalse"
 	}
-	for i := 2; i < len(e.cases); i++ {
-		falseCase.ids = append(falseCase.ids, e.cases[i].ids...)
+	for i := 2; i < len(e.phases.entries); i++ {
+		falseCase.ids = append(falseCase.ids, e.phases.entries[i].ids...)
 	}
-	e.cases = []caseEntry{trueCase, falseCase}
+	e.phases.entries = []caseEntry{trueCase, falseCase}
 	e.defaultCaseID = ""
-	if e.caseIndexByID(e.selectedCase) < 0 {
-		e.selectedCase = e.cases[0].id
+	if e.caseIndexByID(e.phases.selected) < 0 {
+		e.phases.selected = e.phases.entries[0].id
 	}
 }
 
@@ -652,7 +643,7 @@ func (e *StatementCase) assignNewChildren() {
 	// in util.go for the 2026-07-18 collapse forensics and the doctrine.
 	// Português: Delega ao passe resiliente compartilhado (util.go).
 	maintainCaseMembership(e.sceneMgr, e.id, e.GetInnerBBox(),
-		e.cases, e.caseIndexByID(e.selectedCase))
+		e.phases.entries, e.caseIndexByID(e.phases.selected))
 }
 
 // applyCaseVisibility shows the selected case's children and hides every other
@@ -666,9 +657,9 @@ func (e *StatementCase) applyCaseVisibility() {
 		return
 	}
 
-	for i := range e.cases {
-		show := e.cases[i].id == e.selectedCase
-		for _, id := range e.cases[i].ids {
+	for i := range e.phases.entries {
+		show := e.phases.entries[i].id == e.phases.selected
+		for _, id := range e.phases.entries[i].ids {
 			if elem, found := e.stage.GetElement(id); found {
 				elem.SetVisible(show)
 			}
@@ -1128,8 +1119,8 @@ func (e *StatementCase) RefreshMembership() {
 func (e *StatementCase) GetProperties() map[string]interface{} {
 	e.assignNewChildren()
 
-	cases := make([]map[string]interface{}, 0, len(e.cases))
-	for _, c := range e.cases {
+	cases := make([]map[string]interface{}, 0, len(e.phases.entries))
+	for _, c := range e.phases.entries {
 		cases = append(cases, map[string]interface{}{
 			"id":        c.id,
 			"label":     c.label,
@@ -1141,7 +1132,7 @@ func (e *StatementCase) GetProperties() map[string]interface{} {
 
 	props := map[string]interface{}{
 		"selectorType":  e.selectorType,
-		"selectedCase":  e.selectedCase,
+		"selectedCase":  e.phases.selected,
 		"cases":         cases,
 		"defaultCaseId": e.defaultCaseID,
 	}
@@ -1177,7 +1168,7 @@ func (e *StatementCase) ApplyProperties(values map[string]string) {
 		e.selectorType = t
 	}
 	if sc, ok := values["selectedCase"]; ok && sc != "" {
-		e.selectedCase = sc
+		e.phases.selected = sc
 		if e.ornamentDraw != nil {
 			e.ornamentDraw.SetCaseLabel(e.activeCaseLabel())
 		}
@@ -1204,11 +1195,11 @@ func (e *StatementCase) ApplyProperties(values map[string]string) {
 		return // not the overlay payload (e.g. the import's Sprintf string)
 	}
 
-	oldByID := make(map[string]caseEntry, len(e.cases))
-	for _, c := range e.cases {
+	oldByID := make(map[string]caseEntry, len(e.phases.entries))
+	for _, c := range e.phases.entries {
 		oldByID[c.id] = c
 	}
-	taken := make(map[string]bool, len(e.cases)+len(incoming))
+	taken := make(map[string]bool, len(e.phases.entries)+len(incoming))
 	for id := range oldByID {
 		taken[id] = true
 	}
@@ -1255,7 +1246,7 @@ func (e *StatementCase) ApplyProperties(values map[string]string) {
 	// Reassign children of removed cases to the default (or the first case when
 	// there is no default), so deleting a case never orphans its devices.
 	var orphaned []string
-	for _, c := range e.cases {
+	for _, c := range e.phases.entries {
 		if !kept[c.id] {
 			orphaned = append(orphaned, c.ids...)
 		}
@@ -1271,10 +1262,10 @@ func (e *StatementCase) ApplyProperties(values map[string]string) {
 		rebuilt[sink].ids = append(rebuilt[sink].ids, orphaned...)
 	}
 
-	e.cases = rebuilt
+	e.phases.entries = rebuilt
 	e.defaultCaseID = defaultID
-	if !kept[e.selectedCase] && len(e.cases) > 0 {
-		e.selectedCase = e.cases[0].id
+	if !kept[e.phases.selected] && len(e.phases.entries) > 0 {
+		e.phases.selected = e.phases.entries[0].id
 	}
 
 	if e.ornamentDraw != nil {
@@ -1352,8 +1343,8 @@ func nextCaseID(baseID string, taken map[string]bool) string {
 // (caseInspectRow) e resolve o selectorType. Compartilhado por GetInspectConfig
 // e showInspectOverlay para os dois nunca divergirem.
 func (e *StatementCase) inspectCasesPayload() (casesJSON, selectorType string) {
-	rows := make([]caseInspectRow, 0, len(e.cases))
-	for _, c := range e.cases {
+	rows := make([]caseInspectRow, 0, len(e.phases.entries))
+	for _, c := range e.phases.entries {
 		rows = append(rows, caseInspectRow{
 			ID:        c.id,
 			Label:     c.label,
@@ -1453,7 +1444,7 @@ func (e *StatementCase) GetInspectConfig() interface{} {
 		// OnSave routes the edited form values to ApplyProperties, which
 		// reconciles the cases and refreshes the stage. Without it the overlay
 		// opens and edits visually, but Save is a no-op (renderForm's doSave
-		// returns early when OnSave is nil) and e.cases never changes — which
+		// returns early when OnSave is nil) and e.phases.entries never changes — which
 		// is why the device's case dropdown stayed at the two seeded cases.
 		OnSave: func(values map[string]string) {
 			e.ApplyProperties(values)

@@ -332,6 +332,37 @@ func (e *goEmitter) emitVar(inst ir.Instruction) {
 	e.declared[inst.Dest] = true
 }
 
+// goIsLiteralArg mirrors the C backend's isLiteralArg: true only for
+// real literals (number, bool, quoted). Português: Espelho do gêmeo C.
+func goIsLiteralArg(s string) bool {
+	if s == "true" || s == "false" {
+		return true
+	}
+	if strings.HasPrefix(s, "\"") {
+		return true
+	}
+	if s == "" {
+		return false
+	}
+	i := 0
+	if s[0] == '-' {
+		i = 1
+	}
+	digits := false
+	dot := false
+	for ; i < len(s); i++ {
+		switch {
+		case s[i] >= '0' && s[i] <= '9':
+			digits = true
+		case s[i] == '.' && !dot:
+			dot = true
+		default:
+			return false
+		}
+	}
+	return digits
+}
+
 func (e *goEmitter) emitAssign(inst ir.Instruction) {
 	name := goIdent(inst.Dest)
 	// The source operand is one of two kinds. The scope-crossing promotion
@@ -348,10 +379,17 @@ func (e *goEmitter) emitAssign(inst ir.Instruction) {
 	// identificador Go que o produtor declara, via goOperand. Ramificar pelo
 	// prefixo "%" mantém o caminho do literal intacto.
 	var val string
-	if strings.HasPrefix(inst.Args[0], "%") {
+	switch {
+	case strings.HasPrefix(inst.Args[0], "%"):
 		val = goOperand(inst.Args[0])
-	} else {
+	case goIsLiteralArg(inst.Args[0]):
 		val = goLiteral(inst.Type, inst.Args[0])
+	default:
+		// Bare IDENTIFIER (e.g. a function parameter feeding a
+		// SetVar) — passes raw; the C twin fixed the same day
+		// (2026-07-21, "tunnel_0LL"). Português: IDENTIFICADOR cru
+		// passa intacto; o gêmeo C corrigiu no mesmo dia.
+		val = inst.Args[0]
 	}
 	e.writef("%s = %s\n", name, val)
 }

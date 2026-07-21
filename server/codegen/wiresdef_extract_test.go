@@ -33,7 +33,10 @@ func TestExtractFunctionDef(t *testing.T) {
 		if err := json.Unmarshal(def.Scene, &sub); err != nil {
 			t.Fatalf("captured scene unreadable: %v", err)
 		}
-		if len(sub.Devices) != 5 || len(sub.Wires) != 2 {
+		// 6 devices: fn + 2 signature tunnels + 1 LAYER tunnel (captured —
+		// it is body plumbing) + print + const. Português: 6 — o túnel de
+		// camada É corpo e viaja na def.
+		if len(sub.Devices) != 6 || len(sub.Wires) != 2 {
 			t.Fatalf("subtree wrong: devices=%d wires=%d", len(sub.Devices), len(sub.Wires))
 		}
 	})

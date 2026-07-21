@@ -63,16 +63,16 @@ func (e *StatementSequence) RestoreCaseState(selectorType, selectedCase, default
 				ids:       append([]string(nil), c.IDs...),
 			})
 		}
-		e.cases = rebuilt
+		e.phases.entries = rebuilt
 	}
 
 	_ = defaultCaseID // no default-phase concept — ignored (interface arg)
 
 	if selectedCase != "" {
-		e.selectedCase = selectedCase
+		e.phases.selected = selectedCase
 	}
-	if e.selectedCase == "" && len(e.cases) > 0 {
-		e.selectedCase = e.cases[0].id
+	if e.phases.selected == "" && len(e.phases.entries) > 0 {
+		e.phases.selected = e.phases.entries[0].id
 	}
 
 	if e.ornamentDraw != nil {

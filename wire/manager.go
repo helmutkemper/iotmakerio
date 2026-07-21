@@ -1383,6 +1383,17 @@ func (m *Manager) ManualTunnelIDsFor(containerID string) []string {
 // Sequence→manager push; the renderer and the connect gating read it.
 // Português: Empurra a apresentação de fase de um túnel: lado + X
 // re-assentados pelo dono (Y é do maker), papel e escondido-por-fase.
+// manualTunnelPhaseHidden reports whether id is a manual tunnel whose
+// view is phase-hidden — the wire draw gate treats such an endpoint as
+// hidden. Português: Informa se id é túnel manual com a vista
+// fase-oculta — o portão de desenho trata a ponta como oculta.
+func (m *Manager) manualTunnelPhaseHidden(id string) bool {
+	if t, ok := m.manualTunnels[id]; ok && t != nil {
+		return t.PhaseHidden
+	}
+	return false
+}
+
 func (m *Manager) SetManualTunnelView(id, side string, x, y float64, role string, phaseHidden bool) {
 	t, ok := m.manualTunnels[id]
 	if !ok {
@@ -1693,6 +1704,17 @@ func (m *Manager) manualTunnelPortBlocked(id ConnectorID) bool {
 	}
 	if t.PhaseHidden {
 		return true
+	}
+	// SIGNATURE tunnels (no natal) expose BOTH faces: the inner one
+	// serves the body, the outer one is the definition's own implicit
+	// call-site — LabVIEW semantics (field 2026-07-20, "os túneis de
+	// parâmetros e retorno não se conectam ao que está fora"). Phase
+	// tunnels keep the single-face-per-pose law. Português: Túneis de
+	// ASSINATURA expõem as DUAS faces — a interna serve o corpo, a
+	// externa é o call-site implícito da definição; túneis de fase
+	// mantêm a lei de face única por pose.
+	if t.NatalCase == "" {
+		return false
 	}
 	switch t.Role {
 	case "in":
@@ -2035,6 +2057,10 @@ func (m *Manager) DeleteSelected() (count int) {
 
 // DeleteWire removes a wire by its ID.
 func (m *Manager) DeleteWire(id string) (deleted bool) {
+	// Forensic confession (2026-07-21): every deletion names itself —
+	// the field's vanishing wires get a timestamped culprit line.
+	// Português: Confissão forense — toda deleção se nomeia.
+	log.Printf("[WIRE] DeleteWire: %s", id)
 	for i, w := range m.wires {
 		if w.ID == id {
 			if m.OnWireDeleted != nil {
@@ -2331,8 +2357,19 @@ func (m *Manager) Draw() {
 	}
 
 	for _, w := range m.wires {
-		fromHidden := m.hiddenElements[w.From.ElementID]
-		toHidden := m.hiddenElements[w.To.ElementID]
+		// A wire endpoint that is a PHASE-HIDDEN manual tunnel counts
+		// as hidden too (field 2026-07-20, "as conexões estão vazando
+		// entre fases"): member hiding never covers tunnel↔tunnel
+		// wires — tunnels are membership-exempt — so a wire between a
+		// hidden phase tunnel and a signature tunnel leaked across
+		// every phase. The record's Hidden is the same state the
+		// hosts' refreshers already maintain. Português: Ponta que é
+		// túnel FASE-OCULTO conta como oculta — o esconder-membros
+		// nunca cobre fio túnel↔túnel (túneis são isentos de
+		// membresia) e o fio vazava entre fases; o Hidden do registro
+		// é o estado que os refreshers já mantêm.
+		fromHidden := m.hiddenElements[w.From.ElementID] || m.manualTunnelPhaseHidden(w.From.ElementID)
+		toHidden := m.hiddenElements[w.To.ElementID] || m.manualTunnelPhaseHidden(w.To.ElementID)
 
 		// Z-burial: either endpoint's owning container covered by a
 		// higher-z sibling hides the whole wire — the ensemble sinks
@@ -2417,7 +2454,20 @@ func (m *Manager) Draw() {
 		// Pin colour = the stamped type's wire colour (chameleon v2) —
 		// slices, probes and handles included; violet while unwired.
 		// Português: Cor do pino = cor do tipo carimbado; violeta sem fio.
-		pinColor := manualTunnelViolet
+		// Unwired base color tells the tunnel SPECIES apart (Kemper
+		// 2026-07-20): SIGNATURE tunnels stay violet, PHASE tunnels
+		// (natal stamped) wear the house peach — the moment of
+		// creation/organisation is when the maker needs the
+		// distinction. Once wired, the TYPE color takes over for both
+		// (data-type readability is sacred). Português: A cor
+		// sem-fio separa as ESPÉCIES — assinatura violeta, fase
+		// (natal carimbado) no pêssego da casa; com fio, a cor do
+		// TIPO assume para ambos (legibilidade de tipo é sagrada).
+		baseColor := manualTunnelViolet
+		if m.ManualTunnelNatal(t.ID) != "" {
+			baseColor = manualTunnelPhasePeach
+		}
+		pinColor := baseColor
 		if wt := m.ManualTunnelWireType(t.ID); wt != "" {
 			pinColor = m.getTypeStyle(wt).StrokeColor
 		}
@@ -2428,7 +2478,7 @@ func (m *Manager) Draw() {
 			lbl = ""
 		}
 		drawManualTunnelMarker(m.ctx, t.Point.X, t.Point.Y,
-			m.hasWireOnElement(t.ID), t.Fresh, t.Role, pinColor, lbl, d)
+			m.hasWireOnElement(t.ID), t.Fresh, t.NatalCase == "", t.Role, pinColor, baseColor, lbl, d)
 	}
 
 	// Visual connect mode: highlight candidate connectors + draft wire.

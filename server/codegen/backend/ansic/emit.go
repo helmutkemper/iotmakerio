@@ -809,13 +809,55 @@ func (e *cEmitter) emitAssign(inst ir.Instruction) {
 	// cOperand. É exatamente a forma "ASSIGN from register" que a nota desta
 	// função previu. Ramificar pelo "%" mantém o caminho do literal intacto.
 	var val string
-	if strings.HasPrefix(inst.Args[0], "%") {
+	switch {
+	case strings.HasPrefix(inst.Args[0], "%"):
 		val = cOperand(inst.Args[0])
-	} else {
+	case isLiteralArg(inst.Args[0]):
 		val = cLiteral(inst.Type, inst.Args[0], e.profile)
+	default:
+		// A bare IDENTIFIER — e.g. a function PARAMETER feeding a
+		// SetVar (field 2026-07-21: "tunnel_0LL" — the literal suffix
+		// glued onto a variable). Identifiers pass through untouched.
+		// Português: IDENTIFICADOR cru — ex.: parâmetro de função
+		// alimentando um SetVar; o sufixo de literal colava na
+		// variável. Identificadores passam intactos.
+		val = inst.Args[0]
 	}
 
 	e.writef("%s = %s;\n", name, val)
+}
+
+// isLiteralArg reports whether a non-register OpAssign argument is a
+// true LITERAL (number, bool, quoted string) — anything else is an
+// identifier and must never be literal-formatted. Português: Diz se o
+// argumento é LITERAL de verdade; o resto é identificador.
+func isLiteralArg(s string) bool {
+	if s == "true" || s == "false" {
+		return true
+	}
+	if strings.HasPrefix(s, "\"") {
+		return true
+	}
+	if s == "" {
+		return false
+	}
+	i := 0
+	if s[0] == '-' {
+		i = 1
+	}
+	digits := false
+	dot := false
+	for ; i < len(s); i++ {
+		switch {
+		case s[i] >= '0' && s[i] <= '9':
+			digits = true
+		case s[i] == '.' && !dot:
+			dot = true
+		default:
+			return false
+		}
+	}
+	return digits
 }
 
 // emitConstArray translates OpConstArray — a fixed-size constant collection

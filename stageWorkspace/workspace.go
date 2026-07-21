@@ -1746,6 +1746,22 @@ func (w *Workspace) openTunnelMenu(feeder wire.ConnectorID, containerID string, 
 // Connect parte da porta do PAPEL da fase em cena ("in" na natal, "out"
 // nas seguintes); Move entra no MESMO modo-mover; Delete remove o
 // device inteiro pela cordinha do factory.
+// phaseTunnelHost is the per-phase tunnel-visibility contract every
+// phase-hosting container speaks (Sequence natively; Function since
+// 2026-07-20 — "os túneis de parâmetro e de retorno devem estar em
+// todas as fases e o usuário controla se quer visível ou não"). The
+// menu below keys on the CONTRACT, not the concrete twin. Português:
+// O contrato de visibilidade por fase que todo container hospedeiro
+// fala; o menu abaixo gancha no CONTRATO, não no gêmeo concreto.
+type phaseTunnelHost interface {
+	TunnelCanRemoveFromCurrentPhase(id string) bool
+	TunnelRemoveFromCurrentPhase(id string)
+	TunnelCanRemoveFromNextPhases(id string) bool
+	TunnelRemoveFromNextPhases(id string)
+	TunnelHasRemovals(id string) bool
+	TunnelRestorePhases(id string)
+}
+
 func (w *Workspace) openManualTunnelMenu(id string, worldX, worldY float64) {
 	if w.CtxMenu == nil {
 		return
@@ -1827,7 +1843,7 @@ func (w *Workspace) openManualTunnelMenu(id string, worldX, worldY float64) {
 	// está removido. Túnel oculto na fase em cena não tem quadrado nem
 	// menu: o restore está sempre ao alcance pela natal, a alça.
 	if seq, ok := w.SceneMgr.FindDevice(
-		w.WireMgr.ManualTunnelContainer(id)).(*compFlow.StatementSequence); ok {
+		w.WireMgr.ManualTunnelContainer(id)).(phaseTunnelHost); ok {
 		eyeSlash := rulesIcon.IconByNameOrDefault("eye-slash", "gear")
 		eye := rulesIcon.IconByNameOrDefault("eye", "gear")
 		if seq.TunnelCanRemoveFromCurrentPhase(id) {
@@ -1988,7 +2004,14 @@ func (w *Workspace) updateConnectorTip(event sprite.PointerEvent) {
 	multiline := ""
 	if cid := w.WireMgr.ManualTunnelContainer(hit.ID.ElementID); cid != "" {
 		if _, isFn := w.SceneMgr.FindDevice(cid).(*compFlow.StatementFunction); isFn {
-			if w.WireMgr.ManualTunnelSide(hit.ID.ElementID) == "left" {
+			// PHASE tunnels (natal stamped) are neither parameter nor
+			// return — they carry a value into the NEXT PHASES
+			// (Kemper 2026-07-20: "return" here confuses the maker).
+			// Português: Túnel de FASE não é parâmetro nem retorno —
+			// leva o valor para as PRÓXIMAS FASES; "return" confundia.
+			if w.WireMgr.ManualTunnelNatal(hit.ID.ElementID) != "" {
+				label = translate.T("connNextPhaseData", "data for the next phase")
+			} else if w.WireMgr.ManualTunnelSide(hit.ID.ElementID) == "left" {
 				label = translate.T("connParameter", "parameter")
 			} else {
 				label = translate.T("connReturn", "return")
@@ -5132,6 +5155,22 @@ func (w *Workspace) importScene(sceneJSON string) {
 	// and the visuals are fully recached.
 	go func() {
 		time.Sleep(500 * time.Millisecond)
+		// PHASE-HOST SWEEP (field 2026-07-21, the loose wire after
+		// restore): the shells' ApplyProperties replay their tunnel
+		// records at +200ms — AFTER the synchronous RestorePhaseState
+		// — so tunnel poses/visibility must re-apply once everything
+		// settled. RefreshMembership is idempotent; the sweep also
+		// covers Sequence/Case harmlessly. Português: VARREDURA dos
+		// hospedeiros de fase — as cascas replays seus registros de
+		// túnel em +200ms, DEPOIS do restore síncrono; poses e
+		// visibilidade re-aplicam com tudo assentado. Idempotente.
+		for _, id := range w.SceneMgr.RegisteredIDs() {
+			if d := w.SceneMgr.FindDevice(id); d != nil {
+				if r, ok := d.(interface{ RefreshMembership() }); ok {
+					r.RefreshMembership()
+				}
+			}
+		}
 		w.SceneMgr.NotifyChange()
 		w.Stage.MarkDirty()
 		w.importing = false
