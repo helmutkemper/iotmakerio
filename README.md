@@ -1,16 +1,67 @@
 # IoTMaker
 
-## ❤️ Support this project
-
-IoTMaker is built by a single developer. If you believe a kid in a classroom
-and an engineer in a lab should be able to use the same tool, you can help:
-
-[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/helmutkemper)
-[![Support on Ko-fi](https://img.shields.io/badge/Support-Ko--fi-ff5e5b?logo=kofi&logoColor=white)](https://ko-fi.com/helmutkemper)
-
 > **Status:** under active development. Go code generation and C99
 > target support are in progress.
 
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
+[![Commercial license available](https://img.shields.io/badge/Commercial-available-green.svg)](./LICENSING.md)
+
+## A visual IDE for Code and Firmware.
+### What Arduino did for hardware, IoTMaker aims to do for the code.
+
+**IoTMaker** is a graphical IDE that blends visual and textual programming.
+You build logic by connecting blocks on a stage, and the IDE generates
+compilable source code. It is inspired by Arduino: the same block a
+child wires visually is a block an engineer can write in C99 or Golang.
+
+## Who it's for
+
+**Makers** connect blocks on the stage and export working code — no
+  programming required.
+
+**Specialists** write reusable components ("black boxes"), following the
+  IoTMaker Doc Standard; each one becomes a graphical block a maker can wire.
+
+## How it works
+
+You don't need to know how to program; you simply connect blocks.
+
+This is a graphical IDE designed to transform sets of blocks into C or Golang source 
+code.
+
+It was designed to allow non-programmers to connect blocks and generate source code.
+
+![my_function](readmeImages/my_function.png)
+
+However, it was also conceived to enable engineers to transform large amounts of 
+complex code into simple graphical blocks, while preserving the underlying code.
+
+Write your source code in C99 or Golang.
+
+![write_code](readmeImages/write_code.png)
+
+Check and configure the graphical interface to your liking.
+
+![parser](readmeImages/parser.png)
+
+Document your work so that the community can use it easily.
+
+![document](readmeImages/document.png)
+
+Your documentation becomes a manual integrated into the menu, 
+simplifying usage.
+
+![menu](readmeImages/menu.png)
+
+Include a usage example for the user who just wants to run the 
+initial functional test.
+
+![example](readmeImages/example.png)
+
+## Designed to be efficient
+
+Don't waste time searching for the information needed to complete your project; the graphical 
+interface was designed for efficiency, putting the information right in the palm of your hand.
 
 ![image1](readmeImages/image1.png)
 
@@ -18,35 +69,21 @@ and an engineer in a lab should be able to use the same tool, you can help:
 
 ![image3](readmeImages/image3.png)
 
-![image4](readmeImages/image4.png)
+The user interface was designed to be easy to configure, so you don't waste time searching for 
+settings; you simply click on the graphical device to access its configuration. 
 
 ![image6](readmeImages/image6.png)
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
-[![Commercial license available](https://img.shields.io/badge/Commercial-available-green.svg)](./LICENSING.md)
+It is so easy that we can even sketch out the result for you.
 
-**A visual IDE for firmware. What Arduino did for hardware, IoTMaker aims to do
-for the code.**
+![image4](readmeImages/image4.png)
 
-IoTMaker is a graphical Go/WASM IDE that blends visual and textual programming.
-You build logic by connecting blocks on a stage, and the IDE generates
-compilable source code. It is inspired by LabVIEW and Arduino: the same block a
-child wires visually is a block an engineer can write in Go.
+## ❤️ Support this project
 
-## Who it's for
+IoTMaker is built by a single developer. If you believe a kid in a classroom
+and an engineer in a lab should be able to use the same tool, you can help:
 
-- **Makers** connect blocks on the stage and export working code — no
-  programming required.
-- **Specialists** write reusable components ("black boxes") in Go, following the
-  IoTMaker Doc Standard; each one becomes a graphical block a maker can wire.
-
-## How it works
-
-A project has two stages: a **backend stage** for logic and data (blocks and
-wires), and a **frontend stage** for the live dashboard. The canvas is the
-single source of truth — on export, the scene is compiled through an
-intermediate representation into the target language, so adding a new target is
-writing a new backend rather than a rewrite.
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/helmutkemper)
 
 ## Start server
 
