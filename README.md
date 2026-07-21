@@ -26,7 +26,7 @@ child wires visually is a block an engineer can write in C99 or Golang.
 
 You don't need to know how to program; you simply connect blocks.
 
-This is a graphical IDE designed to transform sets of blocks into C or Golang source 
+This is a graphical IDE designed to transform sets of blocks into C99 or Golang source 
 code.
 
 It was designed to allow non-programmers to connect blocks and generate source code.
