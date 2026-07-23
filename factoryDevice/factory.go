@@ -584,6 +584,7 @@ func (f *DeviceFactory) CreateLoop() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementLoop at (%v, %v)", cx, cy)
 	// Refresh the scenegraph — the device was registered at (0,0)
 	// before SetPosition moved its sprite to the click location; without
@@ -622,6 +623,7 @@ func (f *DeviceFactory) CreateLoopDuration() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementLoopDuration at (%v, %v)", cx, cy)
 	// Refresh the scenegraph — the device was registered at (0,0)
 	// before SetPosition moved its sprite to the click location; without
@@ -662,6 +664,7 @@ func (f *DeviceFactory) CreateCase() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementCase at (%v, %v)", cx, cy)
 	f.SceneMgr.NotifyChange()
 }
@@ -805,6 +808,7 @@ func (f *DeviceFactory) CreateTunnel() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementTunnel at (%v, %v)", cx, cy)
 	f.SceneMgr.NotifyChange()
 }
@@ -835,6 +839,7 @@ func (f *DeviceFactory) CreateFunction() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementFunction at (%v, %v)", cx, cy)
 	f.SceneMgr.NotifyChange()
 }
@@ -864,6 +869,7 @@ func (f *DeviceFactory) CreateSequence() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementSequence at (%v, %v)", cx, cy)
 	f.SceneMgr.NotifyChange()
 }
@@ -895,6 +901,7 @@ func (f *DeviceFactory) CreateAdd() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementAdd at (%v, %v)", cx, cy)
 }
 
@@ -923,6 +930,7 @@ func (f *DeviceFactory) CreateEqualTo() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementEqualTo at (%v, %v)", cx, cy)
 }
 
@@ -951,6 +959,7 @@ func (f *DeviceFactory) CreateNotEqualTo() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementNotEqualTo at (%v, %v)", cx, cy)
 }
 
@@ -979,6 +988,7 @@ func (f *DeviceFactory) CreateGreaterThan() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementGreaterThan at (%v, %v)", cx, cy)
 }
 
@@ -1007,6 +1017,7 @@ func (f *DeviceFactory) CreateLessThanOrEqualTo() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementLessThanOrEqualTo at (%v, %v)", cx, cy)
 }
 
@@ -1035,6 +1046,7 @@ func (f *DeviceFactory) CreateGreaterThanOrEqualTo() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementGreaterThanOrEqualTo at (%v, %v)", cx, cy)
 }
 
@@ -1063,6 +1075,7 @@ func (f *DeviceFactory) CreateLessThan() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementLessThan at (%v, %v)", cx, cy)
 }
 
@@ -1091,6 +1104,7 @@ func (f *DeviceFactory) CreateSub() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementSub at (%v, %v)", cx, cy)
 }
 
@@ -1119,6 +1133,7 @@ func (f *DeviceFactory) CreateMul() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementMul at (%v, %v)", cx, cy)
 }
 
@@ -1147,6 +1162,7 @@ func (f *DeviceFactory) CreateDiv() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementDiv at (%v, %v)", cx, cy)
 }
 
@@ -1173,6 +1189,7 @@ func (f *DeviceFactory) CreateConstInt() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementConstInt at (%v, %v)", cx, cy)
 }
 
@@ -1202,6 +1219,7 @@ func (f *DeviceFactory) CreateDataFile() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementDataFile at (%v, %v)", cx, cy)
 }
 
@@ -1230,6 +1248,7 @@ func (f *DeviceFactory) CreateDataText() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementDataText at (%v, %v)", cx, cy)
 }
 
@@ -1257,6 +1276,7 @@ func (f *DeviceFactory) CreateGetVarInt() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementGetVarInt at (%v, %v)", cx, cy)
 }
 
@@ -1289,6 +1309,7 @@ func (f *DeviceFactory) CreateGetVarFloat() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementGetVarFloat at (%v, %v)", cx, cy)
 }
 
@@ -1321,6 +1342,7 @@ func (f *DeviceFactory) CreateSetVarInt() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementSetVarInt at (%v, %v)", cx, cy)
 }
 
@@ -1351,6 +1373,7 @@ func (f *DeviceFactory) CreateSetVarFloat() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementSetVarFloat at (%v, %v)", cx, cy)
 }
 
@@ -1381,6 +1404,7 @@ func (f *DeviceFactory) CreateGetVarString() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementGetVarString at (%v, %v)", cx, cy)
 }
 
@@ -1411,6 +1435,7 @@ func (f *DeviceFactory) CreateSetVarString() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementSetVarString at (%v, %v)", cx, cy)
 }
 
@@ -1444,6 +1469,7 @@ func (f *DeviceFactory) CreatePrintInt() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementPrintInt at (%v, %v)", cx, cy)
 }
 
@@ -1477,6 +1503,7 @@ func (f *DeviceFactory) CreatePrintFloat() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementPrintFloat at (%v, %v)", cx, cy)
 }
 
@@ -1510,6 +1537,7 @@ func (f *DeviceFactory) CreatePrintString() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementPrintString at (%v, %v)", cx, cy)
 }
 
@@ -1543,6 +1571,7 @@ func (f *DeviceFactory) CreatePrintBool() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementPrintBool at (%v, %v)", cx, cy)
 }
 
@@ -1576,6 +1605,7 @@ func (f *DeviceFactory) CreatePrintByte() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementPrintByte at (%v, %v)", cx, cy)
 }
 
@@ -1609,6 +1639,7 @@ func (f *DeviceFactory) CreatePrintByteArray() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementPrintByteArray at (%v, %v)", cx, cy)
 }
 
@@ -1651,6 +1682,7 @@ func (f *DeviceFactory) CreateGauge() {
 	stm.SetFrontendPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementGauge at (%v, %v)", cx, cy)
 }
 
@@ -1689,6 +1721,7 @@ func (f *DeviceFactory) CreateLED() {
 	stm.SetFrontendPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementLED at (%v, %v)", cx, cy)
 }
 
@@ -1727,6 +1760,7 @@ func (f *DeviceFactory) CreateBarGraph() {
 	stm.SetFrontendPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementBarGraph at (%v, %v)", cx, cy)
 }
 
@@ -1768,6 +1802,7 @@ func (f *DeviceFactory) CreateTextDisplay() {
 	stm.SetFrontendPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementTextDisplay at (%v, %v)", cx, cy)
 }
 
@@ -1806,6 +1841,7 @@ func (f *DeviceFactory) CreateButton() {
 	stm.SetFrontendPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementButton at (%v, %v)", cx, cy)
 }
 
@@ -1844,6 +1880,7 @@ func (f *DeviceFactory) CreateSevenSeg() {
 	stm.SetFrontendPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementSevenSeg at (%v, %v)", cx, cy)
 }
 
@@ -1882,6 +1919,7 @@ func (f *DeviceFactory) CreateKnob() {
 	stm.SetFrontendPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementKnob at (%v, %v)", cx, cy)
 }
 
@@ -1923,6 +1961,7 @@ func (f *DeviceFactory) CreateChart() {
 	stm.SetFrontendPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementChart at (%v, %v)", cx, cy)
 }
 
@@ -1977,6 +2016,7 @@ func (f *DeviceFactory) CreateChartPro() {
 	stm.SetFrontendPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementChartPro at (%v, %v)", cx, cy)
 }
 
@@ -2019,6 +2059,7 @@ func (f *DeviceFactory) CreatePieChart() {
 	stm.SetFrontendPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementPieChart at (%v, %v)", cx, cy)
 }
 
@@ -2058,6 +2099,7 @@ func (f *DeviceFactory) CreateBackgroundImage() {
 	stm.SetFrontendPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementBackgroundImage at (%v, %v)", cx, cy)
 }
 
@@ -2114,6 +2156,7 @@ func (f *DeviceFactory) CreateBool() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementBool at (%v, %v)", cx, cy)
 	log.Println("[Factory] Completed CreateBool")
 }
@@ -2143,6 +2186,7 @@ func (f *DeviceFactory) CreateConstFloat() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementConstFloat at (%v, %v)", cx, cy)
 }
 
@@ -2170,6 +2214,7 @@ func (f *DeviceFactory) CreateConstString() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementConstString at (%v, %v)", cx, cy)
 }
 
@@ -2201,6 +2246,7 @@ func (f *DeviceFactory) CreateConstDuration() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementConstDuration at (%v, %v)", cx, cy)
 }
 
@@ -2239,6 +2285,7 @@ func (f *DeviceFactory) CreateConstArrayInt() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementConstArrayInt at (%v, %v)", cx, cy)
 }
 
@@ -2275,6 +2322,7 @@ func (f *DeviceFactory) CreateIndexInt() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementIndexInt at (%v, %v)", cx, cy)
 }
 
@@ -2306,6 +2354,7 @@ func (f *DeviceFactory) CreateIndexFloat() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementIndexFloat at (%v, %v)", cx, cy)
 }
 
@@ -2337,6 +2386,7 @@ func (f *DeviceFactory) CreateIndexString() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementIndexString at (%v, %v)", cx, cy)
 }
 
@@ -2375,6 +2425,7 @@ func (f *DeviceFactory) CreateConstArrayFloat() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementConstArrayFloat at (%v, %v)", cx, cy)
 }
 
@@ -2413,6 +2464,7 @@ func (f *DeviceFactory) CreateConstArrayString() {
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementConstArrayString at (%v, %v)", cx, cy)
 }
 
@@ -2662,6 +2714,48 @@ func (f *DeviceFactory) CreateCopy(deviceType string, props map[string]interface
 // clone recém-colocado. Posições transladam pelo delta de CENTROS.
 // Túneis com fase natal são PULADOS com log (limite declarado do v1);
 // túneis de Function copiam por inteiro, com rótulo e comentário.
+// wireInspectDblClick binds an element's double-click to the device's
+// OpenInspect contract (P1): devices without the contract or without a
+// registered element no-op safely. One site serves creation, import
+// and deep copy alike. Português: Liga o duplo-clique do elemento ao
+// contrato OpenInspect do device — sem contrato ou sem elemento, não
+// faz nada; um único ponto serve criação, import e cópia.
+func (f *DeviceFactory) wireInspectDblClick(dev interface{}) {
+	oi, ok := dev.(interface{ OpenInspect() })
+	if !ok {
+		return
+	}
+	ider, ok := dev.(interface{ GetID() string })
+	if !ok {
+		return
+	}
+	bind := func() bool {
+		if el, found := f.Stage.GetElement(ider.GetID()); found {
+			el.SetOnDoubleClick(func(sprite.PointerEvent) { oi.OpenInspect() })
+			return true
+		}
+		return false
+	}
+	if bind() {
+		return
+	}
+	// Some containers create their element a beat AFTER Append (field
+	// 2026-07-23: the function and BlackBoxes missed the wire). Retry
+	// briefly instead of failing silently. Português: Alguns containers
+	// criam o elemento um instante DEPOIS do Append — tenta de novo em
+	// vez de falhar em silêncio.
+	go func() {
+		for i := 0; i < 8; i++ {
+			time.Sleep(150 * time.Millisecond)
+			if bind() {
+				return
+			}
+		}
+		log.Printf("[Factory] dblclick wire: element never appeared for %s",
+			ider.GetID())
+	}()
+}
+
 // restoreCopiedCases rebuilds a cloned case-host's phase state from
 // the SOURCE's raw properties, remapping member ids through the
 // clone's idMap — mirrors the import hook. Português: Reconstrói o
@@ -3135,5 +3229,6 @@ func (f *DeviceFactory) CreateCommStatus() {
 	stm.SetFrontendPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created StatementCommStatus at (%v, %v)", cx, cy)
 }

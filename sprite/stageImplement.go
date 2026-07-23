@@ -8,6 +8,7 @@ package sprite
 import (
 	"sort"
 	"syscall/js"
+	"time"
 
 	"github.com/helmutkemper/iotmakerio/rulesDensity"
 	"github.com/helmutkemper/iotmakerio/rulesSprite"
@@ -123,6 +124,14 @@ type stage struct {
 	onClickStage       func(PointerEvent)
 	clickInterceptor   func(event PointerEvent) bool
 	onDoubleClickStage func(PointerEvent)
+
+	// pendingClick delays the single-click dispatch by the double-click
+	// window, so a double-click cancels it instead of flashing the
+	// single-click UI first (field 2026-07-23: the context menu blinked
+	// under every double-click). Português: Atrasa o clique simples
+	// pela janela do duplo — o duplo cancela o pendente em vez de
+	// piscar a UI do simples antes.
+	pendingClick       *time.Timer
 	onPointerMoveStage func(PointerEvent)
 
 	// Post-render callback

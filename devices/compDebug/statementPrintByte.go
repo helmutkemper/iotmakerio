@@ -933,3 +933,9 @@ prefix) instead of crashing — a null is debug information, not an error.
 // Português: Recebe o serializer de cena — chamado pelo
 // scene.Serializer.Register por assertion no registro.
 func (e *StatementPrintByte) SetSceneMgr(mgr *scene.Serializer) { e.sceneMgr = mgr }
+
+// OpenInspect opens this device's inspect overlay — the double-click
+// contract (P1, Kemper 2026-07-23): the factory wires every element's
+// double-click to this method. Português: Abre o inspect deste device
+// — o contrato do duplo-clique, ligado pela factory em todo elemento.
+func (e *StatementPrintByte) OpenInspect() { go e.showInspectOverlay() }

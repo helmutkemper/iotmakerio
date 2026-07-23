@@ -1167,3 +1167,9 @@ func (e *StatementLoopDuration) GetComment() string { return e.comment }
 // SetComment sets the user comment.
 // Português: Define o comentário do usuário.
 func (e *StatementLoopDuration) SetComment(c string) { e.comment = c }
+
+// OpenInspect opens this device's inspect overlay — the double-click
+// contract (P1, Kemper 2026-07-23): the factory wires every element's
+// double-click to this method. Português: Abre o inspect deste device
+// — o contrato do duplo-clique, ligado pela factory em todo elemento.
+func (e *StatementLoopDuration) OpenInspect() { go e.showInspectOverlay() }

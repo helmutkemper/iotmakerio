@@ -127,6 +127,7 @@ func (f *DeviceFactory) createBlackBoxInit(def *blackbox.BlackBoxDefClient, inst
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created BlackBoxInit:%s (instance: %s) at (%v, %v)", def.Name, instanceId, cx, cy)
 }
 
@@ -163,5 +164,6 @@ func (f *DeviceFactory) createBlackBoxMethod(def *blackbox.BlackBoxDefClient, me
 	stm.SetPosition(cx, cy)
 	stm.SetDragEnable(true)
 	stm.Append()
+	f.wireInspectDblClick(stm)
 	log.Printf("[Factory] Created %s (instance: %s) at (%v, %v)", stm.GetDeviceType(), instanceId, cx, cy)
 }

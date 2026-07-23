@@ -1818,3 +1818,9 @@ func (e *StatementCase) getIcon(data rulesIcon.Data) js.Value {
 	h := rulesIcon.Height * rulesIcon.SizeRatio
 	return svgIcon.ToCanvas(html.CanvasData{Width: w.GetInt(), Height: h.GetInt()})
 }
+
+// OpenInspect opens this device's inspect overlay — the double-click
+// contract (P1, Kemper 2026-07-23): the factory wires every element's
+// double-click to this method. Português: Abre o inspect deste device
+// — o contrato do duplo-clique, ligado pela factory em todo elemento.
+func (e *StatementCase) OpenInspect() { go e.showInspectOverlay() }

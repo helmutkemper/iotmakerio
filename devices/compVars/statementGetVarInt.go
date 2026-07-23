@@ -775,3 +775,9 @@ then drag a chip onto the stage to place a Get or Set.
 // Português: Recebe o serializer de cena — chamado pelo
 // scene.Serializer.Register por assertion no registro.
 func (e *StatementGetVarInt) SetSceneMgr(mgr *scene.Serializer) { e.sceneMgr = mgr }
+
+// OpenInspect opens this device's inspect overlay — the double-click
+// contract (P1, Kemper 2026-07-23): the factory wires every element's
+// double-click to this method. Português: Abre o inspect deste device
+// — o contrato do duplo-clique, ligado pela factory em todo elemento.
+func (e *StatementGetVarInt) OpenInspect() { go e.showInspectOverlay() }

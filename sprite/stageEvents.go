@@ -8,6 +8,7 @@ package sprite
 import (
 	"math"
 	"syscall/js"
+	"time"
 )
 
 // =====================================================================
@@ -794,6 +795,13 @@ func (e *stage) handleClickDetection(domEvent js.Value, cx float64, cy float64) 
 	}
 
 	if isDoubleClick {
+		// The pending single is superseded — cancel it so only the
+		// double fires. Português: O simples pendente é superado —
+		// cancela para só o duplo disparar.
+		if e.pendingClick != nil {
+			e.pendingClick.Stop()
+			e.pendingClick = nil
+		}
 		if elem != nil && elem.onDoubleClick != nil {
 			elem.onDoubleClick(pe)
 		} else if elem == nil && e.onDoubleClickStage != nil {
@@ -812,13 +820,31 @@ func (e *stage) handleClickDetection(domEvent js.Value, cx float64, cy float64) 
 		// reivindicar o clique mesmo com um element — tipicamente o
 		// corpo de um container — sob o ponteiro. Só clique simples;
 		// drags e duplo-clique intactos.
-		if e.clickInterceptor != nil && e.clickInterceptor(pe) {
-			// consumed / consumido
-		} else if elem != nil && elem.onClick != nil {
-			elem.onClick(pe)
-		} else if elem == nil && e.onClickStage != nil {
-			e.onClickStage(pe)
+		// Delayed dispatch: fire after the double-click window unless a
+		// second click cancels it. Rapid clicks on different targets
+		// flush the previous pending immediately. Português: Disparo
+		// atrasado — dispara após a janela do duplo, salvo cancelamento;
+		// cliques rápidos em alvos distintos descarregam o pendente.
+		fire := func() {
+			if e.clickInterceptor != nil && e.clickInterceptor(pe) {
+				// consumed / consumido
+			} else if elem != nil && elem.onClick != nil {
+				elem.onClick(pe)
+			} else if elem == nil && e.onClickStage != nil {
+				e.onClickStage(pe)
+			}
 		}
+		if e.pendingClick != nil {
+			if e.pendingClick.Stop() {
+				// A different-target click was waiting — deliver it now
+				// so no gesture is swallowed. Português: Um clique de
+				// outro alvo esperava — entrega já, nada é engolido.
+			}
+			e.pendingClick = nil
+		}
+		e.pendingClick = time.AfterFunc(
+			time.Duration(e.config.DoubleClickInterval)*time.Millisecond,
+			func() { e.pendingClick = nil; fire() })
 	}
 }
 

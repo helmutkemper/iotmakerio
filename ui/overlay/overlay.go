@@ -175,6 +175,21 @@ const (
 
 // Show creates a floating overlay panel and adds it to the document body.
 // Returns a Handle that can be used to close the overlay programmatically.
+// focusSelect focuses an input and selects its content, after a short
+// mount delay. Português: Foca e seleciona o conteúdo após montar.
+func focusSelect(input js.Value) {
+	var cb js.Func
+	cb = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		input.Call("focus")
+		if !input.Get("select").IsUndefined() {
+			input.Call("select")
+		}
+		cb.Release()
+		return nil
+	})
+	js.Global().Call("setTimeout", cb, 60)
+}
+
 func Show(cfg Config) Handle {
 	if cfg.Width == "" {
 		cfg.Width = "600px"
@@ -750,6 +765,7 @@ func renderForm(doc js.Value, container js.Value, tab Tab, onSave func(map[strin
 		return nil
 	})
 
+	firstInput := js.Undefined()
 	for _, field := range tab.Fields {
 		row := doc.Call("createElement", "div")
 		// align-items:flex-start (instead of center) so multi-line
@@ -926,6 +942,9 @@ func renderForm(doc js.Value, container js.Value, tab Tab, onSave func(map[strin
 		}
 
 		inputs[field.Key] = input
+		if firstInput.IsUndefined() {
+			firstInput = input
+		}
 
 		// ReadOnly: disable editing and dim the input
 		if field.ReadOnly {
@@ -951,6 +970,13 @@ func renderForm(doc js.Value, container js.Value, tab Tab, onSave func(map[strin
 
 		row.Call("appendChild", input)
 		form.Call("appendChild", row)
+	}
+
+	// Focus rule (Kemper 2026-07-23, global): on open, select the
+	// "value" field; without one, select "label". Português: Regra de
+	// foco — ao abrir, seleciona "value"; sem ele, "label".
+	if !firstInput.IsUndefined() {
+		focusSelect(firstInput)
 	}
 
 	// ── Action buttons: Apply + Close (Windows-style, right-aligned) ─────
@@ -2279,6 +2305,7 @@ func renderEmbeddedForm(doc js.Value, placeholder js.Value, fields []Field, onSa
 	})
 
 	// Render each field — same logic as renderForm() but in a compact layout.
+	firstInput := js.Undefined()
 	for _, field := range fields {
 		row := doc.Call("createElement", "div")
 		// Same alignment rationale as renderForm above — flex-start
@@ -2411,6 +2438,9 @@ func renderEmbeddedForm(doc js.Value, placeholder js.Value, fields []Field, onSa
 		}
 
 		inputs[field.Key] = input
+		if firstInput.IsUndefined() {
+			firstInput = input
+		}
 
 		// ReadOnly
 		if field.ReadOnly {
@@ -2431,6 +2461,13 @@ func renderEmbeddedForm(doc js.Value, placeholder js.Value, fields []Field, onSa
 
 		row.Call("appendChild", input)
 		placeholder.Call("appendChild", row)
+	}
+
+	// Focus rule (Kemper 2026-07-23, global): on open, select the
+	// "value" field; without one, select "label". Português: Regra de
+	// foco — ao abrir, seleciona "value"; sem ele, "label".
+	if !firstInput.IsUndefined() {
+		focusSelect(firstInput)
 	}
 
 	// ── Apply button (right-aligned, no Close button for embedded mode) ──
