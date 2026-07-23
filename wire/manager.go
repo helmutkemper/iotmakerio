@@ -1399,10 +1399,24 @@ func (m *Manager) SetManualTunnelView(id, side string, x, y float64, role string
 	if !ok {
 		return
 	}
+	// A pose change MOVES the wire anchor — the attached wires' cached
+	// waypoints must reroute to the new face, or they keep pointing at
+	// the OLD one (field 2026-07-21: "o wire se comporta como se o
+	// túnel estivesse do outro lado", vanishing wires on phase
+	// navigation, the post-restore chaos — one cause). Same mechanism
+	// element moves already use. Português: Mudança de pose MOVE a
+	// âncora — os waypoints em cache dos fios anexados precisam
+	// rerotear para a nova face, senão seguem apontando a ANTIGA (a
+	// causa única dos fios "do outro lado", dos sumiços ao navegar e
+	// do caos pós-restore). Mesmo mecanismo do move de elementos.
+	moved := t.Point.X != x || t.Point.Y != y || t.PhaseHidden != phaseHidden
 	t.Edge = manualEdgeOf(side)
 	t.Point = Point{X: x, Y: y}
 	t.Role = role
 	t.PhaseHidden = phaseHidden
+	if moved {
+		m.RecalculateForElement(id)
+	}
 	m.markDirty()
 }
 
@@ -1767,6 +1781,16 @@ func (m *Manager) RequestManualTunnelDelete(id string) {
 func (m *Manager) WireCount() int         { return len(m.wires) }
 func (m *Manager) ConnectorCount() int    { return len(m.connectors) }
 func (m *Manager) ManualTunnelCount() int { return len(m.manualTunnels) }
+
+// ClearManualTunnelFresh drops the birth-red highlight — for
+// programmatic creations (deep copy) that are not fresh gestures.
+// Português: Apaga o vermelho de nascimento — criações programáticas.
+func (m *Manager) ClearManualTunnelFresh(id string) {
+	if t, ok := m.manualTunnels[id]; ok && t != nil {
+		t.Fresh = false
+		m.markDirty()
+	}
+}
 
 func (m *Manager) ManualTunnelPoint(id string) (Point, bool) {
 	t, ok := m.manualTunnels[id]

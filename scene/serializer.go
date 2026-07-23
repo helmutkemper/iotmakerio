@@ -462,6 +462,54 @@ func (s *Serializer) SetStackingResolver(fn func(containerID, subjectID string) 
 	}
 }
 
+// RefreshSpatial re-runs the scenegraph's full pass — geometry,
+// conflict recomputation and clean re-parenting — for moments when
+// the world changed without user gestures (deep copy, restores).
+// Field 2026-07-23: the clone carried STALE creation-time conflicts
+// (pink on clean siblings) because scans only ran on drag. Português:
+// Re-executa o passe completo do scenegraph — geometria, conflitos e
+// re-parent — para momentos em que o mundo mudou sem gestos (cópia
+// profunda, restores); o clone carregava rosa VENCIDO da criação.
+// NodeOuter returns the SCENEGRAPH's registered outer rect for id —
+// the exact geometry the save serializes as Size. The device-side
+// GetOuterBBox() may differ (label row included), and feeding THAT
+// into SetSize inflated clones by KLabelHeight (field 2026-07-23:
+// 74 → 92, honest pink on grazing siblings). Português: O outer
+// REGISTRADO no scenegraph — a geometria exata que o save grava;
+// o GetOuterBBox do device inclui a etiqueta e inflava clones.
+func (s *Serializer) NodeOuter(id string) (x, y, w, h float64, ok bool) {
+	if s.graph == nil {
+		return 0, 0, 0, 0, false
+	}
+	for _, nv := range s.graph.Snapshot() {
+		if nv.ID == id {
+			return nv.Outer.X, nv.Outer.Y, nv.Outer.W, nv.Outer.H, true
+		}
+	}
+	return 0, 0, 0, 0, false
+}
+
+// NodeIsComplex reports whether id is registered as a CONTAINER
+// (KindComplex) in the scenegraph. Português: Informa se id é
+// CONTAINER (KindComplex) no scenegraph.
+func (s *Serializer) NodeIsComplex(id string) bool {
+	if s.graph == nil {
+		return false
+	}
+	for _, nv := range s.graph.Snapshot() {
+		if nv.ID == id {
+			return nv.Kind == scenegraph.KindComplex
+		}
+	}
+	return false
+}
+
+func (s *Serializer) RefreshSpatial() {
+	if s.graph != nil {
+		s.graph.RefreshAll()
+	}
+}
+
 func (s *Serializer) RegisteredIDs() []string {
 	out := make([]string, 0, len(s.refs))
 	for id := range s.refs {

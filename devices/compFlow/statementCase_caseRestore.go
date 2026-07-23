@@ -53,6 +53,9 @@ type CaseRestoreEntry struct {
 // ApplyProperties (StatementCase não é scene.Inspectable; map[string]string não
 // leva arrays nem o remapeamento). Chamado antes do NotifyChange pós-import.
 func (e *StatementCase) RestoreCaseState(selectorType, selectedCase, defaultCaseID string, cases []CaseRestoreEntry) {
+	// Labels are mandatory (2026-07-23): backfill on every restore path.
+	// Português: Rótulos obrigatórios — backfill em todo restore.
+	defer e.materializeCaseLabels()
 	if selectorType != "" {
 		e.selectorType = selectorType
 	}

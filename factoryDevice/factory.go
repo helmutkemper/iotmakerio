@@ -19,6 +19,7 @@ package factoryDevice
 //	menu — essa responsabilidade pertence ao MenuBuilder.
 
 import (
+	"encoding/json"
 	"log"
 	"strings"
 	"syscall/js"
@@ -2613,7 +2614,39 @@ func (f *DeviceFactory) CreateCopy(deviceType string, props map[string]interface
 		// assinatura e fios internos replicam no clone; devices simples
 		// passam ilesos (subtree vazio).
 		if sourceID != "" {
-			f.deepCopySubtree(sourceID, newDev)
+			idMap := f.deepCopySubtree(sourceID, newDev)
+			// PHASE REMAP (field 2026-07-23, "os elementos das fases do
+			// case estão todos visíveis"): the replayed entries carry
+			// the SOURCE member ids; without remapping through the
+			// clone's idMap, RefreshMembership prunes them all and
+			// adopts every clone member into the selected phase. The
+			// import's recipe, applied to copy. Português: REMAP de
+			// fases — as entries replicadas trazem ids da FONTE; sem
+			// remapear pelo idMap do clone, a manutenção poda tudo e
+			// adota todo mundo na fase ativa. A receita do import,
+			// aplicada à cópia.
+			if cr, ok := newDev.(interface {
+				RestoreCaseState(selectorType, selectedCase, defaultCaseID string,
+					cases []compFlow.CaseRestoreEntry)
+			}); ok {
+				f.restoreCopiedCases(cr, props, idMap)
+			} else if pr, ok := newDev.(interface {
+				RestorePhaseState(selected string, phases []compFlow.CaseRestoreEntry)
+			}); ok {
+				// The FUNCTION speaks the import hook's dialect: phases
+				// travel as a JSON STRING and ApplyProperties ignores
+				// them by design (field 2026-07-23, "o copy do
+				// my_function saiu com uma única phase"). Português: A
+				// FUNCTION fala o dialeto do gancho de import — fases
+				// em string JSON, ignoradas pelo ApplyProperties.
+				f.restoreCopiedPhases(pr, props, idMap)
+			}
+			// Clear creation-time conflict ghosts and settle parents:
+			// the full spatial pass, now that phases hid their crowds.
+			// Português: Limpa o rosa fantasma da criação e assenta
+			// pais — o passe espacial completo, com as fases já
+			// escondendo suas multidões.
+			f.SceneMgr.RefreshSpatial()
 		}
 	})
 }
@@ -2629,15 +2662,104 @@ func (f *DeviceFactory) CreateCopy(deviceType string, props map[string]interface
 // clone recém-colocado. Posições transladam pelo delta de CENTROS.
 // Túneis com fase natal são PULADOS com log (limite declarado do v1);
 // túneis de Function copiam por inteiro, com rótulo e comentário.
-func (f *DeviceFactory) deepCopySubtree(sourceID string, newDev scene.SceneDevice) {
+// restoreCopiedCases rebuilds a cloned case-host's phase state from
+// the SOURCE's raw properties, remapping member ids through the
+// clone's idMap — mirrors the import hook. Português: Reconstrói o
+// estado de fases do clone a partir das props da FONTE, remapeando os
+// ids pelo idMap — espelho do gancho de import.
+func (f *DeviceFactory) restoreCopiedCases(cr interface {
+	RestoreCaseState(selectorType, selectedCase, defaultCaseID string,
+		cases []compFlow.CaseRestoreEntry)
+}, props map[string]interface{}, idMap map[string]string) {
+	// Shape-proof parse (field 2026-07-23, "o problema continua"): the
+	// source's GetProperties emits []map[string]interface{}, not
+	// []interface{} — the type assert failed SILENTLY and zero phases
+	// restored. A JSON round-trip accepts any slice shape. Português:
+	// Parse à prova de shape — o assert falhava em SILÊNCIO e nada
+	// restaurava; o round-trip JSON aceita qualquer forma.
+	rawJSON, err := json.Marshal(props["cases"])
+	if err != nil || string(rawJSON) == "null" {
+		log.Printf("[Factory] Copy: no cases payload to restore")
+		return
+	}
+	var rows []struct {
+		ID        string   `json:"id"`
+		Label     string   `json:"label"`
+		MatchKind string   `json:"matchKind"`
+		Values    []string `json:"values"`
+		IDs       []string `json:"ids"`
+		IsDefault bool     `json:"isDefault"`
+	}
+	if err := json.Unmarshal(rawJSON, &rows); err != nil || len(rows) == 0 {
+		log.Printf("[Factory] Copy: cases payload unreadable (%v)", err)
+		return
+	}
+	entries := make([]compFlow.CaseRestoreEntry, 0, len(rows))
+	for _, r := range rows {
+		ent := compFlow.CaseRestoreEntry{
+			ID: r.ID, Label: r.Label, MatchKind: r.MatchKind,
+			Values: r.Values, IsDefault: r.IsDefault,
+		}
+		for _, oldID := range r.IDs {
+			if nid, hit := idMap[oldID]; hit {
+				ent.IDs = append(ent.IDs, nid)
+			}
+		}
+		entries = append(entries, ent)
+	}
+	selectorType, _ := props["selectorType"].(string)
+	selected, _ := props["selectedCase"].(string)
+	defaultID, _ := props["defaultCase"].(string)
+	cr.RestoreCaseState(selectorType, selected, defaultID, entries)
+	log.Printf("[Factory] Copy: restored %d phases (selected=%q)", len(entries), selected)
+}
+
+// restoreCopiedPhases is restoreCopiedCases' Function-flavored twin:
+// the phases arrive as a JSON STRING; member ids remap through the
+// clone's idMap. Português: Gêmeo da restoreCopiedCases para a
+// Function — fases em string JSON, ids remapeados pelo idMap.
+func (f *DeviceFactory) restoreCopiedPhases(pr interface {
+	RestorePhaseState(selected string, phases []compFlow.CaseRestoreEntry)
+}, props map[string]interface{}, idMap map[string]string) {
+	raw, _ := props["phases"].(string)
+	if raw == "" {
+		log.Printf("[Factory] Copy: no phases payload to restore")
+		return
+	}
+	var rows []struct {
+		ID    string   `json:"id"`
+		Label string   `json:"label"`
+		IDs   []string `json:"ids"`
+	}
+	if err := json.Unmarshal([]byte(raw), &rows); err != nil || len(rows) == 0 {
+		log.Printf("[Factory] Copy: phases payload unreadable (%v)", err)
+		return
+	}
+	entries := make([]compFlow.CaseRestoreEntry, 0, len(rows))
+	for _, r := range rows {
+		ent := compFlow.CaseRestoreEntry{ID: r.ID, Label: r.Label}
+		for _, oldID := range r.IDs {
+			if nid, hit := idMap[oldID]; hit {
+				ent.IDs = append(ent.IDs, nid)
+			}
+		}
+		entries = append(entries, ent)
+	}
+	selected, _ := props["selectedPhase"].(string)
+	pr.RestorePhaseState(selected, entries)
+	log.Printf("[Factory] Copy: restored %d function phases (selected=%q)",
+		len(entries), selected)
+}
+
+func (f *DeviceFactory) deepCopySubtree(sourceID string, newDev scene.SceneDevice) map[string]string {
 	src := f.SceneMgr.FindDevice(sourceID)
 	if src == nil || newDev == nil {
-		return
+		return nil
 	}
 	kids := f.SceneMgr.ChildrenOf(sourceID)
 	tunnels := f.WireMgr.ManualTunnelIDsFor(sourceID)
 	if len(kids) == 0 && len(tunnels) == 0 {
-		return
+		return nil
 	}
 
 	sb := src.GetOuterBBox()
@@ -2652,7 +2774,11 @@ func (f *DeviceFactory) deepCopySubtree(sourceID string, newDev scene.SceneDevic
 	if sizable, ok := newDev.(interface {
 		SetSize(w, h rulesDensity.Density)
 	}); ok {
-		sizable.SetSize(rulesDensity.Density(sb.Width), rulesDensity.Density(sb.Height))
+		sw, sh := sb.Width, sb.Height
+		if _, _, w, h, ok := f.SceneMgr.NodeOuter(sourceID); ok {
+			sw, sh = w, h
+		}
+		sizable.SetSize(rulesDensity.Density(sw), rulesDensity.Density(sh))
 	}
 
 	// TOP-LEFT delta — SetPosition/CreateByType speak top-left (the
@@ -2697,10 +2823,26 @@ func (f *DeviceFactory) deepCopySubtree(sourceID string, newDev scene.SceneDevic
 			// targets exactly the resizables. Português: Herança de
 			// tamanho para TODO container clonado, não só a raiz — a
 			// função aninhada clonava no default e engolia o vizinho.
-			if sizable, ok := clone.(interface {
-				SetSize(w, h rulesDensity.Density)
-			}); ok {
-				sizable.SetSize(rulesDensity.Density(kb.Width), rulesDensity.Density(kb.Height))
+			// Size inheritance is a CONTAINER concern (its birth reason:
+			// a nested function cloning at default size). Simple
+			// devices size themselves, and their SetSize is NOT
+			// idempotent against the registered rect — the elem adds
+			// KLabelHeight, inflating clones 74→92 whichever value we
+			// fed (field 2026-07-23, twice). Containers only.
+			// Português: Herança de tamanho é assunto de CONTAINER —
+			// devices simples se dimensionam sozinhos e o SetSize
+			// deles soma a etiqueta no elem, inflando o clone com
+			// qualquer valor. Só containers.
+			if f.SceneMgr.NodeIsComplex(kidID) {
+				if sizable, ok := clone.(interface {
+					SetSize(w, h rulesDensity.Density)
+				}); ok {
+					kw, kh := kb.Width, kb.Height
+					if _, _, w, h, ok := f.SceneMgr.NodeOuter(kidID); ok {
+						kw, kh = w, h
+					}
+					sizable.SetSize(rulesDensity.Density(kw), rulesDensity.Density(kh))
+				}
 			}
 			idMap[kidID] = clone.GetID()
 			copyMembers(kidID, clone.GetID())
@@ -2754,34 +2896,70 @@ func (f *DeviceFactory) deepCopySubtree(sourceID string, newDev scene.SceneDevic
 	f.SceneMgr.NotifyChange()
 	log.Printf("[Factory] deep copy: %s → %s (%d members/tunnels, %d wires)",
 		sourceID, newDev.GetID(), len(idMap), wired)
+	return idMap
 }
 
 // copyTunnels replays a container's manual tunnels onto its clone.
 // Português: Replica os túneis manuais de um container no clone.
 func (f *DeviceFactory) copyTunnels(oldID, newID string, dx, dy float64, idMap map[string]string) {
 	for _, tid := range f.WireMgr.ManualTunnelIDsFor(oldID) {
-		if natal := f.WireMgr.ManualTunnelNatal(tid); natal != "" {
-			log.Printf("[Factory] deep copy: phase tunnel %s skipped (natal remap is a v1 limit)", tid)
-			continue
-		}
 		p, ok := f.WireMgr.ManualTunnelPoint(tid)
 		if !ok {
 			continue
 		}
 		side := f.WireMgr.ManualTunnelSide(tid)
-		newTID := f.CreateTunnelFor(newID, side, p.X+dx, p.Y+dy, "", nil)
+		// PHASE tunnels now copy too (2026-07-23, "o copy está
+		// perdendo wires"): restoreCopiedPhases keeps the SOURCE's
+		// phase ids on the clone, so natal needs NO remap — the v1
+		// fear is gone; passing it as-is revives the phase plumbing
+		// and its wires. Português: Túneis de FASE agora copiam — o
+		// restore preserva os ids de fase no clone, natal vai as-is;
+		// o encanamento de fase e seus fios revivem.
+		natal := f.WireMgr.ManualTunnelNatal(tid)
+		newTID := f.CreateTunnelFor(newID, side, p.X+dx, p.Y+dy, natal, nil)
 		if newTID == "" {
 			log.Printf("[Factory] deep copy: tunnel clone FAILED (src %s side %s)", tid, side)
 			continue
 		}
-		log.Printf("[Factory] deep copy: tunnel %s → %s side=%s src=(%.1f,%.1f) dst=(%.1f,%.1f)",
-			tid, newTID, side, p.X, p.Y, p.X+dx, p.Y+dy)
-		if lbl := f.WireMgr.ManualTunnelLabel(tid); lbl != "" {
+		log.Printf("[Factory] deep copy: tunnel %s → %s side=%s natal=%q src=(%.1f,%.1f) dst=(%.1f,%.1f)",
+			tid, newTID, side, natal, p.X, p.Y, p.X+dx, p.Y+dy)
+		lbl := f.WireMgr.ManualTunnelLabel(tid)
+		cmt := f.WireMgr.ManualTunnelComment(tid)
+		if lbl != "" {
 			f.WireMgr.SetManualTunnelLabel(newTID, lbl)
 		}
-		if c := f.WireMgr.ManualTunnelComment(tid); c != "" {
-			f.WireMgr.SetManualTunnelComment(newTID, c)
+		if cmt != "" {
+			f.WireMgr.SetManualTunnelComment(newTID, cmt)
 		}
+		// The SHELL serializes its own label/comment props — push them
+		// there too or the clone SAVES with defaults even though the
+		// marker paints right (the JSON betrayed it). Português: A
+		// CASCA serializa os próprios props — empurrar lá também, ou o
+		// clone SALVA com defaults.
+		if lbl != "" || cmt != "" {
+			if dev := f.SceneMgr.FindDevice(newTID); dev != nil {
+				if insp, ok := dev.(scene.Inspectable); ok {
+					pp := map[string]interface{}{}
+					if lbl != "" {
+						pp["label"] = lbl
+					}
+					if cmt != "" {
+						pp["comment"] = cmt
+					}
+					scene.ReplayProperties(insp, pp)
+				}
+			}
+		}
+		// Per-phase user hides copy too (parity): natal ids are the
+		// same on the clone. Português: Ocultações por fase copiam.
+		if rm := f.WireMgr.ManualTunnelRemovedCases(tid); len(rm) > 0 {
+			f.WireMgr.SetManualTunnelRemovedCases(newTID, rm)
+		}
+		// Birth-red off: the copy is not a fresh gesture (field
+		// 2026-07-23, "todos os túneis destacados em vermelho").
+		// Português: Vermelho de nascimento apagado — cópia não é
+		// gesto fresco.
+		f.WireMgr.ClearManualTunnelFresh(newTID)
 		idMap[tid] = newTID
 	}
 }

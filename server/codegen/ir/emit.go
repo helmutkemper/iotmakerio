@@ -70,6 +70,7 @@ func Emit(g *graph.Graph, bbDefs map[string]*blackbox.BlackBoxDef, variables []V
 		instanceScopeOwner: make(map[string]string),
 	}
 	e.synthesizeImplicitCalls()
+	e.caseMerges = map[string]string{}
 	e.calledFunctions = map[string]bool{}
 	for _, n := range g.Nodes {
 		if n != nil && n.Type == graph.FunctionCallType {
@@ -161,6 +162,15 @@ type emitter struct {
 	// gráficas com pelo menos uma instância — o aviso de "uncalled"
 	// delas é ruído; populado uma vez na entrada.
 	calledFunctions map[string]bool
+
+	// caseMerges routes an OUTSIDE consumer of multi-branch Case tails
+	// to the single merge register each branch assigns (the φ) —
+	// without it the consumer bound to ONE branch's promoted var and
+	// read garbage on the other paths (field 2026-07-22, printf of an
+	// uninitialized register). Key: dev+"\x00"+port. Português: Roteia
+	// o consumidor EXTERNO de caudas multi-ramo para o registrador de
+	// merge único que cada ramo atribui (o φ).
+	caseMerges map[string]string
 
 	// convertCounter produces unique register names for CONVERT
 	// instructions inserted by the type-compatibility pass. Never
@@ -1783,8 +1793,80 @@ func (e *emitter) emitCase(scopeID string) {
 		groups[ci] = append(groups[ci], nodeID)
 	}
 
+	// ── Case-output MERGE (the φ, 2026-07-22) ──────────────────────
+	// An OUTSIDE consumer fed by tails from MULTIPLE branches must
+	// read ONE register that every branch assigns — binding it to a
+	// single branch's promoted var left the others' paths reading an
+	// uninitialized value (field: printf of garbage + the compiler's
+	// own two warnings). Detection: inputs whose sources live in ≥2
+	// distinct branches of THIS Case. Português: Consumidor EXTERNO
+	// alimentado por caudas de VÁRIOS ramos lê UM registrador que todo
+	// ramo atribui; preso a um ramo só, os outros caminhos liam lixo.
+	type mergeInfo struct {
+		reg      string
+		dataType string
+		byBranch map[int]graph.PortRef
+	}
+	merges := map[string]*mergeInfo{}
+	mergeSeq := 0
+	for _, edge := range e.graph.Edges {
+		if edge == nil {
+			continue
+		}
+		ci, inside := caseOf[edge.From.DeviceID]
+		if !inside {
+			continue
+		}
+		toScope := e.graph.ScopeOf(edge.To.DeviceID)
+		if toScope == scopeID || e.isAncestor(scopeID, toScope) {
+			continue // consumer inside the Case — normal flow
+		}
+		key := edge.To.DeviceID + "\x00" + edge.To.PortName
+		mi, seen := merges[key]
+		if !seen {
+			dt := "int"
+			if cn, ok := e.graph.Nodes[edge.To.DeviceID]; ok && cn != nil {
+				for _, in := range cn.Inputs {
+					if in.Name == edge.To.PortName && in.DataType != "" && in.DataType != "*" {
+						dt = in.DataType
+					}
+				}
+			}
+			// Underscore-free name: the C sanitizer collapses "_<n>"
+			// in operands but emitVar prints Dest verbatim — a plain
+			// CamelCase name keeps declaration and uses identical.
+			// Português: Nome sem underscore — declaração e usos
+			// idênticos sob o sanitizador.
+			base := strings.ReplaceAll(scopeID, "_", "") + "Merge" + fmt.Sprint(mergeSeq)
+			mi = &mergeInfo{
+				reg:      "%" + base,
+				dataType: dt,
+				byBranch: map[int]graph.PortRef{},
+			}
+			mergeSeq++
+			merges[key] = mi
+		}
+		mi.byBranch[ci] = edge.From
+	}
+	branchAssigns := make([][]*mergeInfo, len(scope.Cases))
+	for key, mi := range merges {
+		if len(mi.byBranch) < 2 {
+			delete(merges, key) // single-branch: normal resolution is correct
+			continue
+		}
+		e.caseMerges[key] = mi.reg
+		e.program.Append(Instruction{Op: OpVar,
+			Dest: strings.TrimPrefix(mi.reg, "%"), Type: mi.dataType})
+		for ci := range mi.byBranch {
+			branchAssigns[ci] = append(branchAssigns[ci], mi)
+		}
+	}
+
 	// emitGroup topologically sorts and emits the body nodes of one case. It
-	// is shared by both lowerings below.
+	// is shared by both lowerings below. Each branch closes by assigning its
+	// tail into every merge register it feeds (the φ's write side).
+	// Português: Cada ramo fecha atribuindo sua cauda em cada registrador de
+	// merge que alimenta (o lado de escrita do φ).
 	emitGroup := func(ci int) {
 		sorted, errs := e.topoSort(groups[ci])
 		for _, err := range errs {
@@ -1796,6 +1878,20 @@ func (e *emitter) emitCase(scopeID string) {
 			}
 			e.emitted[nodeID] = true
 			e.emitNode(nodeID)
+		}
+		for _, mi := range branchAssigns[ci] {
+			src := mi.byBranch[ci]
+			// Dest is printed VERBATIM by both backends (the SetVar
+			// convention: plain names) — only Args go through the
+			// operand sanitizer. Field 2026-07-23: the % leaked into
+			// the C. Português: Dest sai VERBATIM (convenção do
+			// SetVar); só Args passam pelo sanitizador — o % vazou.
+			e.program.Append(Instruction{
+				Op:   OpAssign,
+				Dest: strings.TrimPrefix(mi.reg, "%"),
+				Type: mi.dataType,
+				Args: []string{e.resolveInput2(src.DeviceID, src.PortName)},
+			})
 		}
 	}
 
@@ -3800,6 +3896,9 @@ func (e *emitter) findContainerInScope(nodeID string, scopeSet map[string]bool) 
 // =====================================================================
 
 func (e *emitter) resolveInput(nodeID, portName string) string {
+	if reg, ok := e.caseMerges[nodeID+"\x00"+portName]; ok {
+		return reg
+	}
 	sources := e.graph.GetInputSources(nodeID, portName)
 	if len(sources) == 0 {
 		return ""

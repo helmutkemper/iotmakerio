@@ -629,22 +629,12 @@ func (e *StatementSequence) caseMenuLabel(c phaseEntry) string {
 // selecionado leva o ícone de olho pra o maker ver qual está no stage.
 // Substitui o placeholder de ciclar-ao-clicar da Slice-2.
 func (e *StatementSequence) caseSelectMenuItems() []contextMenu.Item {
-	items := make([]contextMenu.Item, 0, len(e.phases.entries))
-	for i := range e.phases.entries {
-		c := e.phases.entries[i]
-		id := c.id // capture per iteration for the closure below
-		item := contextMenu.Item{
-			ID:           c.id,
-			Label:        e.caseMenuLabel(c),
-			HelpFallback: "Show this case on the stage.",
-			OnClick:      func() { e.selectCase(id) },
-		}
-		if c.id == e.phases.selected {
-			item.FontAwesomePath = rulesIcon.KFAEye
-			item.ViewBox = "0 0 512 512"
-		}
-		items = append(items, item)
-	}
+	// S2c: the per-phase section runs in the shared engine; the
+	// Sequence's extras (add/remove/tunnel) stay host-side below.
+	// Português: A seção de fases roda no engine; extras do Sequence
+	// seguem abaixo, no host.
+	e.initPhaseEngine()
+	items := e.phases.phaseEntryItems("", "Show this case on the stage.")
 
 	// The Sequence's add/remove live HERE, on the pill — the v1 has no
 	// inspect overlay (mirrors Loop). Removing keeps at least one phase;
@@ -1033,6 +1023,9 @@ func (e *StatementSequence) initPhaseEngine() {
 		}
 	}
 	e.phases.tail = func() { e.refreshTunnelViews() }
+	e.phases.labelFn = func(i int, ent *phaseEntry) string {
+		return e.caseMenuLabel(*ent)
+	}
 	e.phases.maintainHook = func(entries []phaseEntry, selectedIdx int) {
 		maintainCaseMembership(e.sceneMgr, e.id, e.GetInnerBBox(),
 			entries, selectedIdx)
@@ -1905,16 +1898,9 @@ func (e *StatementSequence) RefreshMembership() {
 func (e *StatementSequence) GetProperties() map[string]interface{} {
 	e.assignNewChildren()
 
-	cases := make([]map[string]interface{}, 0, len(e.phases.entries))
-	for _, c := range e.phases.entries {
-		cases = append(cases, map[string]interface{}{
-			"id":        c.id,
-			"label":     c.label,
-			"matchKind": c.matchKind,
-			"values":    c.values,
-			"ids":       c.ids,
-		})
-	}
+	// S2d: the wire-format array comes from the shared engine.
+	// Português: O array do formato vem do engine compartilhado.
+	cases := e.phases.entryMaps()
 
 	props := map[string]interface{}{
 		"selectedCase": e.phases.selected,

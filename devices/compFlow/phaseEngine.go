@@ -137,15 +137,26 @@ func (p *phaseEngine) menuLabel(i int) string {
 // (the selected wears the eye) + "New phase". Hosts append their
 // specifics after. Português: Seção de fases — entrada por fase (a
 // ativa leva o olho) + "New phase"; hospedeiros anexam o resto.
-func (p *phaseEngine) menuItems(idPrefix string) []contextMenu.Item {
+// phaseEntryItems is the SHARED per-phase section core (S2c): one
+// entry per phase in order, the selected one wearing the eye, labels
+// via labelFn (the Case shows its match). idPrefix "" keeps raw entry
+// ids (the twins' historical scheme); hosts append their extras after.
+// Português: Núcleo COMPARTILHADO da seção de fases — uma entrada por
+// fase, olho na ativa, rótulos via labelFn; prefix "" mantém ids crus;
+// hospedeiros anexam seus extras.
+func (p *phaseEngine) phaseEntryItems(idPrefix, help string) []contextMenu.Item {
 	p.ensureDefault()
 	items := make([]contextMenu.Item, 0, len(p.entries)+1)
 	for i := range p.entries {
 		id := p.entries[i].id
+		itemID := id
+		if idPrefix != "" {
+			itemID = idPrefix + "_phase_" + id
+		}
 		item := contextMenu.Item{
-			ID:           idPrefix + "_phase_" + id,
+			ID:           itemID,
 			Label:        p.menuLabel(i),
-			HelpFallback: "Show this phase on the stage; new devices join the visible phase.",
+			HelpFallback: help,
 			OnClick:      func() { p.selectPhase(id) },
 		}
 		if id == p.selected {
@@ -154,6 +165,12 @@ func (p *phaseEngine) menuItems(idPrefix string) []contextMenu.Item {
 		}
 		items = append(items, item)
 	}
+	return items
+}
+
+func (p *phaseEngine) menuItems(idPrefix string) []contextMenu.Item {
+	items := p.phaseEntryItems(idPrefix,
+		"Show this phase on the stage; new devices join the visible phase.")
 	items = append(items, contextMenu.Item{
 		ID:              idPrefix + "_phase_add",
 		Label:           translate.T("phaseAdd", "New phase"),
@@ -275,6 +292,26 @@ type phaseWire struct {
 	MatchKind string   `json:"matchKind,omitempty"`
 	Values    []string `json:"values,omitempty"`
 	IsDefault bool     `json:"isDefault,omitempty"`
+}
+
+// entryMaps builds the STRUCTURED entries array — the twins' wire
+// format (S2d): five keys, order-preserving, consumed by the server's
+// graph builder, the import hook, the deep copy and the overlay. One
+// builder, two hosts. Português: Constrói o array ESTRUTURADO — o
+// formato dos gêmeos (S2d), consumido por servidor, import, cópia e
+// overlay. Um construtor, dois hospedeiros.
+func (p *phaseEngine) entryMaps() []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(p.entries))
+	for _, c := range p.entries {
+		out = append(out, map[string]interface{}{
+			"id":        c.id,
+			"label":     c.label,
+			"matchKind": c.matchKind,
+			"values":    c.values,
+			"ids":       c.ids,
+		})
+	}
+	return out
 }
 
 // marshal → the flattener-safe JSON string (+ selected). Português:

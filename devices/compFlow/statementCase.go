@@ -409,23 +409,34 @@ func (e *StatementCase) caseMenuLabel(c caseEntry) string {
 // selecionado leva o ícone de olho pra o maker ver qual está no stage.
 // Substitui o placeholder de ciclar-ao-clicar da Slice-2.
 func (e *StatementCase) caseSelectMenuItems() []contextMenu.Item {
-	items := make([]contextMenu.Item, 0, len(e.phases.entries))
-	for i := range e.phases.entries {
-		c := e.phases.entries[i]
-		id := c.id // capture per iteration for the closure below
-		item := contextMenu.Item{
-			ID:           c.id,
-			Label:        e.caseMenuLabel(c),
-			HelpFallback: "Show this case on the stage.",
-			OnClick:      func() { e.selectCase(id) },
-		}
-		if c.id == e.phases.selected {
-			item.FontAwesomePath = rulesIcon.KFAEye
-			item.ViewBox = "0 0 512 512"
-		}
-		items = append(items, item)
-	}
+	// S2c: the per-phase section runs in the shared engine — labels
+	// via the bound labelFn (the match display), raw entry ids kept.
+	// Português: A seção de fases roda no engine — rótulos via labelFn
+	// (o match), ids crus mantidos.
+	e.initPhaseEngine()
+	e.materializeCaseLabels()
+	items := e.phases.phaseEntryItems("", "Show this case on the stage.")
+	// Inspect moved HERE from the contextual menu (Kemper 2026-07-23):
+	// editing the cases belongs beside choosing them. Português: O
+	// Inspect mudou do menu contextual para cá — editar os cases mora
+	// ao lado de escolhê-los.
+	items = append(items, mainMenu.InspectItem(func() {
+		log.Printf("[Case] inspect: opening cases overlay for %v", e.id)
+		go e.showInspectOverlay()
+	}))
 	return items
+}
+
+// materializeCaseLabels makes the label MANDATORY (Kemper 2026-07-23):
+// empty labels are written as "case N" INTO the entry, so the field
+// the maker edits is never blank and persists as-is. Português: Torna
+// o rótulo OBRIGATÓRIO — vazios viram "case N" gravado NA entrada.
+func (e *StatementCase) materializeCaseLabels() {
+	for i := range e.phases.entries {
+		if e.phases.entries[i].label == "" {
+			e.phases.entries[i].label = fmt.Sprintf("case %d", i)
+		}
+	}
 }
 
 // selectCase makes the case with the given id the visible/edited one. It first
@@ -444,22 +455,21 @@ func (e *StatementCase) caseSelectMenuItems() []contextMenu.Item {
 // É a primitiva de seleção por trás do dropdown da pílula; substituiu o
 // placeholder cycleCase da Slice-2.
 func (e *StatementCase) selectCase(id string) {
-	e.assignNewChildren()
+	// Case S2 (2026-07-21): the core runs in the shared engine —
+	// doctrine ordering (adopt → switch → visibility) via the
+	// maintainHook, the Case tail (pill label + ornament recache)
+	// rides onSelect. Guards stay host-side, mirroring the Sequence.
+	// Português: O núcleo roda no engine compartilhado — ordem
+	// doutrinária via maintainHook, cauda do Case no onSelect;
+	// guardas no host, espelhando o Sequence.
 	if e.caseIndexByID(id) < 0 {
 		return
 	}
 	if id == e.phases.selected {
 		return
 	}
-	e.phases.selected = id
-
-	log.Printf("[Case] select %q on %v", id, e.id)
-
-	e.applyCaseVisibility()
-	if e.ornamentDraw != nil {
-		e.ornamentDraw.SetCaseLabel(e.activeCaseLabel())
-	}
-	go e.recacheOrnament()
+	e.initPhaseEngine()
+	e.phases.selectPhase(id)
 }
 
 // caseSelectorTypes are the data types a Case selector input accepts. The
@@ -652,33 +662,71 @@ func (e *StatementCase) assignNewChildren() {
 // cases show no orphan wires and are not cross-case connect targets.
 //
 // Português: Mostra os filhos do case selecionado e esconde os dos demais.
+// initPhaseEngine binds the shared phaseEngine to this host (Case S2):
+// visibility closures, the doctrine maintainHook, and the Case tail on
+// onSelect — the triplet's LOGIC unification closes (Function,
+// Sequence, Case on one machine). Português: Liga o phaseEngine a este
+// hospedeiro (Case S2) — closures de visibilidade, maintainHook
+// doutrinário e a cauda do Case no onSelect; a unificação de LÓGICA do
+// trigêmeo fecha.
+func (e *StatementCase) initPhaseEngine() {
+	if e.phases.setElemVisible != nil {
+		return
+	}
+	e.phases.exempt = tunnelExempt
+	e.phases.setElemVisible = func(id string, show bool) {
+		if e.stage == nil {
+			return
+		}
+		if elem, found := e.stage.GetElement(id); found {
+			elem.SetVisible(show)
+		}
+		if warnElem, found := e.stage.GetElement(id + "_warning"); found {
+			if !show {
+				warnElem.SetVisible(false)
+			}
+		}
+	}
+	e.phases.setWireHidden = func(id string, hidden bool) {
+		if e.wireMgr != nil {
+			e.wireMgr.SetElementHidden(id, hidden)
+		}
+	}
+	e.phases.setSpatialHidden = func(id string, hidden bool) {
+		if e.sceneMgr != nil {
+			e.sceneMgr.SetHidden(id, hidden)
+		}
+	}
+	e.phases.maintainHook = func(entries []phaseEntry, selectedIdx int) {
+		maintainCaseMembership(e.sceneMgr, e.id, e.GetInnerBBox(),
+			entries, selectedIdx)
+	}
+	e.phases.labelFn = func(i int, ent *phaseEntry) string {
+		return e.caseMenuLabel(*ent)
+	}
+	e.phases.onSelect = func(id string) {
+		if e.ornamentDraw != nil {
+			e.ornamentDraw.SetCaseLabel(e.activeCaseLabel())
+		}
+		go e.recacheOrnament()
+	}
+	e.phases.notify = func() {
+		if e.sceneNotify != nil {
+			e.sceneNotify()
+		}
+	}
+}
+
 func (e *StatementCase) applyCaseVisibility() {
 	if e.stage == nil {
 		return
 	}
-
-	for i := range e.phases.entries {
-		show := e.phases.entries[i].id == e.phases.selected
-		for _, id := range e.phases.entries[i].ids {
-			if elem, found := e.stage.GetElement(id); found {
-				elem.SetVisible(show)
-			}
-			if warnElem, found := e.stage.GetElement(id + "_warning"); found {
-				if !show {
-					warnElem.SetVisible(false)
-				}
-			}
-			// Take inactive devices out of the wire layer and out of collision
-			// (flag flips, reversed when the case is shown again). Registration
-			// is preserved.
-			if e.wireMgr != nil {
-				e.wireMgr.SetElementHidden(id, !show)
-			}
-			if e.sceneMgr != nil {
-				e.sceneMgr.SetHidden(id, !show)
-			}
-		}
-	}
+	// Case S2: the pass runs in the shared engine — the body that
+	// lived here IS engine.applyVisibility. Português: O passe roda no
+	// engine compartilhado — o corpo que morava aqui É o
+	// applyVisibility.
+	e.initPhaseEngine()
+	e.phases.applyVisibility()
 }
 
 // ── Hex menu items ───────────────────────────────────────────────────
@@ -706,12 +754,6 @@ func (e *StatementCase) getBodyMenuItems() []contextMenu.Item {
 		mainMenu.DeleteItem(func() {
 			log.Printf("[Case] delete: %v", e.id)
 			e.Remove()
-		}),
-		mainMenu.InspectItem(func() {
-			log.Printf("[Case] inspect: opening cases overlay for %v", e.id)
-			// Must run in a goroutine: overlay.Show loads help/preview assets
-			// asynchronously, like every other device's inspect overlay.
-			go e.showInspectOverlay()
 		}),
 		{
 			ID:              "resize",
@@ -1119,16 +1161,9 @@ func (e *StatementCase) RefreshMembership() {
 func (e *StatementCase) GetProperties() map[string]interface{} {
 	e.assignNewChildren()
 
-	cases := make([]map[string]interface{}, 0, len(e.phases.entries))
-	for _, c := range e.phases.entries {
-		cases = append(cases, map[string]interface{}{
-			"id":        c.id,
-			"label":     c.label,
-			"matchKind": c.matchKind,
-			"values":    c.values,
-			"ids":       c.ids,
-		})
-	}
+	// S2d: the wire-format array comes from the shared engine.
+	// Português: O array do formato vem do engine compartilhado.
+	cases := e.phases.entryMaps()
 
 	props := map[string]interface{}{
 		"selectorType":  e.selectorType,
